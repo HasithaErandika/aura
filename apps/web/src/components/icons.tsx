@@ -141,3 +141,149 @@ export function ArrowRightIcon(props: SVGProps<SVGSVGElement>) {
     </svg>
   );
 }
+
+export function PersonIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} {...props}>
+      <circle cx="12" cy="8" r="3.4" />
+      <path d="M5 20c0-3.9 3.1-6.5 7-6.5s7 2.6 7 6.5" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+export function PeopleIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} {...props}>
+      <circle cx="9" cy="8" r="3" />
+      <path d="M3.5 20c0-3.6 2.5-6 5.5-6s5.5 2.4 5.5 6" strokeLinecap="round" />
+      <path d="M15.5 6.3a2.6 2.6 0 1 1 0 5.2" strokeLinecap="round" />
+      <path d="M16 14.2c2.6.4 4.5 2.6 4.5 5.8" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+export function DocumentIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} {...props}>
+      <rect x="5" y="3.5" width="14" height="17" rx="1.6" />
+      <path d="M8.2 8.5h7.6M8.2 12h7.6M8.2 15.5h4.8" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+export function SwapIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} {...props}>
+      <path d="M4 8h13.5M17.5 8 14 4.5M17.5 8 14 11.5" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M20 16H6.5M6.5 16 10 12.5M6.5 16 10 19.5" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+export function CodeIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} {...props}>
+      <path d="m9 7-5 5 5 5M15 7l5 5-5 5" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+export function CloudIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} {...props}>
+      <path
+        d="M7.5 18.5a4.2 4.2 0 0 1-.6-8.36 5.4 5.4 0 0 1 10.4-1.9 4.3 4.3 0 0 1-.8 10.26H7.5Z"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+export function GitIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} {...props}>
+      <circle cx="6" cy="6" r="2.2" />
+      <circle cx="6" cy="18" r="2.2" />
+      <circle cx="17" cy="10" r="2.2" />
+      <path d="M6 8.2v7.6" strokeLinecap="round" />
+      <path d="M6 8.2c0 4.4 3.2 5.4 7.5 5.5M17 8.2V10" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+export function InfinityIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} {...props}>
+      <path d="M7 9.5a3.5 3.5 0 1 0 0 7c2 0 3-1.3 5-3.5s3-3.5 5-3.5a3.5 3.5 0 1 1 0 7c-2 0-3-1.3-5-3.5s-3-3.5-5-3.5Z" />
+    </svg>
+  );
+}
+
+export function SparkleIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg viewBox="0 0 24 24" fill="currentColor" stroke="none" {...props}>
+      <path d="M12 2.5c.6 4 2.5 5.9 6.5 6.5-4 .6-5.9 2.5-6.5 6.5-.6-4-2.5-5.9-6.5-6.5 4-.6 5.9-2.5 6.5-6.5Z" />
+      <path d="M19 17c.3 1.7 1 2.4 2.7 2.7-1.7.3-2.4 1-2.7 2.7-.3-1.7-1-2.4-2.7-2.7 1.7-.3 2.4-1 2.7-2.7Z" />
+    </svg>
+  );
+}
+
+export function BrainIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} {...props}>
+      <path
+        d="M9.5 4.2a2.6 2.6 0 0 0-2.6 2.6v.4A2.7 2.7 0 0 0 5 9.7a2.7 2.7 0 0 0 .9 4.9A2.8 2.8 0 0 0 8.5 18a2.6 2.6 0 0 0 2.6-2.6V6.8a2.6 2.6 0 0 0-1.6-2.6Z"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M14.5 4.2a2.6 2.6 0 0 1 2.6 2.6v.4A2.7 2.7 0 0 1 19 9.7a2.7 2.7 0 0 1-.9 4.9A2.8 2.8 0 0 1 15.5 18a2.6 2.6 0 0 1-2.6-2.6V6.8a2.6 2.6 0 0 1 1.6-2.6Z"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+export function BoltIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg viewBox="0 0 24 24" fill="currentColor" stroke="none" {...props}>
+      <path d="M13 2 4.5 13.5h5.7L10.5 22 19.5 10h-5.8L13 2Z" />
+    </svg>
+  );
+}
+
+export function LayersIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} {...props}>
+      <path d="m12 3 8.5 4.6L12 12.2 3.5 7.6 12 3Z" strokeLinejoin="round" />
+      <path d="m3.5 12 8.5 4.6 8.5-4.6" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="m3.5 16.4 8.5 4.6 8.5-4.6" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+export function TreeIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} {...props}>
+      <circle cx="12" cy="5" r="2" />
+      <circle cx="6" cy="19" r="2" />
+      <circle cx="18" cy="19" r="2" />
+      <path d="M12 7v5M12 12H6v5M12 12h6v5" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+export function GridDotsIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg viewBox="0 0 24 24" fill="currentColor" stroke="none" {...props}>
+      <circle cx="6" cy="6" r="1.6" />
+      <circle cx="12" cy="6" r="1.6" />
+      <circle cx="18" cy="6" r="1.6" />
+      <circle cx="6" cy="12" r="1.6" />
+      <circle cx="12" cy="12" r="1.6" />
+      <circle cx="18" cy="12" r="1.6" />
+      <circle cx="6" cy="18" r="1.6" />
+      <circle cx="12" cy="18" r="1.6" />
+      <circle cx="18" cy="18" r="1.6" />
+    </svg>
+  );
+}

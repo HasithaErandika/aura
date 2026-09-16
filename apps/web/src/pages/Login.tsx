@@ -1,7 +1,7 @@
 import { useState, type FormEvent } from "react";
 import { Link, Navigate, useNavigate } from "react-router-dom";
 import { useAuth } from "../context/useAuth.ts";
-import { LogoMark } from "../components/Logo.tsx";
+import { LogoMark, LogoWordmark } from "../components/Logo.tsx";
 import { GateIcon, TicketIcon, AuditIcon } from "../components/icons.tsx";
 
 const trustPoints = [
@@ -48,10 +48,8 @@ export function Login() {
           }}
         />
         <Link to="/" className="relative flex items-center gap-2.5">
-          <div className="flex size-9 items-center justify-center rounded-lg bg-white/10">
-            <LogoMark className="size-5" />
-          </div>
-          <span className="text-lg font-bold tracking-tight">AURA</span>
+          <LogoMark className="h-9 w-auto" />
+          <LogoWordmark className="text-lg" />
         </Link>
 
         <div className="relative max-w-sm">
@@ -84,9 +82,7 @@ export function Login() {
           </Link>
 
           <div className="mt-8 flex flex-col items-start gap-3 lg:hidden">
-            <div className="flex size-11 items-center justify-center rounded-xl bg-brand-red text-white">
-              <LogoMark className="size-6" />
-            </div>
+            <LogoMark className="h-11 w-auto" />
           </div>
 
           <h1 className="mt-6 text-2xl font-bold tracking-tight text-slate-900 lg:mt-10">Sign in to AURA</h1>

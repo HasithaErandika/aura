@@ -9,7 +9,7 @@ import {
   SettingsIcon,
 } from "./icons.tsx";
 import { useAuth } from "../context/useAuth.ts";
-import { LogoMark } from "./Logo.tsx";
+import { LogoMark, LogoWordmark } from "./Logo.tsx";
 
 interface NavItem {
   label: string;
@@ -42,11 +42,9 @@ export function Sidebar() {
   return (
     <aside className="hidden w-64 shrink-0 flex-col bg-brand-red-dark text-white md:flex">
       <div className="flex items-center gap-2.5 px-6 py-6">
-        <div className="flex size-9 items-center justify-center rounded-lg bg-white/10 text-white">
-          <LogoMark className="size-5" />
-        </div>
+        <LogoMark className="h-9 w-auto" />
         <div>
-          <p className="text-base font-bold leading-tight tracking-tight">AURA</p>
+          <LogoWordmark className="block text-base leading-tight" />
           <p className="text-[11px] font-medium text-white/50">by Dialog</p>
         </div>
       </div>

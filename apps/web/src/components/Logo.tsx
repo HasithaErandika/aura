@@ -1,16 +1,28 @@
-import type { SVGProps } from "react";
+import type { ImgHTMLAttributes, HTMLAttributes } from "react";
 
 /**
- * AURA's mark: a core with two radiating rings, a halo/glow, not a
- * monogram. Renders in `currentColor` so callers control the color via
- * text-* classes, same as the icon set.
+ * AURA's mark, cropped from the source lockup (public/aura.webp) into its own
+ * transparent asset (public/aura-mark.png). Keeps its own gradient, so
+ * text-* color classes have no effect here, only sizing.
  */
-export function LogoMark(props: SVGProps<SVGSVGElement>) {
+export function LogoMark({ className, alt = "", ...props }: ImgHTMLAttributes<HTMLImageElement>) {
+  return <img src="/aura-mark.png" alt={alt} className={className} {...props} />;
+}
+
+/** AURA's wordmark as text, so it reads correctly on any background. */
+export function LogoWordmark({ className = "", ...props }: HTMLAttributes<HTMLSpanElement>) {
   return (
-    <svg viewBox="0 0 24 24" fill="none" {...props}>
-      <circle cx="12" cy="12" r="2.6" fill="currentColor" />
-      <circle cx="12" cy="12" r="6.4" stroke="currentColor" strokeOpacity="0.55" strokeWidth="1.6" />
-      <circle cx="12" cy="12" r="10" stroke="currentColor" strokeOpacity="0.28" strokeWidth="1.6" />
-    </svg>
+    <span className={`font-extrabold tracking-tight ${className}`} {...props}>
+      AURA
+    </span>
   );
+}
+
+/**
+ * AURA's wordmark as the source graphic (public/aura-text.png), letters recolored to
+ * dark ink so it reads on light backgrounds; the red/pink triangle accents are untouched.
+ * Only for light surfaces - on a dark surface use LogoWordmark instead.
+ */
+export function LogoWordmarkImage({ className, alt = "", ...props }: ImgHTMLAttributes<HTMLImageElement>) {
+  return <img src="/aura-text.png" alt={alt} className={className} {...props} />;
 }
