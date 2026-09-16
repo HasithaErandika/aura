@@ -8,15 +8,21 @@ import {
   Observability,
   SensitiveDataFilter,
 } from '@mastra/observability';
-import { agent } from './agents/agent';
+import { orchestrator } from './agents/orchestrator';
+import { poAgent } from './agents/po-agent';
+import { baAgent } from './agents/ba-agent';
 import { startScheduleTool, stopScheduleTool } from './tools/schedule-tools';
+import { jiraMcp } from './mcp/jira-client';
 
 export const mastra = new Mastra({
   bundler: {
     externals: ['@duckdb/node-bindings'],
   },
-  agents: { agent },
+  agents: { orchestrator, po: poAgent, ba: baAgent },
   tools: { startScheduleTool, stopScheduleTool },
+  mcpServers: {
+    ...(await jiraMcp.toMCPServerProxies()),
+  },
   storage: new MastraCompositeStore({
     id: 'composite-storage',
     default: new LibSQLStore({

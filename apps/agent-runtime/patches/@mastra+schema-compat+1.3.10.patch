@@ -1,0 +1,14 @@
+diff --git a/node_modules/@mastra/schema-compat/dist/index.js b/node_modules/@mastra/schema-compat/dist/index.js
+index 5f60740..061b5fa 100644
+--- a/node_modules/@mastra/schema-compat/dist/index.js
++++ b/node_modules/@mastra/schema-compat/dist/index.js
+@@ -5102,7 +5102,8 @@ var OpenAISchemaCompatLayer = class extends SchemaCompatLayer {
+ 	}
+ 	shouldApply() {
+ 		const model = this.getModel();
+-		if (!this.isReasoningModel() && (model.provider.includes(`openai`) || model.modelId?.includes(`openai`) || model.provider.includes(`groq`))) return true;
++		if (model.provider.includes(`groq`)) return false;
++		if (!this.isReasoningModel() && (model.provider.includes(`openai`) || model.modelId?.includes(`openai`))) return true;
+ 		return false;
+ 	}
+ 	processZodType(value) {

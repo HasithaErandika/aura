@@ -1,7 +1,7 @@
 import type { SVGProps } from "react";
 
 /**
- * AURA's mark: a core with two radiating rings — a halo/glow, not a
+ * AURA's mark: a core with two radiating rings, a halo/glow, not a
  * monogram. Renders in `currentColor` so callers control the color via
  * text-* classes, same as the icon set.
  */

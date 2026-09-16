@@ -84,7 +84,7 @@ export function Admin() {
       setShowForm(false);
       await loadUsers();
     } catch {
-      setError("Could not create user — check the email isn't already in use.");
+      setError("Could not create user. Check the email isn't already in use.");
     } finally {
       setCreating(false);
     }

@@ -17,7 +17,7 @@ interface NavItem {
   icon: ComponentType<SVGProps<SVGSVGElement>>;
   badge?: number;
   adminOnly?: boolean;
-  /** No dedicated screen yet — links to the dashboard but never shows as "active". */
+  /** No dedicated screen yet: links to the dashboard but never shows as "active". */
   stub?: boolean;
 }
 

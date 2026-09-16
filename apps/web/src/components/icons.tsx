@@ -102,3 +102,42 @@ export function CheckIcon(props: SVGProps<SVGSVGElement>) {
     </svg>
   );
 }
+
+export function AgentIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} {...props}>
+      <rect x="7" y="7" width="10" height="10" rx="2.2" />
+      <circle cx="12" cy="12" r="1.6" />
+      <path
+        d="M12 2.5v3M12 18.5v3M2.5 12h3M18.5 12h3M5.3 5.3l2.1 2.1M16.6 16.6l2.1 2.1M18.7 5.3l-2.1 2.1M7.4 16.6l-2.1 2.1"
+        strokeLinecap="round"
+      />
+    </svg>
+  );
+}
+
+export function GateIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} {...props}>
+      <path d="M12 2.5 4.5 5.3v6c0 5 3.2 8.4 7.5 10.2 4.3-1.8 7.5-5.2 7.5-10.2v-6L12 2.5Z" strokeLinejoin="round" />
+      <path d="m9 12 2.2 2.2L15.5 9.7" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+export function TicketIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} {...props}>
+      <path d="M3.5 8.5a2 2 0 0 1 2-2h13a2 2 0 0 1 2 2v1.2a1.9 1.9 0 0 0 0 3.6v1.2a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2v-1.2a1.9 1.9 0 0 0 0-3.6Z" />
+      <path d="M9.5 6.5v11" strokeDasharray="1.6 2" />
+    </svg>
+  );
+}
+
+export function ArrowRightIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} {...props}>
+      <path d="M4 12h15.5M13.5 6l6 6-6 6" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}

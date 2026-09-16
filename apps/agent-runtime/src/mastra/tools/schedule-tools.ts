@@ -3,7 +3,7 @@ import { z } from 'zod';
 
 export const startScheduleTool = createTool({
   id: 'start_schedule',
-  description: 'Start a recurring schedule for the default agent.',
+  description: 'Start a recurring schedule for the orchestrator agent.',
   inputSchema: z.object({
     schedule: z.string().describe('Cron expression for when to run.'),
     prompt: z.string().describe('Prompt to run on the schedule.'),
@@ -14,7 +14,7 @@ export const startScheduleTool = createTool({
     }
 
     return mastra!.schedules.create({
-      agentId: 'agent',
+      agentId: 'orchestrator',
       cron: schedule,
       prompt,
       threadId: agent.threadId,
