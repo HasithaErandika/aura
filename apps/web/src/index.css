@@ -1,0 +1,36 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, sans-serif;
+
+  /* Primary — Axiata Red carries the brand (no blue, per brand direction) */
+  --color-brand-red: #c40d42;
+  --color-brand-red-dark: #7a0930;
+  --color-brand-red-light: #e23864;
+
+  /* Prism — accent colours, used sparingly for status/role signal */
+  --color-prism-gold: #fdb934;
+  --color-prism-orange: #f7941e;
+  --color-prism-red-orange: #f15a22;
+  --color-prism-purple: #7b1b67;
+  --color-prism-magenta: #ee3e80;
+
+  /* Secondary — neutrals + success signal */
+  --color-sec-green: #b3d335;
+  --color-sec-peach: #f26664;
+  --color-sec-silver: #bacad3;
+  --color-sec-grey: #63717a;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  background-color: #f7f4f5;
+  color: #111827;
+  font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+  -webkit-font-smoothing: antialiased;
+}
