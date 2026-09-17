@@ -145,8 +145,29 @@ export const jira = {
       ),
     );
     const issue = pickIssue(raw);
-    if (!issue.key) throw new Error(`Jira did not return a key for the created ${input.issueType}`);
+    if (!issue.key) {
+      // asObject() swallows the real Jira/MCP error into a generic shape when the response
+      // isn't the expected {issue: {...}} object (e.g. a validation error, an error text blob,
+      // or the "text" fallback). Surface what Jira actually returned instead of a bare
+      // "no key" message, so the real cause doesn't have to be re-diagnosed from scratch.
+      const detail = typeof raw.text === 'string' ? raw.text : JSON.stringify(raw).slice(0, 1000);
+      throw new Error(`Jira did not return a key for the created ${input.issueType}. Response: ${detail}`);
+    }
     return { key: issue.key, url: issue.url };
+  },
+
+  // Keeps an already-filed Epic or Story in sync when a human revises it after approval,
+  // instead of leaving the Jira issue stale while the draft store moves on. addComment on the
+  // same issue records why (delegate-tools.ts), so the edit history stays legible in Jira too.
+  async updateIssue(key: string, fields: { summary?: string; description?: string; priority?: string }): Promise<void> {
+    const execute = findTool('_update_issue');
+    const body: Record<string, unknown> = {};
+    if (fields.summary !== undefined) body.summary = fields.summary;
+    if (fields.description !== undefined) body.description = fields.description;
+    if (fields.priority !== undefined) body.priority = { name: fields.priority };
+    // execute() throws on a real Jira/MCP error (onToolError: 'throw' is the client default),
+    // so resolving here is success; the caller does not need the full updated issue back.
+    await execute({ issue_key: key, fields: JSON.stringify(body), return_fields: 'key' }, {});
   },
 
   async addComment(key: string, body: string): Promise<void> {

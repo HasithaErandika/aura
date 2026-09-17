@@ -4,7 +4,7 @@ import { Markdown } from "../../../shared/ui/Markdown.tsx";
 import { ToolActivity } from "./ToolActivity.tsx";
 import { cn } from "../../../shared/lib/cn.ts";
 import { formatDateTime } from "../../../shared/lib/format.ts";
-import { Spinner } from "../../../shared/ui/Spinner.tsx";
+import { ThinkingIcon } from "../../../shared/icons/index.tsx";
 
 function Bubble({ message, live }: { message: ChatMessage; live?: boolean }) {
   const isUser = message.role === "user";
@@ -25,7 +25,16 @@ function Bubble({ message, live }: { message: ChatMessage; live?: boolean }) {
               isUser ? "bg-ink-900 text-on-dark" : "border border-line bg-surface text-ink-800",
             )}
           >
-            {isUser ? <p className="whitespace-pre-wrap">{message.text}</p> : message.text ? <Markdown source={message.text} /> : <Spinner size="sm" label="Thinking" />}
+            {isUser ? (
+              <p className="whitespace-pre-wrap">{message.text}</p>
+            ) : message.text ? (
+              <Markdown source={message.text} />
+            ) : (
+              <div className="flex items-center gap-2 text-ink-400">
+                <ThinkingIcon className="size-5" />
+                <span className="text-xs font-medium">Thinking</span>
+              </div>
+            )}
           </div>
         ) : null}
         {message.createdAt && !live ? (

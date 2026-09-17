@@ -113,6 +113,19 @@ export const delegateToPoTool = createTool({
           const prompt = `Revise this Epic draft according to the feedback. Return the complete updated Epic.\n\nCurrent draft (JSON):\n${JSON.stringify(previous.content)}\n\nFeedback:\n${input.feedback.trim()}`;
           const content = await generateObject<EpicDraft>(mastra as MastraLike, 'po', prompt, epicDraftSchema);
           const record = await draftStore.create({ kind: 'epic', content, threadId, parentId: previous.id });
+          // Already in Jira from an earlier approval - keep that issue in sync with the human's
+          // continued feedback instead of leaving it to drift from what is now being discussed.
+          if (previous.filed.epic) {
+            const epicKey = previous.filed.epic;
+            await jira.updateIssue(epicKey, {
+              summary: content.title,
+              description: epicJiraDescription(content, provenance('PO Agent', record)),
+              priority: content.priority,
+            });
+            await jira.addComment(epicKey, `AURA PO Agent revised this Epic after human feedback:\n\n${input.feedback.trim()}`);
+            await draftStore.markFiled(record.id, { epic: epicKey }, epicKey);
+            return { ok: true, draftId: record.id, markdown: renderEpic(content), epicKey, epicUrl: jiraIssueUrl(epicKey) };
+          }
           return { ok: true, draftId: record.id, markdown: renderEpic(content) };
         }
         case 'file': {
@@ -176,6 +189,31 @@ export const delegateToBaTool = createTool({
           const content = await generateObject<StoriesDraft>(mastra as MastraLike, 'ba', prompt, storiesDraftSchema);
           content.epicKey = previous.content.epicKey;
           const record = await draftStore.create({ kind: 'stories', content, threadId, epicKey: previous.epicKey, parentId: previous.id });
+          // Stories already filed in Jira (same index, still present after the revision) get
+          // updated in place with a comment; a story the human removed keeps its existing Jira
+          // issue untouched rather than being deleted automatically.
+          const filedIndices = Object.keys(previous.filed).filter((k) => k !== 'comment');
+          if (filedIndices.length) {
+            const stamp = provenance('BA Agent', record);
+            const carried: Record<string, string> = {};
+            for (const key of filedIndices) {
+              const story = content.stories[Number(key)];
+              const jiraKey = previous.filed[key]!;
+              if (!story) continue;
+              try {
+                await jira.updateIssue(jiraKey, {
+                  summary: story.title,
+                  description: storyJiraDescription(story, content.nonFunctionalRequirements, stamp),
+                  priority: story.priority,
+                });
+                await jira.addComment(jiraKey, `AURA BA Agent revised this Story after human feedback:\n\n${input.feedback.trim()}`);
+                carried[key] = jiraKey;
+              } catch {
+                // Best-effort sync; a lasting Jira problem still surfaces when file is retried.
+              }
+            }
+            if (Object.keys(carried).length) await draftStore.markFiled(record.id, carried);
+          }
           return { ok: true, draftId: record.id, markdown: renderStories(content), epicKey: previous.content.epicKey };
         }
         case 'file': {

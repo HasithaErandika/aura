@@ -428,3 +428,14 @@ export function ArrowLeftIcon(props: SVGProps<SVGSVGElement>) {
     </svg>
   );
 }
+
+export function ThinkingIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} {...props}>
+      <path d="M4 6.5A2.5 2.5 0 0 1 6.5 4h11A2.5 2.5 0 0 1 20 6.5v7a2.5 2.5 0 0 1-2.5 2.5H10l-4.2 3.4c-.5.4-1.3 0-1.3-.6V16" strokeLinecap="round" strokeLinejoin="round" />
+      <circle cx="8.5" cy="9.7" r="1.15" fill="currentColor" stroke="none" className="animate-pulse [animation-delay:0ms]" />
+      <circle cx="12" cy="9.7" r="1.15" fill="currentColor" stroke="none" className="animate-pulse [animation-delay:200ms]" />
+      <circle cx="15.5" cy="9.7" r="1.15" fill="currentColor" stroke="none" className="animate-pulse [animation-delay:400ms]" />
+    </svg>
+  );
+}

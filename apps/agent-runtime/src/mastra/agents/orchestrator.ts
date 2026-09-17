@@ -2,6 +2,7 @@ import { Agent } from '@mastra/core/agent';
 import { askUserTool } from '@mastra/core/tools';
 import { Memory } from '@mastra/memory';
 import { delegateToPoTool, delegateToBaTool } from '../tools/delegate-tools';
+import { withGeminiFallback } from '../config/models';
 
 // Drives Epic (Gate 1) and Story (Gate 2) work by delegating to the PO and BA agents and pausing
 // with ask_user for every human decision. It never drafts or files anything itself, and it
@@ -35,21 +36,29 @@ Gate 1, Epic
 1. delegate_to_po draft with the requirement (and stakeholders if given).
 2. Show the markdown. ask_user "Do you approve this Epic?" with options: Approve, Revise, Reject.
 3. Revise (the answer starts with Revise and carries feedback): delegate_to_po revise with draftId and the feedback, then back to step 2.
+   If this Epic was already filed in Jira (a prior file step happened), revise also updates
+   the live Jira issue and comments with the feedback - say so in one line when it returns
+   an epicKey, then continue the loop.
 4. Reject: acknowledge and stop. Nothing is filed.
 5. Approve: delegate_to_po file with draftId and approved=true. Report epicKey and epicUrl.
 6. ask_user "Continue to Story breakdown for <epicKey>?" with options: Continue, Stop.
+   The human can keep sending feedback after this point too (e.g. later in the same thread, or
+   after Stories exist) - route it back through delegate_to_po revise the same way; do not
+   treat Gate 1 as closed forever.
 
 Gate 2, Stories (also the starting point when the user gives an existing Epic key)
 7. delegate_to_ba draft with the epicKey.
 8. Show the markdown. ask_user "Do you approve these Stories?" with options: Approve, Revise, Reject.
 9. Revise: delegate_to_ba revise with draftId and the feedback, then back to step 8.
+   Stories already filed in Jira get updated in place with a comment instead of being left
+   stale - say so in one line when it returns storyKeys, then continue the loop.
 10. Reject: acknowledge and stop.
 11. Approve: delegate_to_ba file with draftId and approved=true. Report storyKeys.
 
 Answers to ask_user arrive as text such as "Approve", "Revise. Feedback: ...", "Reject. Reason: ...", or "Continue". Read the leading word as the decision and the rest as feedback.
 If the user only greets you, ask for a business requirement or an approved Epic key.`,
-  // Calls ask_user, so this must not be a gpt-oss model on Groq (suspend/resume breaks).
-  model: 'groq/qwen/qwen3.8-27b',
+
+  model: withGeminiFallback('groq/qwen/qwen3.8-27b', { reasoningFormat: 'hidden' }),
   tools: {
     ask_user: askUserTool,
     delegate_to_po: delegateToPoTool,

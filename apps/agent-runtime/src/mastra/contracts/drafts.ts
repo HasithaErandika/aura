@@ -41,9 +41,14 @@ function bullets(items: string[]): string {
   return items.length ? items.map((i) => `- ${i}`).join('\n') : '- none';
 }
 
+const PO_PERSPECTIVE = '*Drafted by the AURA PO Agent, from a product-ownership perspective: business value, scope, and stakeholder impact.*';
+const BA_PERSPECTIVE = '*Drafted by the AURA BA Agent, from a business-analyst perspective: functional detail, testability, and delivery scope.*';
+
 export function renderEpic(draft: EpicDraft): string {
   return [
     `# ${draft.title}`,
+    '',
+    PO_PERSPECTIVE,
     '',
     `**Priority:** ${draft.priority}`,
     '',
@@ -72,6 +77,9 @@ export function renderStory(story: StoryDraft, index?: number): string {
   return [
     heading,
     '',
+    // Only a standalone Story doc (index undefined - an individual Jira issue) carries its own
+    // perspective line; inside renderStories() the list carries one at the top instead.
+    ...(index === undefined ? [BA_PERSPECTIVE, ''] : []),
     `**Priority:** ${story.priority}`,
     '',
     story.description,
@@ -90,6 +98,8 @@ export function renderStory(story: StoryDraft, index?: number): string {
 export function renderStories(draft: StoriesDraft): string {
   return [
     `# Stories for ${draft.epicKey}`,
+    '',
+    BA_PERSPECTIVE,
     '',
     ...draft.stories.map((s, i) => `${renderStory(s, i)}\n`),
     '## Non-functional requirements',
