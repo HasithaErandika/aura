@@ -1,58 +1,39 @@
-# agent-runtime
+# AURA agent-runtime
 
-Welcome to your new [Mastra](https://mastra.ai) project! We're excited to see what you build.
+Mastra runtime for the Phase 1 agents: the Orchestrator, the PO Agent, and the BA Agent. Reached only through `apps/api`; Mastra Studio at `http://localhost:4111` stays available to engineers.
 
-This starter provides you with a general-purpose Mastra agent that can research current information, manage multi-step tasks, work with local files, run approved shell commands, and create recurring schedules.
+## How a run works
 
-## Features
+1. A human briefs the **Orchestrator** (`agents/orchestrator.ts`). It decides what to do next; nothing in the API or web encodes a step order.
+2. It calls `delegate_to_po` or `delegate_to_ba` (`tools/delegate-tools.ts`) in `draft` mode. The tool runs the sub-agent once with a **structured output schema** (`contracts/drafts.ts`), stores the JSON in the **draft store** (`store/draft-store.ts`), and returns a `draftId` plus rendered Markdown.
+3. The Orchestrator shows the Markdown once and pauses with `ask_user` (options Approve, Revise, Reject). The API turns that pause into a durable approval request.
+4. Revise: the tool receives only the `draftId` and the feedback, produces a new version, and the loop repeats.
+5. Approve: the tool's `file` mode reads the stored draft and creates the Jira Epic or Stories **in code** through the Jira MCP client, with the parent link, a provenance stamp, and idempotency on retry. No model is involved in the step that must be exact.
 
-- A project-level `workspace/` for files and command execution
-- Approval gates for file changes, deletions, and shell commands
-- Conversation memory, generated thread titles, and task tracking
-- Built-in web search and direct web page fetching
-- Recurring schedules that persist across restarts
-- Local libSQL storage and DuckDB observability, with optional Turso storage
-- A bundled Mastra skill that helps coding agents use current Mastra APIs
+The PO and BA agents hold no tools. The Orchestrator holds no Jira tools. A model can propose; only code, after a recorded human approval, writes to Jira.
 
-## Get started
+## Token discipline
 
-Set your `GOOGLE_GENERATIVE_AI_API_KEY` in `.env` or in your environment, then run:
+- A draft crosses a model boundary at most twice per version: once when the sub-agent produces it and once when the Orchestrator shows it to the human. Revise and file calls carry ids, not text.
+- Sub-agents run a single step with no memory and no tool schemas in context.
+- The Orchestrator keeps a bounded message window (`lastMessages`) and uses a small model for thread titles.
 
-```shell
-npm run dev
+## Layout
+
+```
+src/mastra/
+  index.ts             registers agents, tools, storage, observability, MCP proxies
+  agents/              orchestrator, po-agent, ba-agent
+  tools/               delegate-tools (draft / revise / file), schedule-tools
+  contracts/drafts.ts  Zod schemas for Epic and Story drafts, Markdown and Jira renderers
+  store/draft-store.ts libsql-backed draft store (AURA_DRAFTS_DB_URL)
+  mcp/jira-client.ts   Jira MCP connection and the typed facade the tools call
 ```
 
-Open [http://localhost:4111](http://localhost:4111) in your browser to access [Mastra Studio](https://mastra.ai/docs/studio/overview).
+## Setup
 
-Select **Agent** in Mastra Studio and try one of these prompts:
+1. Copy `.env.example` to `.env`: `GROQ_API_KEY`, the Jira MCP transport, and `JIRA_PROJECT_KEY`.
+2. `npm install` (applies `patches/@mastra+schema-compat` for Groq tool calling).
+3. `npm run dev` and open Studio at `http://localhost:4111`, or drive it from the AURA web app through `apps/api`.
 
-- `Get the weather forecast for Austin this weekend.`
-- `Create a landing page for a Japanese sakura festival.`
-- `Check the SPCX stock price now, then check it every minute.`
-
-The agent asks for approval before it changes files or runs commands. When it creates a schedule, it returns an ID that you can use to pause the schedule.
-
-## Workspace safety
-
-The local filesystem tools stay inside the project-level `workspace/` directory. Shell commands start in that directory, but `LocalSandbox` does not provide operating-system isolation by default. Review command approvals carefully, and do not expose this template through an unauthenticated public server.
-
-## Storage
-
-The default `file:./mastra.db` database stores agent memory, tasks, and schedules locally. To use Turso, set `TURSO_DATABASE_URL` and `TURSO_AUTH_TOKEN` in `.env`.
-
-Recurring schedules continue to use model tokens until you pause them. Ask the agent to pause a schedule with the ID returned by `start_schedule`.
-
-## Making it yours
-
-- Edit `src/mastra/agents/agent.ts` to change the model, instructions, memory, workspace, or approval policy.
-- Edit `src/mastra/tools/` to customize scheduling.
-- Edit `src/mastra/index.ts` to change storage and observability.
-- Add files or reusable skills under `workspace/` for the agent to use.
-
-## Learn more
-
-To learn more about Mastra, visit our [documentation](https://mastra.ai/docs/). If you're new to AI agents, check out our [course](https://mastra.ai/learn) and [YouTube videos](https://youtube.com/@mastra-ai). You can also join our [Discord](https://discord.gg/mastra-ai) community to get help and share your projects.
-
-## Deploy to the Mastra platform
-
-The [Mastra platform](https://projects.mastra.ai) provides two products for deploying and managing AI applications built with the Mastra framework. Learn more in the [Mastra platform documentation](https://mastra.ai/docs/mastra-platform/overview).
+The schema-compat patch needs a full process restart to take effect, not a hot reload.

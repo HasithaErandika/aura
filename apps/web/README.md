@@ -1,24 +1,52 @@
-# AURA — web
+# AURA web
 
-Landing page, login, admin (user management), and the agent dashboard (Approval Inbox, Run Console, Agent Registry, Audit Explorer). React + Vite + TypeScript + Tailwind CSS v4, themed with Axiata's Red/Gold/Orange/Red-Orange/Purple/Magenta palette (`src/index.css` — no blue, by brand direction).
+React + Vite + TypeScript + Tailwind CSS v4. The human side of the platform: role-aware dashboard, the Agent Workspace (a chat panel over the Orchestrator with inline human gates), the Approval Inbox, run progress, the agent registry, the audit explorer, and admin user management.
+
+## Layout
+
+```
+src/
+  app/            App, router, route paths
+  config/         typed environment
+  types/          API contracts shared by every feature
+  shared/
+    api/          fetch client, SSE reader, Supabase client, error helpers
+    auth/         AuthProvider, useAuth, route guards
+    layout/       AppShell, Sidebar, Topbar, navigation (derived from grants), runtime status
+    ui/           neutral component kit (Button, Card, Table, Badge, Field, Menu, Markdown, ...)
+    icons/ brand/ hooks/ lib/
+  features/
+    landing/ auth/ dashboard/ workspace/ approvals/ runs/ registry/ audit/ admin/users/
+```
+
+Each feature owns its API calls (`api.ts`), hooks, and components. Nothing renders placeholder data; every list, count, and status comes from `apps/api`.
+
+## Design rules
+
+- One accent colour (`--color-brand`) for primary actions and the active nav marker. Neutrals everywhere else; green, amber, and red only for state.
+- White sidebar, header carries the page title, live runtime status, and the signed-in user with role.
+- Navigation is built from the grants the API returns for the role, so a policy change shows up without a code change here.
 
 ## Setup
 
-1. Copy `.env.example` to `.env` and set `VITE_SUPABASE_URL` / `VITE_SUPABASE_ANON_KEY` (same Supabase project as `apps/api`) and `VITE_API_URL` (defaults to `http://localhost:4000`).
-2. Make sure `apps/api` is set up first (schema applied, at least one admin bootstrapped) — this app has no signup page; accounts come from the Admin screen.
+1. Copy `.env.example` to `.env`: Supabase URL and anon key (same project as `apps/api`), `VITE_API_URL`, and `VITE_RUNTIME_STUDIO_URL` for the Mastra Studio link.
+2. Make sure `apps/api` is running with both migrations applied and at least one admin bootstrapped. There is no sign-up page.
 3. `npm install && npm run dev`
 
-## Pages
+## Routes
 
-- `/` — public landing page
-- `/login` — email/password sign-in (Supabase Auth), no signup
-- `/dashboard` — the agent workspace (auth required)
-- `/admin` — user management: create accounts, change roles, deprovision (admin role required)
+| Path | Who | Screen |
+|---|---|---|
+| `/` | public | landing |
+| `/login` | public | sign in |
+| `/app` | signed in | dashboard for the role |
+| `/app/workspace`, `/app/workspace/:threadId` | roles with a run grant (PO, BA) | Agent Workspace |
+| `/app/approvals`, `/app/approvals/:id` | approver roles, requesters, admin | Approval Inbox and decision screen |
+| `/app/runs`, `/app/runs/:id` | requesters, approver roles, admin | runs and step timeline |
+| `/app/agents` | any role with a read grant | Agent Registry (live from the runtime) |
+| `/app/audit` | admin | Audit Explorer |
+| `/app/admin/users` | admin | User Management |
 
 ## Scripts
 
-- `npm run dev` — Vite dev server
-- `npm run build` — typecheck (`tsc -b`) then production build
-- `npm run typecheck` — type-check only
-- `npm run lint` — ESLint
-- `npm run preview` — preview the production build
+`npm run dev`, `npm run build` (typecheck then bundle), `npm run typecheck`, `npm run lint`, `npm run preview`.

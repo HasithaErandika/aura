@@ -2,68 +2,71 @@ import { Agent } from '@mastra/core/agent';
 import { askUserTool } from '@mastra/core/tools';
 import { Memory } from '@mastra/memory';
 import { delegateToPoTool, delegateToBaTool } from '../tools/delegate-tools';
-import { startScheduleTool, stopScheduleTool } from '../tools/schedule-tools';
 
-// Routes the Epic -> Story pipeline by delegating to the PO and BA agents; never drafts, revises,
-// or touches Jira itself. Owns every ask_user call, since a delegated sub-agent's ask_user has no
-// path back to a human (see minibuilder-mastra ARCHITECTURE.md §10).
-// See docs/ARCHITECTURE.md §5.1 (Gates 1-2) and §6.2 (Orchestrator row).
+// Drives Epic (Gate 1) and Story (Gate 2) work by delegating to the PO and BA agents and pausing
+// with ask_user for every human decision. It never drafts or files anything itself, and it
+// refers to drafts by id, never by content (docs/ARCHITECTURE.md sections 5.1 and 6.2).
 export const orchestrator = new Agent({
   id: 'orchestrator',
   name: 'Orchestrator',
-  description: 'Drives Epic drafting/approval with the PO Agent, then Story drafting/approval with the BA Agent, filing both in Jira.',
+  description: 'Drives Epic drafting and approval with the PO Agent, then Story drafting and approval with the BA Agent, filing both in Jira after human approval.',
   metadata: {
     suggestedPrompts: [
       'Draft an Epic for a self-service password reset feature.',
       'We need an Epic for migrating billing to a new payment provider.',
+      'Break the approved Epic PROJ-12 into Stories.',
     ],
   },
-  instructions: `You are the AURA Orchestrator.
+  instructions: `You are the AURA Orchestrator. You coordinate; you never write drafts or Jira issues yourself.
+
+Tools
+- delegate_to_po / delegate_to_ba: modes draft, revise, file. They return {ok, draftId, markdown, epicKey, storyKeys, error}.
+- ask_user: the only way to get a human decision. Always pass options for gate questions.
 
 Rules
- - Delegate only. Never draft, revise, or file a Jira issue yourself - always go through
-   delegate_to_po / delegate_to_ba.
- - Every delegate_to_* call returns {ok, result}.
- - If ok=false: quote result verbatim to the user, then end the turn. Never retry.
- - Once a draft exists, always pass it back to the sub-agent verbatim on revise/file - never
-   re-type, paraphrase, or summarize it.
- - Never invent or modify a returned identifier (Epic/Story key, URL).
- - ask_user is used only by you; delegated agents never ask the user directly.
+- If a tool returns ok=false: tell the user the error in one sentence and stop. Do not retry, do not improvise.
+- Keep drafts by id. Pass draftId and the user's feedback verbatim; never restate draft text in a tool call.
+- After draft or revise, show the returned markdown to the user exactly once, unchanged, then ask.
+- Only call file after ask_user returned an approval, and pass approved=true.
+- Never invent or alter a key, id, or URL.
+- Be brief. No summaries of what you are about to do.
 
-Flow - Epic (Gate 1)
- 1. delegate_to_po: "MODE 1 - draft" + the user's requirement (and stakeholders, if given) verbatim.
- 2. Show the returned draft to the user in a markdown code block. ask_user: approve / revise / reject.
- 3. Revise: delegate_to_po: "MODE 2 - revise" + the exact draft + the feedback verbatim -> back to step 2.
- 4. Reject: stop here. Nothing is created.
- 5. Approve: delegate_to_po: "MODE 3 - file" + the exact approved draft. Report the returned Epic key/URL.
+Gate 1, Epic
+1. delegate_to_po draft with the requirement (and stakeholders if given).
+2. Show the markdown. ask_user "Do you approve this Epic?" with options: Approve, Revise, Reject.
+3. Revise (the answer starts with Revise and carries feedback): delegate_to_po revise with draftId and the feedback, then back to step 2.
+4. Reject: acknowledge and stop. Nothing is filed.
+5. Approve: delegate_to_po file with draftId and approved=true. Report epicKey and epicUrl.
+6. ask_user "Continue to Story breakdown for <epicKey>?" with options: Continue, Stop.
 
-Flow - Stories (Gate 2, only once an Epic has been filed)
- 6. ask_user whether to continue to Story breakdown now, or stop here.
- 7. If continuing: delegate_to_ba: "MODE 1 - draft" + the Epic key from step 5.
- 8. Show the returned draft Stories to the user in a markdown code block. ask_user: approve / revise / reject.
- 9. Revise: delegate_to_ba: "MODE 2 - revise" + the exact draft + the feedback + the Epic key -> back to step 8.
- 10. Reject: stop here. The Epic stands as filed; no Stories are created.
- 11. Approve: delegate_to_ba: "MODE 3 - file" + the exact approved draft + the Epic key. Report the
-     returned Story keys/URLs.
+Gate 2, Stories (also the starting point when the user gives an existing Epic key)
+7. delegate_to_ba draft with the epicKey.
+8. Show the markdown. ask_user "Do you approve these Stories?" with options: Approve, Revise, Reject.
+9. Revise: delegate_to_ba revise with draftId and the feedback, then back to step 8.
+10. Reject: acknowledge and stop.
+11. Approve: delegate_to_ba file with draftId and approved=true. Report storyKeys.
 
-Final report: the Epic key/URL and, if reached, the Story keys/URLs.
-
-When the user greets you or has no specific task, invite them to describe a business requirement
-so you can draft an Epic.`,
-  // Calls ask_user, so this must not be a gpt-oss model on Groq (breaks suspend/resume - see
-  // minibuilder-mastra ARCHITECTURE.md §10). Highest call frequency of the three agents.
+Answers to ask_user arrive as text such as "Approve", "Revise. Feedback: ...", "Reject. Reason: ...", or "Continue". Read the leading word as the decision and the rest as feedback.
+If the user only greets you, ask for a business requirement or an approved Epic key.`,
+  // Calls ask_user, so this must not be a gpt-oss model on Groq (suspend/resume breaks).
   model: 'groq/qwen/qwen3.8-27b',
   tools: {
     ask_user: askUserTool,
     delegate_to_po: delegateToPoTool,
     delegate_to_ba: delegateToBaTool,
-    start_schedule: startScheduleTool,
-    stop_schedule: stopScheduleTool,
   },
   memory: new Memory({
-    options: { generateTitle: true },
+    options: {
+      // Tool calls and results count as messages; 24 covers a full Epic plus Story cycle
+      // while keeping older turns out of every prompt.
+      lastMessages: 24,
+      generateTitle: {
+        model: 'groq/llama-3.1-8b-instant',
+        instructions: 'Title this conversation in at most six words, naming the feature or Epic. No quotes.',
+      },
+    },
   }),
   defaultOptions: {
-    maxSteps: 30,
+    maxSteps: 24,
   },
 });

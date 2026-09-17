@@ -1,17 +1,21 @@
-# AURA — database design
+# AURA database design
 
-This database is deliberately scoped to **identity/RBAC and other plain app functions** — not agent, run, or workflow state. Mastra owns that dynamically in its own storage inside `apps/agent-runtime`; duplicating it here ahead of an actual need would just create two sources of truth. When the API and the agent runtime need to share data, that's a specific design decision to make at the time, not something to scaffold speculatively now.
+Two layers, two owners:
 
-| File | Creates |
+| Owner | Data | Where |
+|---|---|---|
+| Runtime (Mastra, `apps/agent-runtime`) | Conversation threads, messages, agent memory, the suspended workflow snapshot | Runtime storage (`mastra.db` locally) |
+| API (`apps/api`) | Identity and roles, the governance record of every run, approval requests and decisions, the audit trail | This Supabase project |
+
+The Orchestrator decides what happens in a run. The API only records what it observed and who decided what, so the human gate is a durable record outside the LLM (`docs/ARCHITECTURE.md` sections 4 and 5).
+
+| Migration | Creates |
 |---|---|
-| `0001_identity.sql` | `user_role` enum, `profiles` table (+ RLS), `current_role()` helper |
+| `0001_identity.sql` | `user_role` enum, `profiles` (+ RLS), `current_role()` helper |
+| `0002_runs_approvals_audit.sql` | `workflow_runs`, `run_steps`, `approval_requests`, `approval_decisions`, `audit_logs` (append-only, trigger enforced) |
 
-## What's here
-
-- **`user_role`** — the eight fixed roles from `docs/ARCHITECTURE.md` §4.2 (admin, project_owner, business_analyst, architect, developer, qa_engineer, tester, deployer).
-- **`profiles`** — one row per `auth.users` row: email, full name, role. This is the only thing `apps/api`'s auth middleware and `/users` routes read/write.
-- **RLS**: a user can read their own row; an admin can read every row. All writes go through the API's service-role client — there is no client-side write policy, so nothing but the API can change a role.
+Apply them in order in the Supabase SQL editor. Every table has RLS enabled and no client policies except the two read policies on `profiles`; all writes go through the API's service-role client.
 
 ## Growing this schema
 
-Don't add tables here speculatively. When there's an actual need — e.g. the API needs to record something Mastra doesn't already own — add a new `NNNN_description.sql` migration for just that, run after `0001`.
+Add a new `NNNN_description.sql` for a concrete need. Do not mirror runtime state (threads, messages, memory) here; reference it by id (`thread_id`, `runtime_run_id`) instead.

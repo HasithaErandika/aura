@@ -1,0 +1,106 @@
+import { randomBytes } from 'node:crypto';
+import { createClient, type Client } from '@libsql/client';
+import type { DraftKind } from '../contracts/drafts';
+
+// Durable store for agent drafts, keyed by short ids the Orchestrator passes around instead
+// of the draft text. Survives restarts, so a gate that stays open overnight still resolves.
+
+export interface DraftRecord<T = unknown> {
+  id: string;
+  kind: DraftKind;
+  version: number;
+  parentId: string | null;
+  threadId: string | null;
+  epicKey: string | null;
+  content: T;
+  // Jira keys created from this draft, per item index. Makes filing idempotent on retry.
+  filed: Record<string, string>;
+  createdAt: string;
+}
+
+const url = process.env.AURA_DRAFTS_DB_URL || 'file:./aura-drafts.db';
+let client: Client | null = null;
+let ready: Promise<void> | null = null;
+
+async function db(): Promise<Client> {
+  if (!client) client = createClient({ url, authToken: process.env.AURA_DRAFTS_DB_TOKEN || undefined });
+  if (!ready) {
+    ready = client
+      .execute(
+        `create table if not exists aura_drafts (
+          id text primary key,
+          kind text not null,
+          version integer not null,
+          parent_id text,
+          thread_id text,
+          epic_key text,
+          content text not null,
+          filed text not null default '{}',
+          created_at text not null
+        )`,
+      )
+      .then(() => undefined);
+  }
+  await ready;
+  return client;
+}
+
+function newId(kind: DraftKind): string {
+  return `${kind === 'epic' ? 'EPIC' : 'STORIES'}-${randomBytes(4).toString('hex')}`;
+}
+
+function rowToRecord<T>(row: Record<string, unknown>): DraftRecord<T> {
+  return {
+    id: String(row.id),
+    kind: row.kind as DraftKind,
+    version: Number(row.version),
+    parentId: (row.parent_id as string | null) ?? null,
+    threadId: (row.thread_id as string | null) ?? null,
+    epicKey: (row.epic_key as string | null) ?? null,
+    content: JSON.parse(String(row.content)) as T,
+    filed: JSON.parse(String(row.filed || '{}')) as Record<string, string>,
+    createdAt: String(row.created_at),
+  };
+}
+
+export const draftStore = {
+  async create<T>(input: { kind: DraftKind; content: T; threadId?: string | null; epicKey?: string | null; parentId?: string | null }): Promise<DraftRecord<T>> {
+    const c = await db();
+    let version = 1;
+    if (input.parentId) {
+      const parent = await this.get<T>(input.parentId);
+      if (parent) version = parent.version + 1;
+    }
+    const record: DraftRecord<T> = {
+      id: newId(input.kind),
+      kind: input.kind,
+      version,
+      parentId: input.parentId ?? null,
+      threadId: input.threadId ?? null,
+      epicKey: input.epicKey ?? null,
+      content: input.content,
+      filed: {},
+      createdAt: new Date().toISOString(),
+    };
+    await c.execute({
+      sql: 'insert into aura_drafts (id, kind, version, parent_id, thread_id, epic_key, content, filed, created_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      args: [record.id, record.kind, record.version, record.parentId, record.threadId, record.epicKey, JSON.stringify(record.content), '{}', record.createdAt],
+    });
+    return record;
+  },
+
+  async get<T>(id: string): Promise<DraftRecord<T> | null> {
+    const c = await db();
+    const result = await c.execute({ sql: 'select * from aura_drafts where id = ?', args: [id] });
+    const row = result.rows[0];
+    return row ? rowToRecord<T>(row as unknown as Record<string, unknown>) : null;
+  },
+
+  async markFiled(id: string, filed: Record<string, string>, epicKey?: string | null): Promise<void> {
+    const c = await db();
+    await c.execute({
+      sql: epicKey ? 'update aura_drafts set filed = ?, epic_key = ? where id = ?' : 'update aura_drafts set filed = ? where id = ?',
+      args: epicKey ? [JSON.stringify(filed), epicKey, id] : [JSON.stringify(filed), id],
+    });
+  },
+};

@@ -1,13 +1,14 @@
 import { MCPClient } from '@mastra/mcp';
-import { z } from 'zod';
 
 const jiraMcpUrl = process.env.JIRA_MCP_URL;
 const jiraMcpCommand = process.env.JIRA_MCP_COMMAND;
 const jiraConfigured = Boolean(jiraMcpUrl || jiraMcpCommand || process.env.JIRA_URL);
 
+export const jiraProjectKey = process.env.JIRA_PROJECT_KEY || '';
+
 // Connects to the Jira MCP server over HTTP/SSE (JIRA_MCP_URL) or stdio (defaults to `uvx mcp-atlassian`).
-// This is a direct connection for now - see docs/ARCHITECTURE.md §7 (Tool gateway) for the
-// policy-checked path this should route through once apps/api's tool gateway exists.
+// Only the delegate tools call Jira, from code, after a human approved the draft. No agent holds
+// a Jira tool, so no model can write to Jira on its own (docs/ARCHITECTURE.md section 7).
 export const jiraMcp = new MCPClient({
   id: 'jira-mcp',
   servers: {
@@ -32,162 +33,124 @@ export const jiraMcp = new MCPClient({
   },
 });
 
-type ToolMap = Record<string, any>;
+type ToolMap = Record<string, { execute?: (input: unknown, context: unknown) => Promise<unknown> }>;
 
-// Jira REST fields that are pure noise for a model (avatar URLs, HATEOAS links, etc).
-const NOISY_KEYS = new Set([
-  'avatarUrls',
-  'avatarUrl',
-  'iconUrl',
-  'self',
-  '_links',
-  'expand',
-  'renderedFields',
-  'operations',
-  'editmeta',
-  'changelog',
-  'watches',
-  'votes',
-  'worklog',
-  'properties',
-  'schema',
-]);
-const MAX_ARRAY_ITEMS = 25;
-
-// Recursively drops NOISY_KEYS and caps array length in a raw Jira result.
-function trimJiraValue(value: unknown, depth = 0): unknown {
-  if (depth > 6) return value;
-  if (Array.isArray(value)) {
-    const trimmed = value.slice(0, MAX_ARRAY_ITEMS).map((item) => trimJiraValue(item, depth + 1));
-    if (value.length > MAX_ARRAY_ITEMS) {
-      trimmed.push(`...${value.length - MAX_ARRAY_ITEMS} more omitted`);
-    }
-    return trimmed;
-  }
-  if (value && typeof value === 'object') {
-    const out: Record<string, unknown> = {};
-    for (const [key, val] of Object.entries(value as Record<string, unknown>)) {
-      if (NOISY_KEYS.has(key)) continue;
-      out[key] = trimJiraValue(val, depth + 1);
-    }
-    return out;
-  }
-  return value;
-}
-
-// Wraps a tool so its model-facing output is trimmed, leaving the raw result for application code.
-function withTrimmedOutput(tool: ToolMap[string]): ToolMap[string] {
-  return {
-    ...tool,
-    toModelOutput: (output: unknown) => ({ type: 'json', value: trimJiraValue(output) }),
-  };
-}
-
-// Explicit Zod schemas for the Jira tools we use, sidestepping a Mastra bug where MCP-native
-// JSON Schema wrongly marks optional fields as required.
-const ZOD_INPUT_SCHEMAS: Record<string, z.ZodType> = {
-  jira_jira_create_issue: z.object({
-    project_key: z.string(),
-    summary: z.string(),
-    issue_type: z.string(),
-    assignee: z.string().optional(),
-    description: z.string().optional(),
-    components: z.string().optional(),
-    additional_fields: z.string().optional(),
-  }),
-  jira_jira_get_issue: z.object({
-    issue_key: z.string(),
-    fields: z.string().optional(),
-    expand: z.string().optional(),
-    comment_limit: z.number().int().min(0).max(100).optional(),
-    properties: z.string().optional(),
-    update_history: z.boolean().optional(),
-    include: z.string().optional(),
-    use_display_names: z.boolean().optional(),
-  }),
-  jira_jira_add_comment: z.object({
-    issue_key: z.string(),
-    body: z.string(),
-    visibility: z.string().optional(),
-    public: z.boolean().optional(),
-  }),
-};
-
-// Swaps in a tool's entry from ZOD_INPUT_SCHEMAS when one exists, otherwise leaves it untouched.
-function withZodInputSchema(tool: ToolMap[string], name: string): ToolMap[string] {
-  const schema = ZOD_INPUT_SCHEMAS[name];
-  if (!schema) return tool;
-  return { ...tool, inputSchema: schema };
-}
-
-// Scopes a Jira toolset to one agent's job, via an explicit env allowlist or a keyword fallback.
-function pickTools(tools: ToolMap, allowlistEnv: string | undefined, keywords: string[]): ToolMap {
-  const names = Object.keys(tools);
-  if (!names.length) return {};
-
-  const explicit = allowlistEnv
-    ?.split(',')
-    .map((name) => name.trim())
-    .filter(Boolean);
-  if (explicit?.length) {
-    const picked: ToolMap = {};
-    for (const name of explicit) {
-      if (tools[name]) picked[name] = tools[name];
-    }
-    return picked;
-  }
-
-  // Anchored suffix match against the tool's own name, not a loose substring/description search -
-  // mcp-atlassian exposes many "get_issue_*" and "search_*" variants (watchers, sla, proforma_forms,
-  // assignable_users, ...) that a loose "get_issue"/"search" substring would wrongly pull in.
-  const picked: ToolMap = {};
-  for (const name of names) {
-    const lower = name.toLowerCase();
-    if (keywords.some((suffix) => lower.endsWith(suffix))) picked[name] = tools[name];
-  }
-  if (!Object.keys(picked).length) {
-    console.warn(
-      `[jira-mcp] no tools matched the default suffix filter out of: ${names.join(', ')}. ` +
-        'Set JIRA_PO_TOOLS / JIRA_BA_TOOLS to an explicit comma-separated allowlist.',
-    );
-  }
-  return picked;
-}
-
-// PO drafts and files Epics: create-issue only.
-const PO_SUFFIXES = ['_create_issue'];
-// BA reads the approved Epic, files Stories under it, and comments: create + read + search + comment.
-const BA_SUFFIXES = ['_create_issue', '_batch_create_issues', '_get_issue', '_search', '_add_comment'];
-
-// Discovers the Jira MCP server's tools once at startup; returns empty if unconfigured or unreachable.
+// Discovers the Jira MCP server's tools once at startup; empty if unconfigured or unreachable.
 async function loadJiraTools(): Promise<ToolMap> {
   if (!jiraConfigured) {
-    console.warn(
-      '[jira-mcp] Not configured - set JIRA_MCP_URL or JIRA_URL/JIRA_USERNAME/JIRA_API_TOKEN in .env. Jira tools will be unavailable.',
-    );
+    console.warn('[jira-mcp] Not configured - set JIRA_MCP_URL or JIRA_URL/JIRA_USERNAME/JIRA_API_TOKEN in .env. Filing to Jira will fail.');
     return {};
   }
-
   try {
     const { tools, errors } = await jiraMcp.listToolsWithErrors({ perServerTimeoutMs: 10_000 });
-    if (errors.jira) {
-      console.warn(`[jira-mcp] Failed to connect: ${errors.jira}`);
-    }
+    if (errors.jira) console.warn(`[jira-mcp] Failed to connect: ${errors.jira}`);
     const names = Object.keys(tools);
-    if (names.length) {
-      console.info(`[jira-mcp] discovered tools: ${names.join(', ')}`);
-    }
-    return Object.fromEntries(
-      names.map((name) => [name, withZodInputSchema(withTrimmedOutput(tools[name]), name)]),
-    );
+    if (names.length) console.info(`[jira-mcp] discovered ${names.length} tools`);
+    return tools as ToolMap;
   } catch (error) {
     console.warn('[jira-mcp] Failed to load tools:', error);
     return {};
   }
 }
 
-const allJiraTools = await loadJiraTools();
+const jiraTools = await loadJiraTools();
 
-// Per-agent Jira toolsets: PO gets create-issue only (Epics), BA gets read/create/comment (Stories).
-export const jiraPoTools = pickTools(allJiraTools, process.env.JIRA_PO_TOOLS, PO_SUFFIXES);
-export const jiraBaTools = pickTools(allJiraTools, process.env.JIRA_BA_TOOLS, BA_SUFFIXES);
+function findTool(suffix: string) {
+  const name = Object.keys(jiraTools).find((n) => n.toLowerCase().endsWith(suffix));
+  const tool = name ? jiraTools[name] : undefined;
+  if (!tool?.execute) throw new Error(`Jira is not available: no MCP tool ending in "${suffix}" (is the Jira MCP server configured and running?)`);
+  return tool.execute;
+}
+
+// mcp-atlassian returns either a JSON object or text content; normalise to an object.
+function asObject(result: unknown): Record<string, unknown> {
+  if (result && typeof result === 'object' && !Array.isArray(result)) {
+    const r = result as Record<string, unknown>;
+    if (Array.isArray(r.content) && r.content.length && typeof (r.content[0] as { text?: unknown })?.text === 'string') {
+      try {
+        return JSON.parse((r.content[0] as { text: string }).text) as Record<string, unknown>;
+      } catch {
+        return { text: (r.content[0] as { text: string }).text };
+      }
+    }
+    return r;
+  }
+  if (typeof result === 'string') {
+    try {
+      return JSON.parse(result) as Record<string, unknown>;
+    } catch {
+      return { text: result };
+    }
+  }
+  return {};
+}
+
+export interface JiraIssueSummary {
+  key: string;
+  summary: string;
+  description: string;
+  status: string;
+  issueType: string;
+  url: string | null;
+}
+
+function pickIssue(raw: Record<string, unknown>): JiraIssueSummary {
+  const issue = (raw.issue as Record<string, unknown> | undefined) ?? raw;
+  const fields = (issue.fields as Record<string, unknown> | undefined) ?? issue;
+  const status = fields.status as Record<string, unknown> | string | undefined;
+  const type = fields.issuetype ?? fields.issue_type;
+  const key = String(issue.key ?? '');
+  return {
+    key,
+    summary: String(fields.summary ?? ''),
+    description: typeof fields.description === 'string' ? fields.description : '',
+    status: typeof status === 'string' ? status : String((status as Record<string, unknown> | undefined)?.name ?? ''),
+    issueType: typeof type === 'string' ? type : String((type as Record<string, unknown> | undefined)?.name ?? ''),
+    url: typeof issue.url === 'string' ? issue.url : typeof raw.url === 'string' ? raw.url : jiraIssueUrl(key),
+  };
+}
+
+export function jiraIssueUrl(key: string): string | null {
+  const base = process.env.JIRA_URL?.replace(/\/+$/, '');
+  return base && key ? `${base}/browse/${key}` : null;
+}
+
+export const jira = {
+  isConfigured: () => jiraConfigured && Object.keys(jiraTools).length > 0,
+
+  async getIssue(key: string): Promise<JiraIssueSummary> {
+    const execute = findTool('_get_issue');
+    const raw = asObject(await execute({ issue_key: key, fields: 'summary,description,status,issuetype', comment_limit: 0 }, {}));
+    const issue = pickIssue(raw);
+    if (!issue.key) throw new Error(`Jira returned no issue for ${key}`);
+    return issue;
+  },
+
+  async createIssue(input: { summary: string; issueType: 'Epic' | 'Story'; description: string; priority?: string; parentKey?: string }): Promise<{ key: string; url: string | null }> {
+    if (!jiraProjectKey) throw new Error('JIRA_PROJECT_KEY is not set');
+    const execute = findTool('_create_issue');
+    const additional: Record<string, unknown> = {};
+    if (input.parentKey) additional.parent = { key: input.parentKey };
+    if (input.priority) additional.priority = { name: input.priority };
+    const raw = asObject(
+      await execute(
+        {
+          project_key: jiraProjectKey,
+          summary: input.summary,
+          issue_type: input.issueType,
+          description: input.description,
+          additional_fields: JSON.stringify(additional),
+        },
+        {},
+      ),
+    );
+    const issue = pickIssue(raw);
+    if (!issue.key) throw new Error(`Jira did not return a key for the created ${input.issueType}`);
+    return { key: issue.key, url: issue.url };
+  },
+
+  async addComment(key: string, body: string): Promise<void> {
+    const execute = findTool('_add_comment');
+    await execute({ issue_key: key, body }, {});
+  },
+};

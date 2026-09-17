@@ -1,8 +1,8 @@
--- AURA — identity & RBAC.
+-- AURA - identity and RBAC.
 -- Identity itself is Supabase Auth (auth.users). This is the extension
 -- layer this app owns directly: each user's role, since role- and
 -- project-based access control lives outside the LLM (docs/ARCHITECTURE.md
--- §4). Agent/run/workflow state is Mastra's domain, not this database —
+-- §4). Agent/run/workflow state is Mastra's domain, not this database,
 -- kept out of here until there's an actual plan for how the API and the
 -- agent runtime share that data.
 
@@ -48,6 +48,6 @@ create policy "admins read all profiles"
   using (public.current_role() = 'admin');
 
 -- all writes (create/update/delete) go through the API's service-role
--- client only — no direct client-side writes, so no insert/update/delete
+-- client only, no direct client-side writes, so no insert/update/delete
 -- policy is granted here. This matches the architecture's principle that
 -- role grants are deterministic-system-owned, not client-owned.
