@@ -59,4 +59,13 @@
 | NFR-MAINT-2 | The Policy Engine shall be implemented as pure, unit-testable functions, independent of any specific HTTP framework. |
 | NFR-MAINT-3 | Agent prompts and definitions shall be versioned independently of application code, enabling rollback without a redeploy. |
 
+## Phase 1 implementation status (2026-09-17)
+
+- NFR-SEC-1: the runtime still uses a long-lived Jira API token from `.env`; per-run scoped tokens are not yet implemented. The API verifies access tokens locally when `SUPABASE_JWT_SECRET` is set and never forwards them to the runtime.
+- NFR-SEC-5: RLS is enabled on every table; governance tables have no client policies, so only the API's service role can read or write them.
+- NFR-REL-1/3: no queue yet. A dropped API connection mid-turn is recorded as a failed run; a suspended run resumes across runtime restarts because Mastra persists the suspension and the draft store persists drafts.
+- NFR-COST-1: per-agent budgets are not yet enforced; the API caps agent turns per user per minute and each turn's wall time.
+- NFR-MAINT-1: `packages/contracts` is deferred; Zod schemas live next to their consumers in each app.
+- NFR-MAINT-2: the policy module is pure data and functions with no framework dependency.
+
 Ref: [../ARCHITECTURE.md §10](../ARCHITECTURE.md#10-reliability-safety-and-cost-controls), [§11](../ARCHITECTURE.md#11-observability), [§9.3](../ARCHITECTURE.md#93-multi-region)

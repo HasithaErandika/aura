@@ -5,6 +5,7 @@
 - **Inbound:** webhook receiver on issue transitions (`jira.issue.transitioned`) → internal event.
 - **Outbound:** issue/story/task creation, comments, status transitions, provenance-stamped descriptions.
 - **Constraint:** Jira remains the sole source of truth for work; AURA writes back but never forks its own competing work model.
+- **Phase 1 (2026-09-17):** outbound writes go through the `mcp-atlassian` MCP server, called from delegate-tool code in `apps/agent-runtime` after a recorded human approval. No agent holds a Jira tool. Inbound webhooks are not yet wired; runs start from a human brief.
 - **Open decision:** plain issues vs. Xray/Zephyr for test management (see [../ARCHITECTURE.md §15.3](../ARCHITECTURE.md#15-open-decisions-to-be-captured-as-adrs)).
 
 ## 2. Git hosting (GitHub / GitLab)

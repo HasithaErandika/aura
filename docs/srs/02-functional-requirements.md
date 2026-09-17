@@ -46,10 +46,11 @@ Ref: [../ARCHITECTURE.md §5](../ARCHITECTURE.md#5-human-in-the-loop-workflow), 
 |---|---|
 | FR-AGENT-1 | Every agent shall be defined as versioned, declarative data (id, purpose, model, prompt ref, inputs, tool allow/deny list, outputs, approval role, budget, eval suite) — never a free-text prompt alone. |
 | FR-AGENT-2 | Agents shall progress through lifecycle statuses `DRAFT → CANARY → ACTIVE → DEPRECATED`; promotion to `ACTIVE` requires an eval score above threshold **and** human sign-off. |
-| FR-AGENT-3 | The Orchestrator shall be a deterministic Mastra workflow (a `jira_status → agent` lookup table), not an LLM decision. |
+| FR-AGENT-3 | The Orchestrator shall be a Mastra agent that decides dynamically which agent to delegate to and when to pause for a human. It shall have no tools other than `ask_user` and the delegate tools, so every consequential action passes through validated tool code and a recorded human decision. Neither the API nor the web shall encode a step order. |
 | FR-AGENT-4 | Large agents (BA, Architect) shall decompose into sub-steps within one workflow, each with its own tool grants and output schema. |
 | FR-AGENT-5 | Every run shall persist: agent version, prompt version, model + version, tool versions, full input/output snapshots, token/cost, trace ID, approver identities, and touched Jira/Git artifacts. |
 | FR-AGENT-6 | The system shall enforce a `max_iterations` cap per ticket (default 3); exceeding it shall transition the run to `HALTED_LOOP_GUARD` and escalate to a human. |
+| FR-AGENT-7 | Drafting agents (PO, BA) shall return structured output against a schema and hold no tools. Drafts shall be stored and referenced by id; rendering for humans and filing to Jira shall be deterministic code that reads the stored draft, so what a human approved is exactly what is filed. |
 
 Ref: [../ARCHITECTURE.md §6](../ARCHITECTURE.md#6-agent-layer)
 
@@ -96,3 +97,16 @@ Ref: [../ARCHITECTURE.md §4.2](../ARCHITECTURE.md#42-roles--agents-default-gran
 | FR-OBS-4 | The system shall alert on: budget breach, loop-guard trips, approval SLA breaches, open circuit breakers, and RLS policy violations. |
 
 Ref: [../ARCHITECTURE.md §11](../ARCHITECTURE.md#11-observability)
+
+## Phase 1 implementation status (2026-09-17)
+
+| Area | Status | Notes |
+|---|---|---|
+| FR-AUTH | Partial | Supabase email/password with admin-provisioned accounts; policy evaluated in `apps/api` from data tables; strict Zod validation on every request. SSO (FR-AUTH-1), custom JWT claims (FR-AUTH-2), and per-run grant bundles (FR-AUTH-5) are not yet implemented. |
+| FR-JIRA | Partial | Outbound writes (Epic, Stories under the Epic, comment) happen in delegate-tool code after approval, with idempotent retry (FR-JIRA-4/5). Inbound webhooks and status-driven triggers (FR-JIRA-1/2/3) are not yet implemented; runs start from a human brief in the Agent Workspace. |
+| FR-APPR | Implemented for Gates 1 and 2 | Durable `approval_requests` with snapshot and hash, decision bound to the hash, SLA expiry that never auto-approves, inbox with mandatory reason on reject or revise. Four-eyes (FR-APPR-4) is not needed until HIGH-risk tools exist. |
+| FR-AGENT | Partial | FR-AGENT-3 and FR-AGENT-7 implemented as described. Versioned declarative agent definitions, lifecycle statuses, evals, and loop guards (FR-AGENT-1/2/6) are not yet implemented; runs persist steps, snapshots, and decisions but not token cost or trace id (FR-AGENT-5 partial). |
+| FR-TOOL | Partial | No separate gateway; validation, approval flag, idempotency, and provenance live in the delegate tools, policy and audit in the API. Sub-agents have no tools (FR-TOOL-4 by construction). |
+| FR-TEST | Not started | Phase 2. |
+| FR-REG | Partial | Registry is read from the runtime and annotated with grants; grants are code-level data, not yet editable in the UI (FR-REG-1/2). Admins cannot decide gates (FR-REG-3). |
+| FR-OBS | Partial | Append-only audit log with explorer (FR-OBS-3); run step timeline. No OpenTelemetry, metrics, or alerts yet. |

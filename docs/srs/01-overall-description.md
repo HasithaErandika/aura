@@ -4,7 +4,7 @@
 
 AURA is a new, multi-tenant, multi-region platform, not an extension of an existing system. It sits between the company's Jira instance (system of record for work) and its engineering toolchain (Git hosting, CI/CD, test frameworks, LLM providers), inserting a governed agent layer that drafts, proposes, and — only after human approval — executes changes to that toolchain.
 
-It is composed of three deployable services (`apps/web`, `apps/api`, `apps/agent-runtime`) plus a `sandbox-runner` for isolated code/test execution, all built on a shared Supabase (Postgres + RLS + pgvector + object storage + auth) data plane per region. See [../ARCHITECTURE.md §3](../ARCHITECTURE.md#3-platform-architecture) for the full layered view.
+It is composed of three deployable services (`apps/web`, `apps/api`, `apps/agent-runtime`), with a `sandbox-runner` for isolated code/test execution deferred to Phase 3, all built on a shared Supabase (Postgres + RLS + pgvector + object storage + auth) data plane per region. The browser talks only to `apps/api`; only `apps/api` talks to `apps/agent-runtime`. See [../ARCHITECTURE.md §3](../ARCHITECTURE.md#3-platform-architecture) for the full layered view.
 
 ## 2. Product functions (summary)
 
@@ -18,8 +18,8 @@ It is composed of three deployable services (`apps/web`, `apps/api`, `apps/agent
 
 | Role | Characteristics | Primary interaction |
 |---|---|---|
-| Project Owner | Owns business objectives; approves Epics | Web: Approval Inbox, Run Console |
-| Business Analyst | Translates Epics into Stories/AC/DoD; domain-fluent, not necessarily technical | Web: Approval Inbox |
+| Project Owner | Owns business objectives; briefs the Orchestrator and approves Epics (Gate 1) | Web: Agent Workspace, Approval Inbox, Runs |
+| Business Analyst | Translates Epics into Stories/AC/DoD; approves Stories (Gate 2); domain-fluent, not necessarily technical | Web: Agent Workspace, Approval Inbox, Runs |
 | Architect | Technical decision-maker; approves ADRs and architecture tasks | Web: Run Console, diff viewer |
 | Developer | Reviews and merges AI-generated PRs; scoped to a discipline (FE/BE/Data/AI/Integration) | Git host PR review + Web |
 | QA Engineer | Approves test plans; verifies test results | Web: Approval Inbox |

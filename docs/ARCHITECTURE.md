@@ -1,8 +1,8 @@
 # AURA — Enterprise AI Agent Orchestration Platform
 
-> **Status:** Draft v0.1 — Architecture baseline
+> **Status:** Draft v0.2, architecture baseline reconciled with the Phase 1 implementation
 > **Owner:** Platform Architecture
-> **Last updated:** 2026-09-16
+> **Last updated:** 2026-09-17
 
 ---
 
@@ -43,6 +43,7 @@ AURA is an **enterprise AI agent orchestration and software-delivery platform**.
 | Express vs Go left partially open | **TypeScript everywhere**; Go reserved for a future optional sandbox-runner | Shared types across web/API/agents; Mastra is TS-native; no proven need for Go yet |
 | Generic "guardrails" | **Explicit loop guards, cost budgets, prompt-injection boundary, and per-agent eval suites** | Concrete, enforceable mitigations for the cascading-hallucination risk |
 | Single-tenant assumption | **Multi-tenant, multi-region** from day one: org → region → project | Multinational deployment: data residency, SSO federation, regional LLM routing |
+| Orchestrator as a deterministic `jira_status → agent` lookup table (v0.1) | **Orchestrator is an agent** that decides the sequence dynamically; determinism moves to its tools (structured drafts, filing in code, approval flag) and to the API policy (who may run, who may answer) | Decided during Phase 1 (2026-09-17): the value of the Orchestrator is judgement about what to do next; the risk of a model deciding is contained by giving it no way to act except through validated tools and human gates |
 
 ---
 
@@ -414,7 +415,7 @@ evals:
 
 | Agent | Inputs | Produces | Gate |
 |---|---|---|---|
-| **Orchestrator** | Jira events, approvals | Routing decisions, run creation | none (deterministic workflow, not an LLM decision) |
+| **Orchestrator** | Human brief, gate answers | Delegation choices, questions to humans (`ask_user`) | Every `ask_user` pause; the API decides which role answers |
 | **PO** | Free-text requirement, stakeholder list | Epic draft with objective, scope, success metrics | Human PO |
 | **BA** | Approved Epic | Stories, AC, DoD, BRD/FRD sections, process map (BPMN/Mermaid), risks, priority | Human BA |
 | **Architect** | Approved Stories, existing architecture, NFRs | Decomposition, API/data/security/AI/integration/deployment design, ADRs, architecture tasks | Human Architect |
@@ -427,7 +428,14 @@ evals:
 | **Tester** | CI results, traces, screenshots | Result interpretation, defect tickets, flakiness report | Human QA |
 | **Deployer** | Approved release candidate | Release notes, change plan, rollback plan, deployment execution request | Human Deployer + second approver |
 
-The **Orchestrator is a Mastra workflow, not an agent**. Routing is a lookup table (`jira_status → agent`), not an LLM judgement. This removes an entire class of "the orchestrator hallucinated a step" failures.
+The **Orchestrator is a Mastra agent** (`apps/agent-runtime/src/mastra/agents/orchestrator.ts`). It decides dynamically which agent to delegate to and when to pause for a human; nothing in `apps/api` or `apps/web` encodes a step order. What contains the risk of a model deciding:
+
+- It has exactly three tools: `ask_user`, `delegate_to_po`, `delegate_to_ba`. It cannot reach Jira, memory, or anything else.
+- Delegate tools validate every call, keep drafts by id (the Orchestrator never restates draft text), and refuse `file` without `approved=true`.
+- The PO and BA agents hold **no tools**; they return structured JSON against Zod schemas (`contracts/drafts.ts`). Rendering and filing are code.
+- The API records every delegation, tool result, and pause as run steps and decides in code which role may answer a pause (`apps/api/src/modules/policy/policy.ts`).
+
+A hallucinated step therefore produces at worst a wrong delegation that a human sees and rejects, never a wrong write.
 
 ### 6.3 Sub-agent pattern
 
@@ -463,6 +471,8 @@ Tool call
   ├─ 7. Audit record (args hash, result hash, duration, cost)
   └─ 8. Provenance stamp on created artifacts
 ```
+
+**Phase 1 status (2026-09-17).** There is no separate gateway service yet. Steps 1, 3 (as the `approved` flag), 4 (idempotent filing keyed on the stored draft), 6, and 8 are implemented inside the delegate tools in `apps/agent-runtime`; step 2 (who may run, who may answer) and step 7 (audit) are implemented in `apps/api`. Timeouts and circuit breakers (step 5) are not yet in place beyond a per-turn ceiling in the API. Sub-agents have no tools at all, which is stronger than a gateway for Phase 1.
 
 Provenance stamp written to every Jira issue / PR / document created by an agent:
 
@@ -522,6 +532,8 @@ artifacts       documents · adrs · requirements · test_plans · test_suites �
 memory          embeddings (pgvector, scoped by project_id)
 governance      audit_logs (append-only) · policy_versions
 ```
+
+**Phase 1 status (2026-09-17).** In place in Supabase: `profiles` (identity), `workflow_runs`, `run_steps`, `approval_requests`, `approval_decisions`, `audit_logs` (append-only by trigger). Owned by the runtime's own storage and referenced by id from Supabase: memory threads and messages (Mastra libSQL) and the draft store (`aura-drafts.db`). Registry, projects, artifacts, and memory embeddings tables are not yet created.
 
 ### 9.2 RLS strategy
 
@@ -611,40 +623,23 @@ flowchart LR
 
 ## 13. Monorepo layout
 
+Current layout (2026-09-17). Each app is a standalone npm project; there is no root workspace tooling.
+
 ```
 aura/
 ├── apps/
-│   ├── web/                 # React + Vite + TS
-│   ├── api/                 # Express + TS (auth, policy, approvals, Jira webhooks, registry)
-│   ├── agent-runtime/       # Mastra workflows, agents, tool gateway, memory
-│   └── sandbox-runner/      # Ephemeral execution for Dev-agent code & tests (TS; Go later if needed)
-├── packages/
-│   ├── contracts/           # Zod schemas: API, tool I/O, agent outputs — single source of truth
-│   ├── policy/              # Policy engine (pure functions + tests)
-│   ├── db/                  # Supabase client, generated types, migrations, RLS
-│   ├── agents/              # Agent definitions (YAML/TS) + prompts, versioned
-│   ├── tools/               # Typed adapters: jira, git, ci, docs, test
-│   ├── workflows/           # Orchestrator + per-agent Mastra workflows
-│   ├── evals/               # Golden datasets and scoring per agent
-│   ├── ui/                  # Shared components
-│   └── telemetry/           # OTel setup, cost meter
-├── tests/
-│   ├── e2e/                 # Playwright (platform UI)
-│   ├── api/                 # Robot Framework (platform API)
-│   └── integration/
-├── infra/
-│   ├── terraform/           # per-region modules
-│   ├── docker/
-│   └── ci/
-├── docs/
-│   ├── ARCHITECTURE.md      # this file
-│   ├── adr/
-│   ├── security/
-│   ├── runbooks/
-│   └── workflows/
-├── package.json             # pnpm workspaces + Turborepo
-└── turbo.json
+│   ├── web/                 # React + Vite + TS: app/ shared/ features/ (see apps/web/README.md)
+│   ├── api/                 # Express + TS: config/ lib/ middleware/ modules/ routes/ (see apps/api/README.md)
+│   │   └── supabase/        # migrations 0001 identity, 0002 runs/approvals/audit
+│   └── agent-runtime/       # Mastra: agents/ tools/ contracts/ store/ mcp/ (see apps/agent-runtime/README.md)
+└── docs/
+    ├── ARCHITECTURE.md      # this file
+    ├── srs/
+    ├── adr/ security/ runbooks/ workflows/
+    └── logs/                # one file per working day
 ```
+
+Deferred until there is real cross-app duplication: `packages/` (contracts, policy, db, agents, tools, workflows, evals, ui, telemetry), `tests/`, `infra/`, and `apps/sandbox-runner`. Today the Zod contracts live next to their consumers (`apps/api/src/modules/*`, `apps/agent-runtime/src/mastra/contracts`), and the policy engine is `apps/api/src/modules/policy/policy.ts`.
 
 ---
 
@@ -659,6 +654,8 @@ aura/
 | **4 — Deployer + multi-region** (6 wks) | Deployer agent, four-eyes, change windows, second region, regional LLM routing | Production release through Gate 7; EU/APAC residency verified |
 | **5 — Hardening** (ongoing) | Canary agent versions, cost optimisation, advanced RAG, integrations (CRM/ERP/Slack) | Eval-gated promotion in place; SOC2/ISO evidence exportable from audit |
 
+**Status (2026-09-17).** Phase 0: identity and RBAC, policy tables, Supabase schema with RLS, audit log, approval service, and the run state machine are in place; SSO federation, Jira webhook ingestion, and the queue are not. Phase 1: PO and BA agents, Epic and Story drafting with Gates 1 and 2, and the registry view are built; evals and a real-project rejection-rate measurement are not. See `docs/logs/`.
+
 ---
 
 ## 15. Open decisions (to be captured as ADRs)
@@ -669,6 +666,8 @@ aura/
 4. Sandbox isolation: Docker-in-CI vs Firecracker/gVisor for Dev-agent code.
 5. Eval tooling: Mastra evals vs Langfuse/Braintrust.
 6. Vector store: pgvector (recommended for residency simplicity) vs external.
+7. Orchestrator as an agent with deterministic tools, replacing the v0.1 lookup-table workflow. Decided in practice on 2026-09-17, ADR pending.
+8. Draft store: runtime-owned libSQL file (current) vs a Supabase table. The current choice keeps the runtime self-contained. Revisit when the API needs to read drafts directly.
 
 ---
 

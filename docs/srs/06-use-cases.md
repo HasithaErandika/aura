@@ -5,17 +5,19 @@ Each use case corresponds to one gate in the lifecycle in [../ARCHITECTURE.md §
 ## UC-1 — Approve Epic (Gate 1)
 
 - **Actor:** Project Owner
-- **Preconditions:** PO Agent has drafted an Epic (objective, scope, stakeholders, priority) from a free-text business requirement.
-- **Flow:** PO reviews the draft in the Approval Inbox → approves or rejects with comments.
-- **Postcondition (approve):** Jira Epic created, status `Ready for Analysis`.
-- **Postcondition (reject):** PO Agent re-drafts using the PO's feedback.
+- **Preconditions:** The PO has briefed the Orchestrator in the Agent Workspace; the Orchestrator delegated to the PO Agent, which returned a structured Epic draft (objective, scope, stakeholders, priority, success metrics, assumptions).
+- **Flow:** The Orchestrator shows the draft and pauses. The PO decides in the workspace gate card or the Approval Inbox: approve, revise with feedback, or reject with a reason. The decision is recorded against the snapshot hash and the run resumes.
+- **Postcondition (approve):** the delegate tool files the Epic in Jira from the stored draft with a provenance stamp; the Orchestrator asks whether to continue to Stories.
+- **Postcondition (revise):** the PO Agent produces a new draft version from the feedback; the PO reviews again.
+- **Postcondition (reject):** the run ends; nothing is filed.
 
 ## UC-2 — Approve Stories (Gate 2)
 
 - **Actor:** Business Analyst
-- **Preconditions:** BA Agent has produced Stories, AC, DoD, NFRs, risks, and a process map from the approved Epic.
-- **Flow:** BA reviews and approves/rejects.
-- **Postcondition (approve):** Jira Stories created, status `Ready for Architecture`.
+- **Preconditions:** An approved Epic exists in Jira. Either the same run continued from UC-1 or a BA briefed the Orchestrator with the Epic key. The BA Agent returned structured Stories (description, acceptance criteria, definition of done, priority, risks) plus epic-wide NFRs.
+- **Flow:** The Orchestrator shows the Stories and pauses. A Business Analyst decides in the workspace or the Approval Inbox: approve, revise with feedback, or reject with a reason. If the run was started by a Project Owner, their workspace waits and continues automatically once the BA decides.
+- **Postcondition (approve):** the delegate tool files one Jira Story per approved story under the Epic, idempotently, and comments on the Epic with the keys.
+- **Postcondition (revise or reject):** as in UC-1.
 
 ## UC-3 — Approve Architecture (Gate 3)
 

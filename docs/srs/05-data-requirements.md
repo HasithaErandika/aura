@@ -15,6 +15,19 @@
 
 Full ERD: [../ARCHITECTURE.md §4.1](../ARCHITECTURE.md#41-entities); schema listing: [../ARCHITECTURE.md §9.1](../ARCHITECTURE.md#91-core-schema-supabase-postgres-rls-on-every-table).
 
+### Phase 1 tables in place (2026-09-17)
+
+| Owner | Store | Contents |
+|---|---|---|
+| `apps/api` (Supabase) | `profiles` | identity and role |
+| `apps/api` (Supabase) | `workflow_runs`, `run_steps` | one row per agent turn and every observed delegation, tool result, pause, resume, and finish |
+| `apps/api` (Supabase) | `approval_requests`, `approval_decisions` | what a human was asked, the exact snapshot and its hash, who answered and how |
+| `apps/api` (Supabase) | `audit_logs` | append-only, enforced by trigger |
+| `apps/agent-runtime` (libSQL) | Mastra memory | conversation threads and messages, suspended run snapshots |
+| `apps/agent-runtime` (libSQL) | `aura_drafts` | structured Epic and Story drafts by id, version chain, Jira keys filed per item |
+
+Supabase rows reference runtime state by id (`thread_id`, `runtime_run_id`, draft ids in step payloads); runtime state is never copied into Supabase.
+
 ## 2. Row-level security
 
 - Every row carries `org_id`, `region_id`, `project_id`.
