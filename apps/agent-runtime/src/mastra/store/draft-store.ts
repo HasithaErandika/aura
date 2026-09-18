@@ -46,7 +46,7 @@ async function db(): Promise<Client> {
   return client;
 }
 
-const ID_PREFIX: Record<DraftKind, string> = { epic: 'EPIC', stories: 'STORIES', architecture: 'ARCH' };
+const ID_PREFIX: Record<DraftKind, string> = { epic: 'EPIC', stories: 'STORIES', architecture: 'ARCH', 'dev-scaffold': 'DEV' };
 
 // Generates a short random id prefixed by the draft kind.
 function newId(kind: DraftKind): string {
@@ -123,5 +123,17 @@ export const draftStore = {
     });
     const row = result.rows[0] as unknown as { thread_id: string | null } | undefined;
     return row?.thread_id ?? null;
+  },
+
+  // The most recent draft of this kind for an Epic, full record - e.g. the Dev agent reading
+  // the Epic's architecture draft to learn its chosen backend framework (tools/delegate-tools.ts).
+  async latestByEpic<T>(kind: DraftKind, epicKey: string): Promise<DraftRecord<T> | null> {
+    const c = await db();
+    const result = await c.execute({
+      sql: 'select * from aura_drafts where kind = ? and epic_key = ? order by created_at desc limit 1',
+      args: [kind, epicKey],
+    });
+    const row = result.rows[0];
+    return row ? rowToRecord<T>(row as unknown as Record<string, unknown>) : null;
   },
 };

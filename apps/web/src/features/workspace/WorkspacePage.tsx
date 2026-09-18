@@ -19,7 +19,7 @@ import { ChatIcon, ExternalLinkIcon } from "../../shared/icons/index.tsx";
 import { paths } from "../../app/paths.ts";
 import { roleLabel } from "../../shared/lib/roles.ts";
 
-const AGENT_ORDER = ["orchestrator", "po-agent", "ba-agent", "architect-agent"];
+const AGENT_ORDER = ["orchestrator", "po-agent", "ba-agent", "architect-agent", "dev-agent"];
 
 export function WorkspacePage() {
   const { profile } = useAuth();
@@ -75,6 +75,9 @@ export function WorkspacePage() {
     if (profile?.role === "architect") {
       byRole.push("Approved Epics with Stories already exist in Jira. Design one shared architecture: decomposition, API/data/security design, ADRs, and tasks. Epic key(s) (comma-separated if more than one): ");
     }
+    if (profile?.role === "developer") {
+      byRole.push("An architecture Task is already filed in Jira. Scaffold it in a sandboxed container. Task key: ");
+    }
     return [...byRole, ...fromRuntime];
   }, [agent, profile?.role]);
 
@@ -96,7 +99,7 @@ export function WorkspacePage() {
           description={
             runtimeDown
               ? "Start apps/agent-runtime (npm run dev, port 4111) and the API will pick it up. Nothing you do here is lost."
-              : (agentsState.error ?? `Your role (${profile ? roleLabel(profile.role) : "unknown"}) has no run grant in Phase 1. Project Owners, Business Analysts, and Architects work with the Orchestrator.`)
+              : (agentsState.error ?? `Your role (${profile ? roleLabel(profile.role) : "unknown"}) has no run grant in Phase 1. Project Owners, Business Analysts, Architects, and Developers work with the Orchestrator.`)
           }
           action={
             <Button variant="secondary" onClick={() => void agentsState.reload()}>
@@ -117,7 +120,9 @@ export function WorkspacePage() {
         ? "Describe the Epic to break down, or give the Orchestrator an approved Epic key"
         : profile?.role === "architect"
           ? "Give the Orchestrator one or more Epic keys with approved Stories to design a shared architecture"
-          : "Describe the business requirement you want turned into an Epic";
+          : profile?.role === "developer"
+            ? "Give the Orchestrator a filed architecture Task key to scaffold"
+            : "Describe the business requirement you want turned into an Epic";
 
   return (
     <div className="flex h-full min-h-0">

@@ -99,6 +99,38 @@ function asObject(result: unknown): Record<string, unknown> {
   return {};
 }
 
+// Same unwrap as asObject() ({content:[{text}]} / {result: "<json>"}), but without its
+// object-only restriction - jira_get_transitions returns a JSON *array*, which asObject()
+// would silently discard (unwrapResultString only unwraps into an object, never an array).
+function unwrapToJson(result: unknown): unknown {
+  if (result && typeof result === 'object' && !Array.isArray(result)) {
+    const r = result as Record<string, unknown>;
+    if (Array.isArray(r.content) && r.content.length && typeof (r.content[0] as { text?: unknown })?.text === 'string') {
+      try {
+        return JSON.parse((r.content[0] as { text: string }).text);
+      } catch {
+        return r;
+      }
+    }
+    if (typeof r.result === 'string') {
+      try {
+        return JSON.parse(r.result);
+      } catch {
+        return r;
+      }
+    }
+    return r;
+  }
+  if (typeof result === 'string') {
+    try {
+      return JSON.parse(result);
+    } catch {
+      return result;
+    }
+  }
+  return result;
+}
+
 export interface JiraIssueSummary {
   key: string;
   summary: string;
@@ -195,5 +227,27 @@ export const jira = {
   async addComment(key: string, body: string): Promise<void> {
     const execute = findTool('_add_comment');
     await execute({ issue_key: key, body }, {});
+  },
+
+  // The moves available from an issue's current status - Jira's own workflow decides what's
+  // offered, never AURA (mirrors apps/api/src/modules/jira/jira.client.ts's REST equivalent,
+  // used for the human-facing Jira page; this MCP-based one is for agent-triggered moves, e.g.
+  // the Dev agent marking a Task "In Progress" when it starts scaffolding).
+  async getTransitions(key: string): Promise<{ id: string; name: string }[]> {
+    const execute = findTool('_get_transitions');
+    const parsed = unwrapToJson(await execute({ issue_key: key }, {}));
+    const list = Array.isArray(parsed) ? parsed : [];
+    return list
+      .map((t) => {
+        const row = t as Record<string, unknown>;
+        return { id: String(row.id ?? ''), name: String(row.name ?? '') };
+      })
+      .filter((t) => t.id);
+  },
+
+  // Moves an issue through one of those transitions.
+  async transitionIssue(key: string, transitionId: string): Promise<void> {
+    const execute = findTool('_transition_issue');
+    await execute({ issue_key: key, transition_id: transitionId }, {});
   },
 };

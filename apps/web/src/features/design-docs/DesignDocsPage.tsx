@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
+import type { Role } from "../../shared/lib/roles.ts";
 import CodeMirror from "@uiw/react-codemirror";
 import { markdown } from "@codemirror/lang-markdown";
 import { useAsync } from "../../shared/hooks/useAsync.ts";
@@ -33,11 +34,16 @@ const KIND_ICON: Record<ReturnType<typeof classifyWorkspaceFile>["kind"], typeof
 
 type EpicFiles = { status: "loading" } | { status: "error"; message: string } | { status: "ready"; files: WorkspaceFile[] };
 
+// The design-review population - PO/BA/Architect - not Developer: Developer also has an
+// orchestrator run grant (for Gate 4 scaffolding), but reviewing/commenting on architecture
+// docs isn't part of that role's job, so it's checked by role directly rather than by grant.
+const FEEDBACK_ROLES: Role[] = ["project_owner", "business_analyst", "architect"];
+
 export function DesignDocsPage() {
   const { profile } = useAuth();
   const navigate = useNavigate();
   const canEdit = profile?.role === "architect";
-  const canSendFeedback = profile ? profile.grants.agents["orchestrator"] === "run" : false;
+  const canSendFeedback = profile ? FEEDBACK_ROLES.includes(profile.role) : false;
 
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [filesByEpic, setFilesByEpic] = useState<Record<string, EpicFiles>>({});

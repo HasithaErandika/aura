@@ -20,6 +20,7 @@ export const AGENT_ALIASES: Record<string, string> = {
   po: "po-agent",
   ba: "ba-agent",
   architect: "architect-agent",
+  dev: "dev-agent",
 };
 
 export function canonicalAgentId(agentId: string): string {
@@ -31,9 +32,10 @@ export function canonicalAgentId(agentId: string): string {
 export const ROLE_AGENT_GRANTS: Record<Role, Record<string, AgentAccess>> = {
   project_owner: { orchestrator: "run", "po-agent": "run", "ba-agent": "read" },
   business_analyst: { orchestrator: "run", "ba-agent": "run", "po-agent": "read" },
-  admin: { orchestrator: "read", "po-agent": "read", "ba-agent": "read", "architect-agent": "read" },
-  architect: { orchestrator: "run", "architect-agent": "run", "ba-agent": "read" },
-  developer: {},
+  admin: { orchestrator: "read", "po-agent": "read", "ba-agent": "read", "architect-agent": "read", "dev-agent": "read" },
+  // "Architect (read)" on Dev output matches the RACI table in docs/ARCHITECTURE.md section 4.2.
+  architect: { orchestrator: "run", "architect-agent": "run", "ba-agent": "read", "dev-agent": "read" },
+  developer: { orchestrator: "run", "dev-agent": "run", "architect-agent": "read" },
   qa_engineer: {},
   tester: {},
   deployer: {},
@@ -47,6 +49,7 @@ export const AGENT_APPROVER_ROLE: Record<string, Role> = {
   "po-agent": "project_owner",
   "ba-agent": "business_analyst",
   "architect-agent": "architect",
+  "dev-agent": "developer",
 };
 
 // Human-readable gate metadata keyed by the producing agent. Display only; the runtime
@@ -55,6 +58,7 @@ export const AGENT_GATE_INFO: Record<string, { gate: number; name: string; outco
   "po-agent": { gate: 1, name: "Epic approval", outcome: "Jira Epic filed, status Ready for Analysis" },
   "ba-agent": { gate: 2, name: "Story approval", outcome: "Jira Stories filed, status Ready for Architecture" },
   "architect-agent": { gate: 3, name: "Architecture approval", outcome: "Jira Tasks filed, status Ready for Development" },
+  "dev-agent": { gate: 4, name: "Dev scaffold approval", outcome: "Scaffold executed in a sandboxed container, Task commented with the result" },
 };
 
 const DELEGATE_TOOL_PREFIX = "delegate_to_";

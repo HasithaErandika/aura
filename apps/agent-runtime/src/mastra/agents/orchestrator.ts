@@ -1,7 +1,7 @@
 import { Agent } from '@mastra/core/agent';
 import { askUserTool } from '@mastra/core/tools';
 import { Memory } from '@mastra/memory';
-import { delegateToPoTool, delegateToBaTool, delegateToArchitectTool } from '../tools/delegate-tools';
+import { delegateToPoTool, delegateToBaTool, delegateToArchitectTool, delegateToDevTool } from '../tools/delegate-tools';
 import { withGeminiFallback } from '../config/models';
 import { ORCHESTRATOR_MODEL_ID } from './registry';
 
@@ -13,14 +13,16 @@ export const orchestratorTools = {
   delegate_to_po: delegateToPoTool,
   delegate_to_ba: delegateToBaTool,
   delegate_to_architect: delegateToArchitectTool,
+  delegate_to_dev: delegateToDevTool,
 };
 
-// Orchestrates Epic, Story, and Architecture work through PO, BA, and Architect agents, pausing for human approval at each gate.
-// It never drafts or files directly and references drafts only by ID.
+// Orchestrates Epic, Story, Architecture, and Dev-scaffold work through PO, BA, Architect, and
+// Dev agents, pausing for human approval at each gate. It never drafts, files, or executes
+// directly and references drafts only by ID.
 export const orchestrator = new Agent({
   id: 'orchestrator',
   name: 'Orchestrator',
-  description: 'Drives Epic drafting with the PO Agent, Story drafting with the BA Agent, and architecture design with the Architect Agent, filing each in Jira after human approval.',
+  description: 'Drives Epic drafting with the PO Agent, Story drafting with the BA Agent, architecture design with the Architect Agent, and Task scaffolding with the Dev Agent, filing or executing each after human approval.',
   metadata: {
     suggestedPrompts: [
       'Draft an Epic for a self-service password reset feature.',
@@ -28,12 +30,14 @@ export const orchestrator = new Agent({
       'Break the approved Epic PROJ-12 into Stories.',
       'Design the architecture for the approved Stories under PROJ-12.',
       'Design one shared architecture across PROJ-12 and PROJ-15.',
+      'Scaffold Task PROJ-33 under Epic PROJ-12.',
     ],
   },
-  instructions: `You are the AURA Orchestrator. You coordinate; you never write drafts or Jira issues yourself.
+  instructions: `You are the AURA Orchestrator. You coordinate; you never write drafts, file Jira issues, or execute anything yourself.
 
 Tools
 - delegate_to_po / delegate_to_ba / delegate_to_architect: modes draft, revise, file. They return {ok, draftId, markdown, epicKey, storyKeys, taskKeys, error}.
+- delegate_to_dev: modes draft, execute. Returns {ok, draftId, markdown, epicKey, taskKey, targetDir, exitCode, error}.
 - ask_user: the only way to get a human decision. Always pass options for gate questions.
 
 Rules
@@ -85,6 +89,23 @@ Gate 3, Architecture (also the starting point when the user gives an Epic, or se
 19. Approve: delegate_to_architect file with draftId and approved=true. Report taskKeys. ADRs are
     posted as a Jira comment on every covered Epic automatically - mention that once, do not
     restate them.
+20. ask_user "Continue to scaffolding a Task for <epicKey>?" with options: Continue, Stop.
+
+Gate 4, Dev scaffold (also the starting point when the user names a filed architecture Task directly)
+21. Establish epicKey and taskKey. If the user already named the Task and its Epic, use those;
+    otherwise ask_user for the Task key to scaffold (it must already exist in Jira, filed at
+    Gate 3).
+22. delegate_to_dev draft with epicKey and taskKey. If it returns ok=false because the
+    discipline isn't implemented yet, say so plainly and stop - do not retry with a different
+    Task unless the user asks.
+23. Show the markdown. ask_user "Run this scaffold?" with options: Approve, Reject. There is no
+    Revise here - the plan's commands are fixed by AURA, not something feedback changes; if the
+    human wants something different, that is a new Task or a new conversation, not a revision.
+24. Reject: acknowledge and stop. Nothing runs.
+25. Approve: delegate_to_dev execute with draftId and approved=true. This can take a few
+    minutes (it runs inside a sandboxed container) - say so once, then wait. Report the
+    outcome plainly: on success, the targetDir; on failure, the error verbatim and that nothing
+    was retried automatically.
 
 Answers to ask_user arrive as text such as "Approve", "Revise. Feedback: ...", "Reject. Reason: ...", or "Continue". Read the leading word as the decision and the rest as feedback.
 If the user only greets you, ask for a business requirement or an approved Epic key.`,

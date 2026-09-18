@@ -1,6 +1,6 @@
 # ADR-1. Source Dev-agent scaffolds from official live tooling, not checked-in templates
 
-**Status:** Proposed. Documents the target design for the Phase 3 Dev agent (`docs/ARCHITECTURE.md` section 14); no scaffolding or code execution is implemented yet — see Consequences.
+**Status:** Partially accepted and implemented (2026-09-18). Frontend is built and verified end-to-end (real Docker run, exit 0, files on disk) — `agents/dev-agent.ts`, `tools/delegate-tools.ts`'s `delegate_to_dev` (Gate 4, `docs/ARCHITECTURE.md` section 6.4), sandboxed via Docker (`lib/docker-exec.ts`) per the sandbox decision below, now resolved for this local/solo-use pass. Backend/NestJS is wired the same way but **not yet reliable**: verification hit a known npm/arborist crash (`Cannot read properties of null (reading 'edgesOut')`) during `nest new`'s own `npm install` step — caught, not fixed. Backend/Spring Boot, Data, AI, and Integration remain proposed only, not implemented at all — see Consequences.
 
 ## Context
 
@@ -8,11 +8,9 @@ Gate 3 (`docs/ARCHITECTURE.md` section 6.3) now records a fixed technology stack
 
 The Dev agent that Phase 3 introduces needs to turn a filed Task into a running skeleton project: pick the right starting point for its discipline and stack, install it, and get it to a runnable state, before doing the actual feature work the Task describes. This ADR decides *where that starting code comes from* — the template/scaffold source — so that decision exists in one place before the Dev agent is built, rather than being improvised per-implementation later.
 
-This ADR deliberately does **not** decide:
-- Sandbox isolation for Dev-agent code execution (Docker-in-CI vs Firecracker/gVisor) — open decision #4 in `docs/ARCHITECTURE.md` section 15, still unresolved.
-- How the Dev agent authenticates, branches, and opens a PR (section 14).
+This ADR originally deliberately did not decide sandbox isolation for Dev-agent code execution (open decision #4 in `docs/ARCHITECTURE.md` section 15) — that is now resolved for this pass: **Docker, one container per run**, chosen as the practical, safest option for a local/solo development setup (real filesystem/process isolation from the host, without the operational overhead Firecracker/gVisor only earns at multi-tenant cloud scale). Revisit if AURA ever runs Dev agents against untrusted, multi-tenant work.
 
-Both remain prerequisites for actually running any of the commands below inside AURA; until they're resolved, this ADR is a plan a human can follow by hand from the filed Task, not a running capability.
+This ADR still does **not** decide how the Dev agent authenticates, branches, and opens a PR (`docs/ARCHITECTURE.md` section 14) — this pass is local scaffolding only, no git automation. That remains a prerequisite for anything beyond "files land on disk for a human to review and commit themselves."
 
 ## Decision
 
@@ -25,7 +23,7 @@ Scaffold from **official, live tooling**, invoked fresh each time, rather than t
 
 **Sequencing.** Because Frontend/Backend/Data Tasks scaffold independently — none of the commands above depends on another discipline's scaffold existing first — Dev agents can pick up and scaffold their respective Tasks in parallel once Architecture Tasks are filed. There is no hard ordering requiring frontend before backend before database; "frontend, then backend, then database" is a narration convenience, not a technical dependency.
 
-**Not implemented today.** No agent runs these commands yet. Today, a human developer reads the filed Architecture Task (which already states its discipline, description, and acceptance criteria) and runs the same commands by hand. This ADR fixes what those commands will be once the Dev agent exists; it changes nothing about the current manual workflow.
+**Status per discipline.** Frontend runs reliably today, inside the Docker sandbox above, gated behind Gate 4 human approval (`docs/ARCHITECTURE.md` section 6.4). Backend/NestJS is wired (`BACKEND_SCAFFOLDS` in `delegate-tools.ts`) but intermittently fails inside its own `npm install` step with an npm arborist crash unrelated to AURA's own code - not yet trustworthy for real use. Backend/Spring Boot, Data, AI, and Integration are not implemented at all - `delegate_to_dev` fails clearly if asked for one of them rather than silently doing nothing. For anything not yet reliable, a human developer still reads the filed Architecture Task and runs the equivalent commands by hand, exactly as this ADR originally described before any of it was built.
 
 ## Consequences
 
@@ -37,7 +35,7 @@ Scaffold from **official, live tooling**, invoked fresh each time, rather than t
 **Negative**
 - Requires network egress from wherever the Dev agent eventually runs (npm registry, Spring Initializr) and the relevant tooling installed in that sandbox (Node for Vite/NestJS; nothing beyond HTTPS to call Spring Initializr, though the generated project itself needs a JDK to build).
 - Spring Initializr is an external start.spring.io dependency; a self-hosted Initializr instance is the fallback if that external dependency ever becomes a hard requirement.
-- Still depends on the sandbox decision (#4) before any of this can execute safely — this ADR alone does not unblock building the Dev agent.
+- Docker isolation is real but not as strong as a microVM; acceptable for a local/solo setup, not yet re-evaluated for multi-tenant or untrusted-input use.
 
 ## Open sub-decision: database provisioning
 

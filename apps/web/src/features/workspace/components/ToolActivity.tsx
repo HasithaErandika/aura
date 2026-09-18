@@ -11,6 +11,8 @@ const AGENT_NAMES: Record<string, string> = {
   "ba-agent": "BA Agent",
   architect: "Architect Agent",
   "architect-agent": "Architect Agent",
+  dev: "Dev Agent",
+  "dev-agent": "Dev Agent",
 };
 
 // Step ids from apps/agent-runtime/src/mastra/workflows/architect-workflow.ts.
@@ -36,7 +38,8 @@ function describe(tool: ChatToolActivity): { title: string; detail: string | nul
     const agent = name.slice("delegate_to_".length);
     const label = AGENT_NAMES[agent] ?? `${agent} agent`;
     const task = typeof (tool.args as { task?: unknown } | undefined)?.task === "string" ? ((tool.args as { task: string }).task as string) : null;
-    const mode = task ? /MODE\s*\d+\s*-\s*(\w+)/i.exec(task)?.[1] : null;
+    const argsMode = typeof (tool.args as { mode?: unknown } | undefined)?.mode === "string" ? ((tool.args as { mode: string }).mode as string) : null;
+    const mode = argsMode ?? (task ? /MODE\s*\d+\s*-\s*(\w+)/i.exec(task)?.[1] : null);
     if (tool.state === "call") return { title: `Delegating to ${label}${mode ? ` (${mode.toLowerCase()})` : ""}`, detail: null };
     const result = tool.result as { ok?: boolean; result?: string } | undefined;
     if (result && typeof result === "object" && "ok" in result) {

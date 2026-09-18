@@ -11,6 +11,8 @@ const AGENT_NAMES: Record<string, string> = {
   "ba-agent": "BA Agent",
   architect: "Architect Agent",
   "architect-agent": "Architect Agent",
+  dev: "Dev Agent",
+  "dev-agent": "Dev Agent",
 };
 
 // Step ids from apps/agent-runtime/src/mastra/workflows/architect-workflow.ts.

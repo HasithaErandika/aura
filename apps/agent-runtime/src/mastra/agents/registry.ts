@@ -5,8 +5,10 @@ export const ORCHESTRATOR_MODEL_ID = 'groq/qwen/qwen3.8-27b';
 export const PO_MODEL_ID = 'groq/qwen/qwen3.8-27b';
 export const BA_MODEL_ID = 'groq/openai/gpt-oss-120b';
 export const ARCHITECT_MODEL_ID = 'groq/openai/gpt-oss-120b';
+// Lightweight: the Dev agent only explains an already-fixed plan, it doesn't author content.
+export const DEV_MODEL_ID = 'groq/qwen/qwen3.8-27b';
 
-export type AgentId = 'orchestrator' | 'po-agent' | 'ba-agent' | 'architect-agent';
+export type AgentId = 'orchestrator' | 'po-agent' | 'ba-agent' | 'architect-agent' | 'dev-agent';
 
 export interface AgentManifestEntry {
   modelId: string;
@@ -17,8 +19,8 @@ export interface AgentManifestEntry {
 export const AGENT_MANIFEST: Record<AgentId, AgentManifestEntry> = {
   orchestrator: {
     modelId: ORCHESTRATOR_MODEL_ID,
-    delegatesTo: ['po-agent', 'ba-agent', 'architect-agent'],
-    note: 'Coordinates Gate 1 (Epic), Gate 2 (Stories), and Gate 3 (Architecture). Never drafts or files directly - no Jira, memory, or filesystem tool of its own (docs/ARCHITECTURE.md section 6.2).',
+    delegatesTo: ['po-agent', 'ba-agent', 'architect-agent', 'dev-agent'],
+    note: 'Coordinates Gate 1 (Epic), Gate 2 (Stories), Gate 3 (Architecture), and Gate 4 (Dev scaffold). Never drafts, files, or executes directly - no Jira, memory, filesystem, or shell tool of its own (docs/ARCHITECTURE.md section 6.2).',
   },
   'po-agent': {
     modelId: PO_MODEL_ID,
@@ -34,6 +36,11 @@ export const AGENT_MANIFEST: Record<AgentId, AgentManifestEntry> = {
     modelId: ARCHITECT_MODEL_ID,
     delegatesTo: [],
     note: 'Drafts/revises a decomposition, API/data/security/AI design, ADRs, and architecture tasks as structured JSON, invoked through delegate_to_architect. Holds no tools: cannot read or write Jira itself.',
+  },
+  'dev-agent': {
+    modelId: DEV_MODEL_ID,
+    delegatesTo: [],
+    note: 'Explains a Task-driven scaffold plan (Frontend only for now) whose command is fixed by code, invoked through delegate_to_dev. Holds no tools: cannot execute anything itself - execute mode runs the fixed command in a sandboxed Docker container from delegate-tools.ts, never from the model.',
   },
 };
 
