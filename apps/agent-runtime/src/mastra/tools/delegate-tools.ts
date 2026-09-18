@@ -1,25 +1,32 @@
 import { createTool } from '@mastra/core/tools';
 import { z } from 'zod';
 import {
+  architectureDraftSchema,
+  architectureFiledComment,
+  architectureTaskJiraDescription,
   epicDraftSchema,
   epicJiraDescription,
+  renderAdr,
+  renderArchitecture,
   renderEpic,
+  renderPlan,
+  renderRequirementsDoc,
   renderStories,
   storiesDraftSchema,
   storyJiraDescription,
+  type ArchitectureDocPaths,
+  type ArchitectureDraft,
   type EpicDraft,
   type StoriesDraft,
 } from '../contracts/drafts';
 import { draftStore, type DraftRecord } from '../store/draft-store';
 import { jira, jiraIssueUrl } from '../mcp/jira-client';
+import { PO_MODEL_ID, BA_MODEL_ID, ARCHITECT_MODEL_ID } from '../agents/registry';
+import { generateObject, type MastraLike } from '../lib/generate-object';
+import { architectWorkspace, type WorkspaceRegistry } from '../workspace/architect-workspace';
 
-// The Orchestrator's only way to reach the PO and BA agents and, after human approval, Jira.
-//
-// Token discipline: a draft is generated once, stored, and referred to by id from then on. The
-// Orchestrator never re-types a draft into a tool call. Filing is deterministic code that reads
-// the stored draft, so what the human approved is exactly what lands in Jira, and a retry after
-// a partial failure creates nothing twice.
-
+// Centralizes Orchestrator access to PO, BA, Architect, Jira, and Architect workspace actions 
+// while storing drafts by ID to ensure approved content is filed exactly once.
 const outputSchema = z.object({
   ok: z.boolean().describe('false means the step failed; read error, tell the user, and stop.'),
   draftId: z.string().optional().describe('Id of the draft to pass back for revise or file.'),
@@ -27,67 +34,45 @@ const outputSchema = z.object({
   epicKey: z.string().optional(),
   epicUrl: z.string().nullable().optional(),
   storyKeys: z.array(z.string()).optional(),
+  taskKeys: z.array(z.string()).optional(),
   error: z.string().optional(),
 });
 type DelegateOutput = z.infer<typeof outputSchema>;
 
-interface AgentLike {
-  generate: (prompt: string, options: Record<string, unknown>) => Promise<{ object?: unknown; text?: string }>;
-}
-type MastraLike = { getAgent: (id: string) => AgentLike } | undefined;
-
+// Converts a caught error into a {ok: false, error} result.
 function fail(error: unknown): DelegateOutput {
   const message = error instanceof Error ? error.message : String(error);
   return { ok: false, error: message };
 }
 
-async function generateObject<T>(mastra: MastraLike, agentId: string, prompt: string, schema: z.ZodType<T>): Promise<T> {
-  const agent = mastra?.getAgent(agentId);
-  if (!agent) throw new Error(`agent "${agentId}" is not registered`);
-  const attempt = async () => {
-    const result = await agent.generate(prompt, {
-      structuredOutput: { schema, jsonPromptInjection: true, errorStrategy: 'strict' },
-      maxSteps: 1,
-    });
-    const parsed = schema.safeParse(result.object ?? tryParseJson(result.text));
-    if (!parsed.success) throw new Error(`${agentId} returned an invalid draft: ${parsed.error.issues.map((i) => i.path.join('.') + ' ' + i.message).join('; ')}`);
-    return parsed.data;
-  };
-  try {
-    return await attempt();
-  } catch (first) {
-    // One retry covers the occasional malformed JSON from a small model.
-    try {
-      return await attempt();
-    } catch {
-      throw first;
-    }
-  }
+// Turns a title into a lowercase, hyphenated, filesystem-safe slug.
+function slugify(title: string): string {
+  return title
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/(^-|-$)/g, '')
+    .slice(0, 60);
 }
 
-function tryParseJson(text: string | undefined): unknown {
-  if (!text) return undefined;
-  const match = /\{[\s\S]*\}/.exec(text);
-  if (!match) return undefined;
-  try {
-    return JSON.parse(match[0]);
-  } catch {
-    return undefined;
-  }
+// Builds the "Created by / Source / Filed" provenance stamp appended to filed Jira content.
+function provenance(agentLabel: string, modelId: string, draft: DraftRecord, source: string): string {
+  return [
+    `Created by: AURA · ${agentLabel} · ${modelId} · draft ${draft.id} v${draft.version}`,
+    `Source: ${source}`,
+    `Filed: ${new Date().toISOString()} (human-approved via the AURA Orchestrator)`,
+  ].join('\n');
 }
 
-function provenance(agent: string, draft: DraftRecord): string {
-  return `Created by AURA ${agent} (draft ${draft.id}, version ${draft.version}) after human approval in the AURA Orchestrator.`;
-}
-
-const poInputSchema = z.object({
-  mode: z.enum(['draft', 'revise', 'file']),
-  requirement: z.string().optional().describe('draft: the business requirement, verbatim from the user'),
-  stakeholders: z.string().optional().describe('draft: stakeholder list if the user gave one'),
-  draftId: z.string().optional().describe('revise and file: the draftId returned earlier'),
-  feedback: z.string().optional().describe('revise: the human feedback, verbatim'),
-  approved: z.boolean().optional().describe('file: must be true; set only after ask_user returned an approval'),
-});
+const poInputSchema = z
+  .object({
+    mode: z.enum(['draft', 'revise', 'file']),
+    requirement: z.string().optional().describe('draft: the business requirement, verbatim from the user'),
+    stakeholders: z.string().optional().describe('draft: stakeholder list if the user gave one'),
+    draftId: z.string().optional().describe('revise and file: the draftId returned earlier'),
+    feedback: z.string().optional().describe('revise: the human feedback, verbatim'),
+    approved: z.boolean().optional().describe('file: must be true; set only after ask_user returned an approval'),
+  })
+  .strict();
 
 export const delegateToPoTool = createTool({
   id: 'delegate_to_po',
@@ -99,6 +84,7 @@ export const delegateToPoTool = createTool({
     const threadId = agent?.threadId ?? null;
     try {
       switch (input.mode) {
+        // Drafts a new Epic from a business requirement.
         case 'draft': {
           if (!input.requirement?.trim()) return fail('draft needs the requirement text');
           const prompt = `Draft an Epic for this business requirement.\n\nRequirement:\n${input.requirement.trim()}${input.stakeholders ? `\n\nStakeholders given by the requester:\n${input.stakeholders}` : ''}`;
@@ -106,6 +92,7 @@ export const delegateToPoTool = createTool({
           const record = await draftStore.create({ kind: 'epic', content, threadId });
           return { ok: true, draftId: record.id, markdown: renderEpic(content) };
         }
+        // Revises an Epic draft with feedback, syncing an already-filed Epic in Jira if present.
         case 'revise': {
           if (!input.draftId || !input.feedback?.trim()) return fail('revise needs draftId and feedback');
           const previous = await draftStore.get<EpicDraft>(input.draftId);
@@ -113,21 +100,32 @@ export const delegateToPoTool = createTool({
           const prompt = `Revise this Epic draft according to the feedback. Return the complete updated Epic.\n\nCurrent draft (JSON):\n${JSON.stringify(previous.content)}\n\nFeedback:\n${input.feedback.trim()}`;
           const content = await generateObject<EpicDraft>(mastra as MastraLike, 'po', prompt, epicDraftSchema);
           const record = await draftStore.create({ kind: 'epic', content, threadId, parentId: previous.id });
-          // Already in Jira from an earlier approval - keep that issue in sync with the human's
-          // continued feedback instead of leaving it to drift from what is now being discussed.
           if (previous.filed.epic) {
             const epicKey = previous.filed.epic;
-            await jira.updateIssue(epicKey, {
-              summary: content.title,
-              description: epicJiraDescription(content, provenance('PO Agent', record)),
-              priority: content.priority,
-            });
-            await jira.addComment(epicKey, `AURA PO Agent revised this Epic after human feedback:\n\n${input.feedback.trim()}`);
-            await draftStore.markFiled(record.id, { epic: epicKey }, epicKey);
+            try {
+              await jira.updateIssue(epicKey, {
+                summary: content.title,
+                description: epicJiraDescription(content, provenance('PO Agent', PO_MODEL_ID, record, '(free-text business requirement, no upstream Jira issue)')),
+                priority: content.priority,
+              });
+              await jira.addComment(epicKey, `AURA PO Agent revised this Epic after human feedback:\n\n${input.feedback.trim()}`);
+              await draftStore.markFiled(record.id, { epic: epicKey }, epicKey);
+            } catch (error) {
+              // Jira sync failed but the draft itself is saved - return draftId/markdown so it isn't lost.
+              return {
+                ok: false,
+                draftId: record.id,
+                markdown: renderEpic(content),
+                epicKey,
+                epicUrl: jiraIssueUrl(epicKey),
+                error: `Draft revised (draftId ${record.id}), but syncing ${epicKey} in Jira failed: ${error instanceof Error ? error.message : String(error)}. Retry revise or file to sync again; nothing was created twice.`,
+              };
+            }
             return { ok: true, draftId: record.id, markdown: renderEpic(content), epicKey, epicUrl: jiraIssueUrl(epicKey) };
           }
           return { ok: true, draftId: record.id, markdown: renderEpic(content) };
         }
+        // Files the approved Epic draft as a Jira Epic, or returns the existing one if already filed.
         case 'file': {
           if (!input.draftId) return fail('file needs draftId');
           if (input.approved !== true) return fail('file requires approved=true, which is only set after the human approved via ask_user');
@@ -139,7 +137,7 @@ export const delegateToPoTool = createTool({
           const created = await jira.createIssue({
             summary: record.content.title,
             issueType: 'Epic',
-            description: epicJiraDescription(record.content, provenance('PO Agent', record)),
+            description: epicJiraDescription(record.content, provenance('PO Agent', PO_MODEL_ID, record, '(free-text business requirement, no upstream Jira issue)')),
             priority: record.content.priority,
           });
           await draftStore.markFiled(record.id, { epic: created.key }, created.key);
@@ -152,13 +150,15 @@ export const delegateToPoTool = createTool({
   },
 });
 
-const baInputSchema = z.object({
-  mode: z.enum(['draft', 'revise', 'file']),
-  epicKey: z.string().optional().describe('draft: key of the approved, filed Epic'),
-  draftId: z.string().optional().describe('revise and file: the draftId returned earlier'),
-  feedback: z.string().optional().describe('revise: the human feedback, verbatim'),
-  approved: z.boolean().optional().describe('file: must be true; set only after ask_user returned an approval'),
-});
+const baInputSchema = z
+  .object({
+    mode: z.enum(['draft', 'revise', 'file']),
+    epicKey: z.string().optional().describe('draft: key of the approved, filed Epic'),
+    draftId: z.string().optional().describe('revise and file: the draftId returned earlier'),
+    feedback: z.string().optional().describe('revise: the human feedback, verbatim'),
+    approved: z.boolean().optional().describe('file: must be true; set only after ask_user returned an approval'),
+  })
+  .strict();
 
 export const delegateToBaTool = createTool({
   id: 'delegate_to_ba',
@@ -170,6 +170,7 @@ export const delegateToBaTool = createTool({
     const threadId = agent?.threadId ?? null;
     try {
       switch (input.mode) {
+        // Drafts Stories for an approved Epic.
         case 'draft': {
           const epicKey = input.epicKey?.trim().toUpperCase();
           if (!epicKey) return fail('draft needs the Epic key');
@@ -181,6 +182,7 @@ export const delegateToBaTool = createTool({
           const record = await draftStore.create({ kind: 'stories', content, threadId, epicKey: epic.key });
           return { ok: true, draftId: record.id, markdown: renderStories(content), epicKey: epic.key };
         }
+        // Revises the Stories draft with feedback, syncing any already-filed Stories in Jira.
         case 'revise': {
           if (!input.draftId || !input.feedback?.trim()) return fail('revise needs draftId and feedback');
           const previous = await draftStore.get<StoriesDraft>(input.draftId);
@@ -189,13 +191,12 @@ export const delegateToBaTool = createTool({
           const content = await generateObject<StoriesDraft>(mastra as MastraLike, 'ba', prompt, storiesDraftSchema);
           content.epicKey = previous.content.epicKey;
           const record = await draftStore.create({ kind: 'stories', content, threadId, epicKey: previous.epicKey, parentId: previous.id });
-          // Stories already filed in Jira (same index, still present after the revision) get
-          // updated in place with a comment; a story the human removed keeps its existing Jira
-          // issue untouched rather than being deleted automatically.
+          // Already-filed Stories get updated in place; removed stories keep their existing Jira issue untouched.
           const filedIndices = Object.keys(previous.filed).filter((k) => k !== 'comment');
           if (filedIndices.length) {
-            const stamp = provenance('BA Agent', record);
+            const stamp = provenance('BA Agent', BA_MODEL_ID, record, `${previous.content.epicKey} (Epic)`);
             const carried: Record<string, string> = {};
+            const syncFailures: string[] = [];
             for (const key of filedIndices) {
               const story = content.stories[Number(key)];
               const jiraKey = previous.filed[key]!;
@@ -208,14 +209,25 @@ export const delegateToBaTool = createTool({
                 });
                 await jira.addComment(jiraKey, `AURA BA Agent revised this Story after human feedback:\n\n${input.feedback.trim()}`);
                 carried[key] = jiraKey;
-              } catch {
-                // Best-effort sync; a lasting Jira problem still surfaces when file is retried.
+              } catch (error) {
+                syncFailures.push(`${jiraKey}: ${error instanceof Error ? error.message : String(error)}`);
               }
             }
             if (Object.keys(carried).length) await draftStore.markFiled(record.id, carried);
+            if (syncFailures.length) {
+              // Some Jira syncs failed - report it instead of leaving those Stories silently stale.
+              return {
+                ok: false,
+                draftId: record.id,
+                markdown: renderStories(content),
+                epicKey: previous.content.epicKey,
+                error: `Draft revised (draftId ${record.id}), but syncing these Stories in Jira failed: ${syncFailures.join('; ')}. Retry revise or file to sync again; nothing was created twice.`,
+              };
+            }
           }
           return { ok: true, draftId: record.id, markdown: renderStories(content), epicKey: previous.content.epicKey };
         }
+        // Files the approved Stories as Jira Stories under the Epic.
         case 'file': {
           if (!input.draftId) return fail('file needs draftId');
           if (input.approved !== true) return fail('file requires approved=true, which is only set after the human approved via ask_user');
@@ -223,7 +235,7 @@ export const delegateToBaTool = createTool({
           if (!record || record.kind !== 'stories') return fail(`unknown stories draft ${input.draftId}`);
           const epicKey = record.content.epicKey;
           const filed = { ...record.filed };
-          const stamp = provenance('BA Agent', record);
+          const stamp = provenance('BA Agent', BA_MODEL_ID, record, `${epicKey} (Epic)`);
           let failure: string | null = null;
           for (let i = 0; i < record.content.stories.length; i += 1) {
             const key = String(i);
@@ -258,6 +270,229 @@ export const delegateToBaTool = createTool({
             }
           }
           return { ok: true, draftId: record.id, epicKey, epicUrl: jiraIssueUrl(epicKey), storyKeys };
+        }
+      }
+    } catch (error) {
+      return fail(error);
+    }
+  },
+});
+
+const architectInputSchema = z
+  .object({
+    mode: z.enum(['draft', 'revise', 'file']),
+    epicKey: z.string().optional().describe('draft: key of the Epic whose approved Stories to design against'),
+    draftId: z.string().optional().describe('revise and file: the draftId returned earlier'),
+    feedback: z.string().optional().describe('revise: the human feedback, verbatim'),
+    approved: z.boolean().optional().describe('file: must be true; set only after ask_user returned an approval'),
+  })
+  .strict();
+
+// Mirrors the Architect workflow's full state schema so `initialState` passes Mastra validation before execution.
+interface ArchitectWorkflowState {
+  epicKey: string;
+  epicSummary: string;
+  storiesText: string;
+  requirementsSummary: string;
+  decomposition: string;
+  apiDesign: string;
+  dataDesign: string;
+  securityDesign: string;
+  aiDesign: string;
+  deploymentAndTestingNotes: string;
+}
+
+interface ArchitectWorkflowStreamOutput {
+  fullStream: AsyncIterable<{ type: string; id?: string; payload?: { status?: string; id?: string } }>;
+  result: Promise<{ status: string; result?: unknown; error?: { message?: string } }>;
+}
+interface ArchitectWorkflowRun {
+  stream: (args: { inputData: { epicKey: string; epicSummary: string; storiesText: string }; initialState: ArchitectWorkflowState }) => ArchitectWorkflowStreamOutput;
+}
+interface ArchitectWorkflowLike {
+  createRun: () => Promise<ArchitectWorkflowRun>;
+}
+type ArchitectMastra = (MastraLike & { getWorkflow?: (id: string) => ArchitectWorkflowLike } & Partial<WorkspaceRegistry>) | undefined;
+
+interface ToolWriterLike {
+  custom: (chunk: { type: `data-${string}`; data: unknown; transient?: boolean }) => Promise<void>;
+}
+
+// Runs the Architect Workflow, relaying each step's start/result into this tool's own stream as it goes.
+async function runArchitectWorkflow(
+  mastra: ArchitectMastra,
+  input: { epicKey: string; epicSummary: string; storiesText: string },
+  writer: ToolWriterLike | undefined,
+): Promise<ArchitectureDraft> {
+  const workflow = mastra?.getWorkflow?.('architect-workflow');
+  if (!workflow) throw new Error('architect-workflow is not registered');
+  const run = await workflow.createRun();
+  const streamOutput = run.stream({
+    inputData: input,
+    initialState: {
+      epicKey: input.epicKey,
+      epicSummary: input.epicSummary,
+      storiesText: input.storiesText,
+      requirementsSummary: '',
+      decomposition: '',
+      apiDesign: '',
+      dataDesign: '',
+      securityDesign: '',
+      aiDesign: '',
+      deploymentAndTestingNotes: '',
+    },
+  });
+  for await (const chunk of streamOutput.fullStream) {
+    if (chunk.type === 'workflow-step-start' || chunk.type === 'workflow-step-result') {
+      const stepId = chunk.id ?? chunk.payload?.id;
+      await writer?.custom({
+        type: 'data-architect-step',
+        data: { stepId, phase: chunk.type === 'workflow-step-start' ? 'start' : 'result', status: chunk.payload?.status },
+        transient: true,
+      });
+    }
+  }
+  const result = await streamOutput.result;
+  if (result.status !== 'success') {
+    throw new Error(`architecture design failed (${result.status})${result.error?.message ? `: ${result.error.message}` : ''}`);
+  }
+  return result.result as ArchitectureDraft;
+}
+
+export const delegateToArchitectTool = createTool({
+  id: 'delegate_to_architect',
+  description:
+    "Architect Agent. draft: epicKey -> architecture draft (decomposition, API/data/security/AI design, ADRs, tasks; returns draftId + markdown). revise: draftId + feedback -> new draftId + markdown. file: draftId + approved -> Tasks created in Jira under the Epic and ADRs posted as a comment (returns taskKeys). Never file without an explicit human approval.",
+  inputSchema: architectInputSchema,
+  outputSchema,
+  execute: async (input, { mastra, agent, writer }) => {
+    const threadId = agent?.threadId ?? null;
+    try {
+      switch (input.mode) {
+        // Drafts an architecture design by running the Architect Workflow against the Epic's Stories.
+        case 'draft': {
+          const epicKey = input.epicKey?.trim().toUpperCase();
+          if (!epicKey) return fail('draft needs the Epic key');
+          const epic = await jira.getIssue(epicKey);
+          if (epic.issueType && epic.issueType.toLowerCase() !== 'epic') return fail(`${epicKey} is a ${epic.issueType}, not an Epic`);
+          const stories = await jira.getEpicStories(epic.key);
+          if (!stories.length) return fail(`${epic.key} has no Stories yet - run delegate_to_ba and file Stories before designing architecture`);
+          const storiesText = stories.map((s) => `- ${s.key}: ${s.summary}\n${s.description || '(no description)'}`).join('\n\n');
+          const content = await runArchitectWorkflow(mastra as ArchitectMastra, { epicKey: epic.key, epicSummary: epic.summary, storiesText }, writer);
+          const record = await draftStore.create({ kind: 'architecture', content, threadId, epicKey: epic.key });
+          return { ok: true, draftId: record.id, markdown: renderArchitecture(content), epicKey: epic.key };
+        }
+        // Revises the architecture draft with feedback, syncing any already-filed tasks in Jira.
+        case 'revise': {
+          if (!input.draftId || !input.feedback?.trim()) return fail('revise needs draftId and feedback');
+          const previous = await draftStore.get<ArchitectureDraft>(input.draftId);
+          if (!previous || previous.kind !== 'architecture') return fail(`unknown architecture draft ${input.draftId}`);
+          const prompt = `Revise this architecture design according to the feedback. Return the complete updated design. Keep epicKey "${previous.content.epicKey}".\n\nCurrent draft (JSON):\n${JSON.stringify(previous.content)}\n\nFeedback:\n${input.feedback.trim()}`;
+          const content = await generateObject<ArchitectureDraft>(mastra as MastraLike, 'architect', prompt, architectureDraftSchema);
+          content.epicKey = previous.content.epicKey;
+          const record = await draftStore.create({ kind: 'architecture', content, threadId, epicKey: previous.epicKey, parentId: previous.id });
+          // Already-filed tasks get updated in place; removed tasks keep their existing Jira issue untouched.
+          const filedIndices = Object.keys(previous.filed).filter((k) => k !== 'adrComment');
+          if (filedIndices.length) {
+            const stamp = provenance('Architect Agent', ARCHITECT_MODEL_ID, record, `${previous.content.epicKey} (Epic)`);
+            const carried: Record<string, string> = {};
+            const syncFailures: string[] = [];
+            for (const key of filedIndices) {
+              const task = content.tasks[Number(key)];
+              const jiraKey = previous.filed[key]!;
+              if (!task) continue;
+              try {
+                await jira.updateIssue(jiraKey, {
+                  summary: task.title,
+                  description: architectureTaskJiraDescription(task, stamp),
+                  priority: task.priority,
+                });
+                await jira.addComment(jiraKey, `AURA Architect Agent revised this task after human feedback:\n\n${input.feedback.trim()}`);
+                carried[key] = jiraKey;
+              } catch (error) {
+                syncFailures.push(`${jiraKey}: ${error instanceof Error ? error.message : String(error)}`);
+              }
+            }
+            if (Object.keys(carried).length) await draftStore.markFiled(record.id, carried);
+            if (syncFailures.length) {
+              return {
+                ok: false,
+                draftId: record.id,
+                markdown: renderArchitecture(content),
+                epicKey: previous.content.epicKey,
+                error: `Draft revised (draftId ${record.id}), but syncing these tasks in Jira failed: ${syncFailures.join('; ')}. Retry revise or file to sync again; nothing was created twice.`,
+              };
+            }
+          }
+          return { ok: true, draftId: record.id, markdown: renderArchitecture(content), epicKey: previous.content.epicKey };
+        }
+        // Files the approved tasks in Jira and writes the design documents to the Architect workspace.
+        case 'file': {
+          if (!input.draftId) return fail('file needs draftId');
+          if (input.approved !== true) return fail('file requires approved=true, which is only set after the human approved via ask_user');
+          const record = await draftStore.get<ArchitectureDraft>(input.draftId);
+          if (!record || record.kind !== 'architecture') return fail(`unknown architecture draft ${input.draftId}`);
+          const epicKey = record.content.epicKey;
+          const filed = { ...record.filed };
+          const stamp = provenance('Architect Agent', ARCHITECT_MODEL_ID, record, `${epicKey} (Epic)`);
+
+          // Writes the design documents to the workspace once, after approval.
+          const docPaths: ArchitectureDocPaths = {
+            requirements: 'docs/srs/requirements-analysis.md',
+            architecture: 'architecture.md',
+            plan: 'plan.md',
+            adrs: record.content.adrs.map((adr, i) => `docs/adr/${String(i + 1).padStart(4, '0')}-${slugify(adr.title)}.md`),
+          };
+          if (!filed.workspaceWritten) {
+            const workspaceRegistry = mastra as ArchitectMastra;
+            if (!workspaceRegistry?.listWorkspaces || !workspaceRegistry.addWorkspace) throw new Error('Mastra workspace registry is not available');
+            const fs = architectWorkspace(workspaceRegistry as WorkspaceRegistry, epicKey).filesystem;
+            if (!fs) throw new Error('Architect workspace filesystem is not available');
+            await fs.writeFile(docPaths.architecture, renderArchitecture(record.content), { recursive: true, overwrite: true });
+            await fs.writeFile(docPaths.requirements, renderRequirementsDoc(record.content), { recursive: true, overwrite: true });
+            await fs.writeFile(docPaths.plan, renderPlan(record.content), { recursive: true, overwrite: true });
+            for (let i = 0; i < record.content.adrs.length; i += 1) {
+              const body = renderAdr(record.content.adrs[i]!, i).replace(/^## /, '# ');
+              await fs.writeFile(docPaths.adrs[i]!, body, { recursive: true, overwrite: true });
+            }
+            filed.workspaceWritten = 'done';
+            await draftStore.markFiled(record.id, filed);
+          }
+
+          let failure: string | null = null;
+          for (let i = 0; i < record.content.tasks.length; i += 1) {
+            const key = String(i);
+            if (filed[key]) continue;
+            const task = record.content.tasks[i]!;
+            try {
+              const created = await jira.createIssue({
+                summary: task.title,
+                issueType: 'Task',
+                description: architectureTaskJiraDescription(task, stamp),
+                priority: task.priority,
+                parentKey: epicKey,
+              });
+              filed[key] = created.key;
+              await draftStore.markFiled(record.id, filed);
+            } catch (error) {
+              failure = `task ${i + 1} ("${task.title}") failed: ${error instanceof Error ? error.message : String(error)}`;
+              break;
+            }
+          }
+          const taskKeys = record.content.tasks.map((_, i) => filed[String(i)]).filter((k): k is string => Boolean(k));
+          if (failure) {
+            return { ok: false, draftId: record.id, epicKey, taskKeys, error: `${failure}. Created so far: ${taskKeys.join(', ') || 'none'}. Re-run file with the same draftId to continue; nothing is created twice.` };
+          }
+          if (!filed.adrComment) {
+            try {
+              await jira.addComment(epicKey, architectureFiledComment(record.content, docPaths, stamp));
+              filed.adrComment = 'done';
+              await draftStore.markFiled(record.id, filed);
+            } catch {
+              // The comment is informational; the tasks and documents are what matters.
+            }
+          }
+          return { ok: true, draftId: record.id, epicKey, epicUrl: jiraIssueUrl(epicKey), taskKeys };
         }
       }
     } catch (error) {

@@ -1,10 +1,9 @@
 import { Agent } from '@mastra/core/agent';
 import { withGeminiFallback } from '../config/models';
+import { BA_MODEL_ID } from './registry';
 
-// Drafts and revises Stories as structured JSON (contracts/drafts.ts) from an approved Epic
-// whose content the caller injects. No tools: reading the Epic and filing the Stories are done
-// by delegate_to_ba in code. Invoked only through the Orchestrator (docs/ARCHITECTURE.md
-// section 5.1, Gate 2).
+// Drafts and revises Stories as structured JSON from an approved Epic.
+// Invoked only by the Orchestrator at Gate 2; Epic reading and Story filing are handled by `delegate_to_ba`.
 export const baAgent = new Agent({
   id: 'ba-agent',
   name: 'BA Agent',
@@ -31,7 +30,7 @@ one-line placeholder:
 - definitionOfDone: the concrete checks that make this shippable, not generic boilerplate.
 When revising, apply the feedback and keep every other story unchanged.`,
 
-  model: withGeminiFallback('groq/openai/gpt-oss-120b', { reasoningFormat: 'hidden' }),
+  model: withGeminiFallback(BA_MODEL_ID, { reasoningFormat: 'hidden' }),
   defaultOptions: {
     maxSteps: 1,
   },

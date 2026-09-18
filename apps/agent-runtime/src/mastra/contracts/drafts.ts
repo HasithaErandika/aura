@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-// Structured drafts the PO and BA agents produce. Agents propose JSON against these
+// Structured drafts the PO and BA and Architect agents produce. Agents propose JSON against these
 // schemas; rendering for humans and filing to Jira are deterministic code, so nothing a
 // human approved can drift on its way into Jira (docs/ARCHITECTURE.md section 1, principle 5).
 
@@ -35,15 +35,55 @@ export const storiesDraftSchema = z.object({
 });
 export type StoriesDraft = z.infer<typeof storiesDraftSchema>;
 
-export type DraftKind = 'epic' | 'stories';
+export const disciplines = ['Frontend', 'Backend', 'Data', 'AI', 'Integration', 'Deployment'] as const;
 
+export const adrSchema = z.object({
+  title: z.string().min(3).max(200).describe('ADR title, one line, starting with a verb (e.g. "Use ...")'),
+  context: z.string().min(10).describe('The forces at play: why a decision is needed now'),
+  decision: z.string().min(10).describe('What was decided, stated plainly'),
+  consequences: z.array(z.string().min(1)).min(1).describe('Trade-offs accepted, both positive and negative'),
+});
+export type Adr = z.infer<typeof adrSchema>;
+
+export const taskEstimates = ['XS', 'S', 'M', 'L', 'XL'] as const;
+
+export const architectureTaskSchema = z.object({
+  title: z.string().min(3).max(200).describe('Task title, one line'),
+  discipline: z.enum(disciplines),
+  description: z.string().min(10).describe('What to build and why, enough for the assigned Dev agent or engineer to start'),
+  acceptanceCriteria: z.array(z.string().min(1)).min(1).describe('Testable criteria'),
+  priority: z.enum(priorities),
+  estimate: z.enum(taskEstimates).describe('Rough effort t-shirt size from the architecture side only, not a developer commitment'),
+  relatedStories: z.array(z.string().min(1)).describe('Story keys (e.g. AURA-43) this task implements'),
+});
+export type ArchitectureTask = z.infer<typeof architectureTaskSchema>;
+
+export const architectureDraftSchema = z.object({
+  epicKey: z.string().min(1),
+  requirementsSummary: z.string().min(10).describe('Cross-story synthesis of the functional and non-functional requirement themes driving this design'),
+  decomposition: z.string().min(10).describe('System decomposition: components/services and how they fit together'),
+  apiDesign: z.string().min(10).describe('Endpoints, contracts, versioning approach'),
+  dataDesign: z.string().min(10).describe('Schema, storage choices, migrations needed'),
+  securityDesign: z.string().min(10).describe('AuthN/AuthZ, data protection, risk tier of new tools or endpoints'),
+  aiDesign: z.string().describe('Agent/LLM-specific design notes; empty string if this Epic has none'),
+  deploymentAndTestingNotes: z.string().min(10).describe('Rollout approach and what needs test coverage'),
+  adrs: z.array(adrSchema).min(1).max(10),
+  tasks: z.array(architectureTaskSchema).min(1).max(30),
+});
+export type ArchitectureDraft = z.infer<typeof architectureDraftSchema>;
+
+export type DraftKind = 'epic' | 'stories' | 'architecture';
+
+// Renders a bullet list, or a placeholder line when empty.
 function bullets(items: string[]): string {
   return items.length ? items.map((i) => `- ${i}`).join('\n') : '- none';
 }
 
 const PO_PERSPECTIVE = '*Drafted by the AURA PO Agent, from a product-ownership perspective: business value, scope, and stakeholder impact.*';
 const BA_PERSPECTIVE = '*Drafted by the AURA BA Agent, from a business-analyst perspective: functional detail, testability, and delivery scope.*';
+const ARCHITECT_PERSPECTIVE = '*Drafted by the AURA Architect Agent, from a technical-design perspective: decomposition, API/data/security shape, and delivery tasks.*';
 
+// Renders an Epic draft as Markdown for the human approval gate.
 export function renderEpic(draft: EpicDraft): string {
   return [
     `# ${draft.title}`,
@@ -72,13 +112,12 @@ export function renderEpic(draft: EpicDraft): string {
   ].join('\n');
 }
 
+// Renders a single Story as Markdown, standalone or numbered within a list.
 export function renderStory(story: StoryDraft, index?: number): string {
   const heading = index === undefined ? `# ${story.title}` : `## ${index + 1}. ${story.title}`;
   return [
     heading,
     '',
-    // Only a standalone Story doc (index undefined - an individual Jira issue) carries its own
-    // perspective line; inside renderStories() the list carries one at the top instead.
     ...(index === undefined ? [BA_PERSPECTIVE, ''] : []),
     `**Priority:** ${story.priority}`,
     '',
@@ -95,6 +134,7 @@ export function renderStory(story: StoryDraft, index?: number): string {
   ].join('\n');
 }
 
+// Renders all Stories for an Epic as Markdown for the human approval gate.
 export function renderStories(draft: StoriesDraft): string {
   return [
     `# Stories for ${draft.epicKey}`,
@@ -107,13 +147,136 @@ export function renderStories(draft: StoriesDraft): string {
   ].join('\n');
 }
 
-// Jira description bodies. mcp-atlassian converts Markdown to Jira markup.
+// Renders one ADR as a Markdown section.
+export function renderAdr(adr: Adr, index: number): string {
+  return [
+    `## ADR-${index + 1}. ${adr.title}`,
+    '',
+    '**Context**',
+    adr.context,
+    '',
+    '**Decision**',
+    adr.decision,
+    '',
+    '**Consequences**',
+    bullets(adr.consequences),
+  ].join('\n');
+}
+
+// Renders a single architecture task as Markdown, standalone or numbered within a list.
+export function renderArchitectureTask(task: ArchitectureTask, index?: number): string {
+  const heading = index === undefined ? `# ${task.title}` : `## ${index + 1}. ${task.title}`;
+  return [
+    heading,
+    '',
+    `**Discipline:** ${task.discipline} · **Priority:** ${task.priority} · **Estimate:** ${task.estimate}`,
+    task.relatedStories.length ? `**Implements:** ${task.relatedStories.join(', ')}` : '',
+    '',
+    task.description,
+    '',
+    '### Acceptance criteria',
+    bullets(task.acceptanceCriteria),
+  ]
+    .filter((line) => line !== '')
+    .join('\n');
+}
+
+// Renders the full architecture draft as Markdown for the human approval gate.
+export function renderArchitecture(draft: ArchitectureDraft): string {
+  return [
+    `# Architecture for ${draft.epicKey}`,
+    '',
+    ARCHITECT_PERSPECTIVE,
+    '',
+    '## Requirements summary',
+    draft.requirementsSummary,
+    '',
+    '## System decomposition',
+    draft.decomposition,
+    '',
+    '## API design',
+    draft.apiDesign,
+    '',
+    '## Data design',
+    draft.dataDesign,
+    '',
+    '## Security design',
+    draft.securityDesign,
+    ...(draft.aiDesign.trim() ? ['', '## AI design', draft.aiDesign] : []),
+    '',
+    '## Deployment and testing notes',
+    draft.deploymentAndTestingNotes,
+    '',
+    '## Architecture Decision Records',
+    '',
+    draft.adrs.map((adr, i) => renderAdr(adr, i)).join('\n\n'),
+    '',
+    '## Architecture tasks',
+    '',
+    draft.tasks.map((t, i) => `${renderArchitectureTask(t, i)}\n`).join('\n'),
+  ].join('\n');
+}
+
+// Renders an Epic as a Jira issue description with a provenance stamp appended.
 export function epicJiraDescription(draft: EpicDraft, stamp: string): string {
   return `${renderEpic(draft).replace(/^# .*\n\n/, '')}\n\n----\n${stamp}`;
 }
 
+// Renders a Story as a Jira issue description with epic-wide NFRs and a provenance stamp appended.
 export function storyJiraDescription(story: StoryDraft, nfrs: string[], stamp: string): string {
   const body = renderStory(story).replace(/^# .*\n\n/, '');
   const nfr = nfrs.length ? `\n\n### Non-functional requirements (epic-wide)\n${bullets(nfrs)}` : '';
   return `${body}${nfr}\n\n----\n${stamp}`;
+}
+
+// Renders an architecture task as a Jira issue description with a provenance stamp appended.
+export function architectureTaskJiraDescription(task: ArchitectureTask, stamp: string): string {
+  const body = renderArchitectureTask(task).replace(/^# .*\n\n/, '');
+  return `${body}\n\n----\n${stamp}`;
+}
+
+// Renders the Architect's requirements-analysis document for the workspace.
+export function renderRequirementsDoc(draft: ArchitectureDraft): string {
+  return [`# Requirements analysis for ${draft.epicKey}`, '', ARCHITECT_PERSPECTIVE, '', draft.requirementsSummary].join('\n');
+}
+
+// Renders a human-readable delivery plan mirroring the filed Jira tasks.
+export function renderPlan(draft: ArchitectureDraft): string {
+  return [
+    `# Delivery plan for ${draft.epicKey}`,
+    '',
+    ARCHITECT_PERSPECTIVE,
+    '',
+    '## Deployment and testing notes',
+    draft.deploymentAndTestingNotes,
+    '',
+    '## Tasks',
+    '',
+    draft.tasks.map((t, i) => `${i + 1}. **[${t.discipline}]** ${t.title} (${t.priority}, est. ${t.estimate})${t.relatedStories.length ? ` - implements ${t.relatedStories.join(', ')}` : ''}`).join('\n'),
+  ].join('\n');
+}
+
+// Workspace file paths this Epic's design documents were written to, relative to the
+// Architect's per-Epic workspace root (architectWorkspace(epicKey)).
+export interface ArchitectureDocPaths {
+  requirements: string;
+  architecture: string;
+  plan: string;
+  adrs: string[];
+}
+
+// Renders the Jira comment pointing at the Architect workspace's design documents.
+export function architectureFiledComment(draft: ArchitectureDraft, paths: ArchitectureDocPaths, stamp: string): string {
+  return [
+    `AURA Architect Agent filed ${draft.tasks.length} architecture task${draft.tasks.length === 1 ? '' : 's'} and ${draft.adrs.length} ADR${draft.adrs.length === 1 ? '' : 's'}.`,
+    '',
+    `Design documents (Architect workspace for ${draft.epicKey}):`,
+    `- ${paths.architecture}`,
+    `- ${paths.requirements}`,
+    `- ${paths.plan}`,
+    ...paths.adrs.map((p) => `- ${p}`),
+    '',
+    '----',
+    stamp,
+  ].join('\n');
 }

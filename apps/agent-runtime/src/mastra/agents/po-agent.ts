@@ -1,10 +1,9 @@
 import { Agent } from '@mastra/core/agent';
 import { withGeminiFallback } from '../config/models';
+import { PO_MODEL_ID } from './registry';
 
-// Drafts and revises an Epic as structured JSON (contracts/drafts.ts). No tools: filing to Jira
-// is done by delegate_to_po in code after a human approves, so nothing here can write anywhere.
-// Invoked only through the Orchestrator's delegate_to_po tool (docs/ARCHITECTURE.md section 5.1,
-// Gate 1).
+// Drafts and revises Epics as structured JSON without using tools or writing to Jira.
+// Invoked only by the Orchestrator at Gate 1; Jira filing happens through `delegate_to_po` after human approval.
 export const poAgent = new Agent({
   id: 'po-agent',
   name: 'PO Agent',
@@ -31,7 +30,7 @@ placeholder:
   "improve X".
 When revising, apply the feedback and keep every other field unchanged.`,
 
-  model: withGeminiFallback('groq/qwen/qwen3.8-27b', { reasoningFormat: 'hidden' }),
+  model: withGeminiFallback(PO_MODEL_ID, { reasoningFormat: 'hidden' }),
   defaultOptions: {
     maxSteps: 1,
   },

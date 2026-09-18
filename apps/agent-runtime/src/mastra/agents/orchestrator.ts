@@ -1,27 +1,38 @@
 import { Agent } from '@mastra/core/agent';
 import { askUserTool } from '@mastra/core/tools';
 import { Memory } from '@mastra/memory';
-import { delegateToPoTool, delegateToBaTool } from '../tools/delegate-tools';
+import { delegateToPoTool, delegateToBaTool, delegateToArchitectTool } from '../tools/delegate-tools';
 import { withGeminiFallback } from '../config/models';
+import { ORCHESTRATOR_MODEL_ID } from './registry';
 
-// Drives Epic (Gate 1) and Story (Gate 2) work by delegating to the PO and BA agents and pausing
-// with ask_user for every human decision. It never drafts or files anything itself, and it
-// refers to drafts by id, never by content (docs/ARCHITECTURE.md sections 5.1 and 6.2).
+// The Orchestrator's tool wiring. This is the only declaration of it - agents/registry.ts
+// holds model/delegation metadata but not a second copy of this list, so there is nothing for
+// it to drift out of sync with. index.ts prints this real wiring (via listTools()) at startup.
+export const orchestratorTools = {
+  ask_user: askUserTool,
+  delegate_to_po: delegateToPoTool,
+  delegate_to_ba: delegateToBaTool,
+  delegate_to_architect: delegateToArchitectTool,
+};
+
+// Orchestrates Epic, Story, and Architecture work through PO, BA, and Architect agents, pausing for human approval at each gate.
+// It never drafts or files directly and references drafts only by ID.
 export const orchestrator = new Agent({
   id: 'orchestrator',
   name: 'Orchestrator',
-  description: 'Drives Epic drafting and approval with the PO Agent, then Story drafting and approval with the BA Agent, filing both in Jira after human approval.',
+  description: 'Drives Epic drafting with the PO Agent, Story drafting with the BA Agent, and architecture design with the Architect Agent, filing each in Jira after human approval.',
   metadata: {
     suggestedPrompts: [
       'Draft an Epic for a self-service password reset feature.',
       'We need an Epic for migrating billing to a new payment provider.',
       'Break the approved Epic PROJ-12 into Stories.',
+      'Design the architecture for the approved Stories under PROJ-12.',
     ],
   },
   instructions: `You are the AURA Orchestrator. You coordinate; you never write drafts or Jira issues yourself.
 
 Tools
-- delegate_to_po / delegate_to_ba: modes draft, revise, file. They return {ok, draftId, markdown, epicKey, storyKeys, error}.
+- delegate_to_po / delegate_to_ba / delegate_to_architect: modes draft, revise, file. They return {ok, draftId, markdown, epicKey, storyKeys, taskKeys, error}.
 - ask_user: the only way to get a human decision. Always pass options for gate questions.
 
 Rules
@@ -54,21 +65,26 @@ Gate 2, Stories (also the starting point when the user gives an existing Epic ke
    stale - say so in one line when it returns storyKeys, then continue the loop.
 10. Reject: acknowledge and stop.
 11. Approve: delegate_to_ba file with draftId and approved=true. Report storyKeys.
+12. ask_user "Continue to Architecture design for <epicKey>?" with options: Continue, Stop.
+
+Gate 3, Architecture (also the starting point when the user gives an Epic that already has approved Stories)
+13. delegate_to_architect draft with the epicKey.
+14. Show the markdown. ask_user "Do you approve this architecture design?" with options: Approve, Revise, Reject.
+15. Revise: delegate_to_architect revise with draftId and the feedback, then back to step 14.
+    Tasks already filed in Jira get updated in place with a comment instead of being left
+    stale - say so in one line when it returns taskKeys, then continue the loop.
+16. Reject: acknowledge and stop.
+17. Approve: delegate_to_architect file with draftId and approved=true. Report taskKeys. ADRs are
+    posted as a Jira comment on the Epic automatically - mention that once, do not restate them.
 
 Answers to ask_user arrive as text such as "Approve", "Revise. Feedback: ...", "Reject. Reason: ...", or "Continue". Read the leading word as the decision and the rest as feedback.
 If the user only greets you, ask for a business requirement or an approved Epic key.`,
 
-  model: withGeminiFallback('groq/qwen/qwen3.8-27b', { reasoningFormat: 'hidden' }),
-  tools: {
-    ask_user: askUserTool,
-    delegate_to_po: delegateToPoTool,
-    delegate_to_ba: delegateToBaTool,
-  },
+  model: withGeminiFallback(ORCHESTRATOR_MODEL_ID, { reasoningFormat: 'hidden' }),
+  tools: orchestratorTools,
   memory: new Memory({
     options: {
-      // Tool calls and results count as messages; 24 covers a full Epic plus Story cycle
-      // while keeping older turns out of every prompt.
-      lastMessages: 24,
+      lastMessages: 32,
       generateTitle: {
         model: 'groq/llama-3.1-8b-instant',
         instructions: 'Title this conversation in at most six words, naming the feature or Epic. No quotes.',
@@ -76,6 +92,6 @@ If the user only greets you, ask for a business requirement or an approved Epic 
     },
   }),
   defaultOptions: {
-    maxSteps: 24,
+    maxSteps: 32,
   },
 });

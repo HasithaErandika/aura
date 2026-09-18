@@ -22,6 +22,7 @@ const url = process.env.AURA_DRAFTS_DB_URL || 'file:./aura-drafts.db';
 let client: Client | null = null;
 let ready: Promise<void> | null = null;
 
+// Lazily opens the libSQL connection and ensures the drafts table exists.
 async function db(): Promise<Client> {
   if (!client) client = createClient({ url, authToken: process.env.AURA_DRAFTS_DB_TOKEN || undefined });
   if (!ready) {
@@ -45,10 +46,14 @@ async function db(): Promise<Client> {
   return client;
 }
 
+const ID_PREFIX: Record<DraftKind, string> = { epic: 'EPIC', stories: 'STORIES', architecture: 'ARCH' };
+
+// Generates a short random id prefixed by the draft kind.
 function newId(kind: DraftKind): string {
-  return `${kind === 'epic' ? 'EPIC' : 'STORIES'}-${randomBytes(4).toString('hex')}`;
+  return `${ID_PREFIX[kind]}-${randomBytes(4).toString('hex')}`;
 }
 
+// Converts a raw database row into a typed DraftRecord.
 function rowToRecord<T>(row: Record<string, unknown>): DraftRecord<T> {
   return {
     id: String(row.id),
@@ -64,6 +69,7 @@ function rowToRecord<T>(row: Record<string, unknown>): DraftRecord<T> {
 }
 
 export const draftStore = {
+  // Creates a new draft, versioned from its parent if one is given.
   async create<T>(input: { kind: DraftKind; content: T; threadId?: string | null; epicKey?: string | null; parentId?: string | null }): Promise<DraftRecord<T>> {
     const c = await db();
     let version = 1;
@@ -89,6 +95,7 @@ export const draftStore = {
     return record;
   },
 
+  // Fetches a draft by id, or null if it doesn't exist.
   async get<T>(id: string): Promise<DraftRecord<T> | null> {
     const c = await db();
     const result = await c.execute({ sql: 'select * from aura_drafts where id = ?', args: [id] });
@@ -96,6 +103,7 @@ export const draftStore = {
     return row ? rowToRecord<T>(row as unknown as Record<string, unknown>) : null;
   },
 
+  // Records which Jira issues a draft's items were filed as, and optionally its Epic key.
   async markFiled(id: string, filed: Record<string, string>, epicKey?: string | null): Promise<void> {
     const c = await db();
     await c.execute({
