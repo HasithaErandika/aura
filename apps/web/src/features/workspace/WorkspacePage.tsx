@@ -77,6 +77,7 @@ export function WorkspacePage() {
     }
     if (profile?.role === "developer") {
       byRole.push("An architecture Task is already filed in Jira. Scaffold it in a sandboxed container. Task key: ");
+      byRole.push("A Task is already scaffolded. Implement it with a coding agent. Task key: ");
     }
     return [...byRole, ...fromRuntime];
   }, [agent, profile?.role]);
@@ -121,7 +122,7 @@ export function WorkspacePage() {
         : profile?.role === "architect"
           ? "Give the Orchestrator one or more Epic keys with approved Stories to design a shared architecture"
           : profile?.role === "developer"
-            ? "Give the Orchestrator a filed architecture Task key to scaffold"
+            ? "Give the Orchestrator a Task key to scaffold, or an already-scaffolded Task key to implement with a coding agent"
             : "Describe the business requirement you want turned into an Epic";
 
   return (

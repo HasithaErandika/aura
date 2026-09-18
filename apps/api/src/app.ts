@@ -17,7 +17,7 @@ export function createApp() {
     cors({
       origin: env.webOrigin,
       credentials: true,
-      methods: ["GET", "POST", "PATCH", "DELETE"],
+      methods: ["GET", "POST", "PUT", "PATCH", "DELETE"],
       allowedHeaders: ["Authorization", "Content-Type", "X-Request-Id"],
       exposedHeaders: ["X-Request-Id", "RateLimit-Limit", "RateLimit-Remaining", "RateLimit-Reset", "Retry-After"],
       maxAge: 600,

@@ -33,6 +33,10 @@ printManifest({
   'ba-agent': baTools,
   'architect-agent': architectTools,
   'dev-agent': devTools,
+  // No backing Mastra Agent object to call listTools() on - see registry.ts's own note on this
+  // entry. It holds no tools of its own either way (Claude Code/Codex/file-tools aren't
+  // Orchestrator-visible tools, the same way dev-agent's Docker command isn't).
+  'coding-agent': [],
 } satisfies Record<AgentId, readonly string[]>);
 
 export const mastra = new Mastra({

@@ -13,6 +13,8 @@ const AGENT_NAMES: Record<string, string> = {
   "architect-agent": "Architect Agent",
   dev: "Dev Agent",
   "dev-agent": "Dev Agent",
+  code: "Coding Agent",
+  "coding-agent": "Coding Agent",
 };
 
 // Step ids from apps/agent-runtime/src/mastra/workflows/architect-workflow.ts.
@@ -32,6 +34,10 @@ function label(step: RunStep): { title: string; tone: "neutral" | "success" | "w
   const agent = tool.startsWith("delegate_to_") ? (AGENT_NAMES[tool.slice(12)] ?? `${tool.slice(12)} agent`) : null;
   switch (step.kind) {
     case "progress": {
+      const source = step.payload?.source;
+      if (source === "dev" || source === "code") {
+        return { title: `${source === "dev" ? "Dev Agent" : "Coding Agent"} output`, tone: "neutral" };
+      }
       const stepId = typeof step.payload?.stepId === "string" ? step.payload.stepId : "";
       const phase = typeof step.payload?.phase === "string" ? step.payload.phase : "";
       const stepLabel = ARCHITECT_STEP_NAMES[stepId] ?? stepId;
@@ -68,6 +74,7 @@ const dot: Record<string, string> = {
 function payloadText(step: RunStep): string | null {
   if (!step.payload) return null;
   const p = step.payload as Record<string, unknown>;
+  if (typeof p.chunk === "string") return p.chunk;
   if (typeof p.text === "string") return p.text;
   if (typeof p.message === "string") return p.message;
   if (typeof p.error === "string") return p.error;
@@ -78,9 +85,35 @@ function payloadText(step: RunStep): string | null {
   return JSON.stringify(p, null, 2);
 }
 
-export function RunTimeline({ steps }: { steps: RunStep[] }) {
+function outputSource(step: RunStep): "dev" | "code" | null {
+  const source = step.payload?.source;
+  return source === "dev" || source === "code" ? source : null;
+}
+
+// Each Docker/CLI stdout chunk is its own persisted step - dozens for one Gate 4/5 run.
+// Collapses consecutive chunks from the same source into one growing block (same idea as the
+// live chat view's coalescing, apps/web/src/features/workspace/hooks/useConversation.ts),
+// so the history view reads like a log instead of a wall of near-identical rows.
+function groupSteps(steps: RunStep[]): RunStep[] {
+  const grouped: RunStep[] = [];
+  for (const step of steps) {
+    const source = outputSource(step);
+    const prev = grouped[grouped.length - 1];
+    if (source && prev && outputSource(prev) === source) {
+      const prevChunk = typeof prev.payload?.chunk === "string" ? prev.payload.chunk : "";
+      const chunk = typeof step.payload?.chunk === "string" ? step.payload.chunk : "";
+      grouped[grouped.length - 1] = { ...prev, payload: { ...prev.payload, chunk: prevChunk + chunk }, createdAt: step.createdAt };
+      continue;
+    }
+    grouped.push(step);
+  }
+  return grouped;
+}
+
+export function RunTimeline({ steps: rawSteps }: { steps: RunStep[] }) {
   const [open, setOpen] = useState<Set<number>>(new Set());
-  if (steps.length === 0) return <p className="px-5 py-6 text-sm text-ink-500">No steps recorded yet.</p>;
+  if (rawSteps.length === 0) return <p className="px-5 py-6 text-sm text-ink-500">No steps recorded yet.</p>;
+  const steps = groupSteps(rawSteps);
 
   return (
     <ol className="px-5 py-2">

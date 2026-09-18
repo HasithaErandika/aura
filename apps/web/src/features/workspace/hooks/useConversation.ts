@@ -161,7 +161,19 @@ export function useConversation(agentId: string, threadId: string | null) {
           // A workflow-backed delegate tool (e.g. the Architect) reports its own internal
           // step progress; shown as a synthetic tool-activity row so it appears in the same
           // list as delegate_to_* calls without a separate UI element.
-          const { stepId, phase, status } = event.data;
+          const { stepId, phase, status, source, chunk } = event.data;
+          if (source === "dev" || source === "code") {
+            // The Dev/Coding agent's live Docker/CLI output - many small chunks, one growing
+            // row (not one row per chunk) so it reads like a scrolling log, not a flood.
+            const toolCallId = `progress-${source}-output`;
+            const tools = [...streaming.tools];
+            const idx = tools.findIndex((t) => t.toolCallId === toolCallId);
+            const soFar = idx >= 0 && typeof tools[idx]!.result === "string" ? (tools[idx]!.result as string) : "";
+            const next: ChatToolActivity = { toolCallId, toolName: `${source}_output`, state: "call", result: soFar + (chunk ?? "") };
+            if (idx >= 0) tools[idx] = next;
+            else tools.push(next);
+            return { ...s, streaming: { ...streaming, tools } };
+          }
           const toolCallId = `progress-${stepId ?? "step"}`;
           const tools = [...streaming.tools];
           const idx = tools.findIndex((t) => t.toolCallId === toolCallId);

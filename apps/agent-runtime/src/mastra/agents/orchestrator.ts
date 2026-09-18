@@ -1,7 +1,7 @@
 import { Agent } from '@mastra/core/agent';
 import { askUserTool } from '@mastra/core/tools';
 import { Memory } from '@mastra/memory';
-import { delegateToPoTool, delegateToBaTool, delegateToArchitectTool, delegateToDevTool } from '../tools/delegate-tools';
+import { delegateToPoTool, delegateToBaTool, delegateToArchitectTool, delegateToDevTool, delegateToCodeTool } from '../tools/delegate-tools';
 import { withGeminiFallback } from '../config/models';
 import { ORCHESTRATOR_MODEL_ID } from './registry';
 
@@ -14,15 +14,17 @@ export const orchestratorTools = {
   delegate_to_ba: delegateToBaTool,
   delegate_to_architect: delegateToArchitectTool,
   delegate_to_dev: delegateToDevTool,
+  delegate_to_code: delegateToCodeTool,
 };
 
-// Orchestrates Epic, Story, Architecture, and Dev-scaffold work through PO, BA, Architect, and
-// Dev agents, pausing for human approval at each gate. It never drafts, files, or executes
-// directly and references drafts only by ID.
+// Orchestrates Epic, Story, Architecture, Dev-scaffold, and Coding-agent work through PO, BA,
+// Architect, and Dev agents plus an external coding CLI, pausing for human approval at each
+// gate. It never drafts, files, or executes directly and references drafts only by ID.
 export const orchestrator = new Agent({
   id: 'orchestrator',
   name: 'Orchestrator',
-  description: 'Drives Epic drafting with the PO Agent, Story drafting with the BA Agent, architecture design with the Architect Agent, and Task scaffolding with the Dev Agent, filing or executing each after human approval.',
+  description:
+    'Drives Epic drafting with the PO Agent, Story drafting with the BA Agent, architecture design with the Architect Agent, Task scaffolding with the Dev Agent, and Task implementation with the Coding Agent (Claude Code or Codex), filing or executing each after human approval.',
   metadata: {
     suggestedPrompts: [
       'Draft an Epic for a self-service password reset feature.',
@@ -31,6 +33,8 @@ export const orchestrator = new Agent({
       'Design the architecture for the approved Stories under PROJ-12.',
       'Design one shared architecture across PROJ-12 and PROJ-15.',
       'Scaffold Task PROJ-33 under Epic PROJ-12.',
+      'Implement Task PROJ-33 with Claude Code.',
+      'Implement Task PROJ-33 with the built-in AURA Coding Agent.',
     ],
   },
   instructions: `You are the AURA Orchestrator. You coordinate; you never write drafts, file Jira issues, or execute anything yourself.
@@ -38,6 +42,7 @@ export const orchestrator = new Agent({
 Tools
 - delegate_to_po / delegate_to_ba / delegate_to_architect: modes draft, revise, file. They return {ok, draftId, markdown, epicKey, storyKeys, taskKeys, error}.
 - delegate_to_dev: modes draft, execute. Returns {ok, draftId, markdown, epicKey, taskKey, targetDir, exitCode, error}.
+- delegate_to_code: modes draft, execute. Returns {ok, draftId, markdown, epicKey, taskKey, targetDir, exitCode, error}.
 - ask_user: the only way to get a human decision. Always pass options for gate questions.
 
 Rules
@@ -106,6 +111,28 @@ Gate 4, Dev scaffold (also the starting point when the user names a filed archit
     minutes (it runs inside a sandboxed container) - say so once, then wait. Report the
     outcome plainly: on success, the targetDir; on failure, the error verbatim and that nothing
     was retried automatically.
+26. ask_user "Continue to implementing <taskKey> with a coding agent?" with options: Continue, Stop.
+
+Gate 5, Coding agent (also the starting point when the user names an already-scaffolded Task directly)
+27. Establish epicKey, taskKey, and provider. If already given, use those. The Task must already
+    be scaffolded (Gate 4) - delegate_to_code draft will say so plainly if it is not, do not try
+    to work around that. For provider, ask_user "Which coding agent?" with options: Claude Code,
+    Codex, AURA Coding Agent (built-in, no key needed). Never assume - map the answer to
+    provider "anthropic" (Claude Code), "openai" (Codex), or "mastra" (AURA Coding Agent).
+28. delegate_to_code draft with epicKey, taskKey, and provider. If it returns ok=false because
+    the human has not connected an API key for an anthropic/openai provider, tell them plainly
+    to connect it in their profile, then stop - do not ask for the key in chat, it is never
+    typed into a conversation. The mastra provider needs no key and cannot fail this way.
+29. Show the markdown (the exact prompt the coding agent will receive). ask_user "Run the coding
+    agent with this prompt?" with options: Approve, Reject. There is no Revise here either - the
+    prompt is built deterministically from the Task; if it needs to say something different,
+    that means editing the Task in Jira, not revising this draft.
+30. Reject: acknowledge and stop. Nothing runs.
+31. Approve: delegate_to_code execute with draftId and approved=true. This can take significantly
+    longer than a scaffold (real coding work, not one fixed command) - say so once, then wait.
+    Report the outcome plainly: on success, that the Task was moved toward In Review and the
+    human should review the actual code before treating it as done; on failure, the error
+    verbatim and that nothing was retried automatically.
 
 Answers to ask_user arrive as text such as "Approve", "Revise. Feedback: ...", "Reject. Reason: ...", or "Continue". Read the leading word as the decision and the rest as feedback.
 If the user only greets you, ask for a business requirement or an approved Epic key.`,

@@ -26,6 +26,9 @@ export interface RunInContainerInput {
   hostDir: string;
   command: string;
   timeoutMs: number;
+  // Extra environment for the container (e.g. a coding CLI's API key) - passed as `-e` args to
+  // `docker run`, never interpolated into `command`'s shell string. Values are not logged.
+  env?: Record<string, string>;
   onOutput?: (chunk: string) => void;
 }
 
@@ -47,7 +50,8 @@ function userArgs(): string[] {
 }
 
 export async function runInContainer(input: RunInContainerInput): Promise<DockerRunResult> {
-  const args = ['run', '--rm', ...RESOURCE_LIMITS, ...userArgs(), '-v', `${input.hostDir}:/workspace`, '-w', '/workspace', input.image, 'sh', '-c', input.command];
+  const extraEnv = Object.entries(input.env ?? {}).flatMap(([k, v]) => ['-e', `${k}=${v}`]);
+  const args = ['run', '--rm', ...RESOURCE_LIMITS, ...userArgs(), ...extraEnv, '-v', `${input.hostDir}:/workspace`, '-w', '/workspace', input.image, 'sh', '-c', input.command];
 
   return new Promise((resolve, reject) => {
     const proc = spawn('docker', args);

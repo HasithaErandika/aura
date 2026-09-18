@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { ChatToolActivity } from "../../../types/api.ts";
 import { cn } from "../../../shared/lib/cn.ts";
 import { ChevronRightIcon } from "../../../shared/icons/index.tsx";
@@ -13,6 +13,8 @@ const AGENT_NAMES: Record<string, string> = {
   "architect-agent": "Architect Agent",
   dev: "Dev Agent",
   "dev-agent": "Dev Agent",
+  code: "Coding Agent",
+  "coding-agent": "Coding Agent",
 };
 
 // Step ids from apps/agent-runtime/src/mastra/workflows/architect-workflow.ts.
@@ -29,6 +31,10 @@ const ARCHITECT_STEP_NAMES: Record<string, string> = {
 
 function describe(tool: ChatToolActivity): { title: string; detail: string | null } {
   const name = tool.toolName;
+  if (name === "dev_output" || name === "code_output") {
+    const label = name === "dev_output" ? "Dev Agent" : "Coding Agent";
+    return { title: `${label} - live output`, detail: typeof tool.result === "string" ? tool.result : "" };
+  }
   if (name.startsWith("architect_step_")) {
     const stepId = name.slice("architect_step_".length);
     const label = ARCHITECT_STEP_NAMES[stepId] ?? stepId;
@@ -51,12 +57,22 @@ function describe(tool: ChatToolActivity): { title: string; detail: string | nul
   return { title: tool.state === "call" ? `Calling ${name}` : `${name} finished`, detail: null };
 }
 
+const LIVE_LOG_NAMES = new Set(["dev_output", "code_output"]);
+
 export function ToolActivity({ tool }: { tool: ChatToolActivity }) {
-  const [open, setOpen] = useState(false);
+  const isLiveLog = LIVE_LOG_NAMES.has(tool.toolName);
+  // A Dev/Coding agent run can take minutes with no other signal - default this one open so
+  // the log is visible the instant it starts, instead of requiring a click to discover it.
+  const [open, setOpen] = useState(isLiveLog);
   const { title, detail } = describe(tool);
   const pending = tool.state === "call";
   const failed = tool.isError || tool.state === "error";
   const hasDetail = Boolean(detail) || (tool.result !== undefined && tool.result !== null && !detail);
+
+  const logRef = useRef<HTMLPreElement>(null);
+  useEffect(() => {
+    if (isLiveLog && logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight;
+  }, [isLiveLog, detail]);
 
   return (
     <div className={cn("rounded-md border text-xs", failed ? "border-danger/20 bg-danger-soft" : "border-line bg-ink-50")}>
@@ -70,7 +86,10 @@ export function ToolActivity({ tool }: { tool: ChatToolActivity }) {
         {hasDetail ? <ChevronRightIcon className={cn("ml-auto size-3.5 text-ink-400 transition-transform", open && "rotate-90")} /> : null}
       </button>
       {open && hasDetail ? (
-        <pre className="scroll-quiet max-h-72 overflow-auto border-t border-line px-3 py-2 font-mono text-[11.5px] leading-relaxed text-ink-700 whitespace-pre-wrap">
+        <pre
+          ref={logRef}
+          className="scroll-quiet max-h-72 overflow-auto border-t border-line px-3 py-2 font-mono text-[11.5px] leading-relaxed text-ink-700 whitespace-pre-wrap"
+        >
           {detail ?? JSON.stringify(tool.result, null, 2)}
         </pre>
       ) : null}

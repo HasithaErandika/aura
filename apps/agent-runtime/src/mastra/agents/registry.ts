@@ -7,8 +7,12 @@ export const BA_MODEL_ID = 'groq/openai/gpt-oss-120b';
 export const ARCHITECT_MODEL_ID = 'groq/openai/gpt-oss-120b';
 // Lightweight: the Dev agent only explains an already-fixed plan, it doesn't author content.
 export const DEV_MODEL_ID = 'groq/qwen/qwen3.8-27b';
+// The built-in Coding Agent (contracts/coding-drafts.ts provider "mastra") actually writes
+// code across an iterative tool-use loop - the same model tier as BA/Architect, not the
+// lightweight Dev-agent tier.
+export const MASTRA_CODING_MODEL_ID = 'groq/openai/gpt-oss-120b';
 
-export type AgentId = 'orchestrator' | 'po-agent' | 'ba-agent' | 'architect-agent' | 'dev-agent';
+export type AgentId = 'orchestrator' | 'po-agent' | 'ba-agent' | 'architect-agent' | 'dev-agent' | 'coding-agent';
 
 export interface AgentManifestEntry {
   modelId: string;
@@ -19,8 +23,8 @@ export interface AgentManifestEntry {
 export const AGENT_MANIFEST: Record<AgentId, AgentManifestEntry> = {
   orchestrator: {
     modelId: ORCHESTRATOR_MODEL_ID,
-    delegatesTo: ['po-agent', 'ba-agent', 'architect-agent', 'dev-agent'],
-    note: 'Coordinates Gate 1 (Epic), Gate 2 (Stories), Gate 3 (Architecture), and Gate 4 (Dev scaffold). Never drafts, files, or executes directly - no Jira, memory, filesystem, or shell tool of its own (docs/ARCHITECTURE.md section 6.2).',
+    delegatesTo: ['po-agent', 'ba-agent', 'architect-agent', 'dev-agent', 'coding-agent'],
+    note: 'Coordinates Gate 1 (Epic), Gate 2 (Stories), Gate 3 (Architecture), Gate 4 (Dev scaffold), and Gate 5 (Coding agent). Never drafts, files, or executes directly - no Jira, memory, filesystem, or shell tool of its own (docs/ARCHITECTURE.md section 6.2).',
   },
   'po-agent': {
     modelId: PO_MODEL_ID,
@@ -41,6 +45,11 @@ export const AGENT_MANIFEST: Record<AgentId, AgentManifestEntry> = {
     modelId: DEV_MODEL_ID,
     delegatesTo: [],
     note: 'Explains a Task-driven scaffold plan (Frontend only for now) whose command is fixed by code, invoked through delegate_to_dev. Holds no tools: cannot execute anything itself - execute mode runs the fixed command in a sandboxed Docker container from delegate-tools.ts, never from the model.',
+  },
+  'coding-agent': {
+    modelId: `varies by provider (Claude Code/Codex: developer's own connected key; AURA built-in: ${MASTRA_CODING_MODEL_ID})`,
+    delegatesTo: [],
+    note: 'Implements a Task, invoked through delegate_to_code. draft is always deterministic code, never a model call, for any provider - no Mastra Agent object backs this entry, unlike every other row here (docs/ARCHITECTURE.md section 6.5). execute runs one of three providers per run: Claude Code or Codex (Docker-sandboxed, the developer\'s own key) or AURA\'s own built-in agent (agents/mastra-coding-agent.ts - list_files/read_file/write_file only, no shell tool, contained by path checks rather than a container).',
   },
 };
 

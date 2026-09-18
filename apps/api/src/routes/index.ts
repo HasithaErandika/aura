@@ -10,12 +10,17 @@ import { auditRouter } from "../modules/audit/audit.router.js";
 import { dashboardRouter } from "../modules/dashboard/dashboard.router.js";
 import { workspaceRouter } from "../modules/workspace/workspace.router.js";
 import { jiraRouter } from "../modules/jira/jira.router.js";
+import { credentialsRouter } from "../modules/credentials/credentials.router.js";
+import { internalCredentialsRouter } from "../modules/credentials/internal.router.js";
 import { requireAuth } from "../middleware/auth.js";
 import { perUserLimit } from "../middleware/limits.js";
 
 export const apiRouter = Router();
 
 apiRouter.use("/health", healthRouter);
+// Server-to-server only (apps/agent-runtime), its own bearer-token check - not the browser's
+// Supabase session auth below. See internal.router.ts.
+apiRouter.use("/internal/credentials", internalCredentialsRouter);
 // Everything below is authenticated, then rate limited per user.
 apiRouter.use(requireAuth, perUserLimit);
 apiRouter.use("/me", meRouter);
@@ -28,3 +33,4 @@ apiRouter.use("/audit", auditRouter);
 apiRouter.use("/dashboard", dashboardRouter);
 apiRouter.use("/workspace", workspaceRouter);
 apiRouter.use("/jira", jiraRouter);
+apiRouter.use("/credentials", credentialsRouter);

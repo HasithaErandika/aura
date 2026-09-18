@@ -61,6 +61,16 @@ export const env = {
   jiraProjectKey: optionalString("JIRA_PROJECT_KEY"),
   jiraTimeoutMs: optionalNumber("JIRA_TIMEOUT_MS", 10_000),
 
+  // At-rest encryption for user-supplied coding-agent API keys (modules/credentials,
+  // lib/crypto.ts). Base64, must decode to exactly 32 bytes - generate with
+  // `openssl rand -base64 32`. Never set by AURA itself; the operator sets it.
+  credentialsEncryptionKey: required("CREDENTIALS_ENCRYPTION_KEY"),
+  // Shared secret for apps/agent-runtime's internal-only calls back to this API
+  // (modules/credentials/internal.router.ts) to fetch a decrypted coding-agent credential
+  // just-in-time. Not the same as MASTRA_RUNTIME_TOKEN (that one is API -> runtime; this one
+  // is runtime -> API, the one reverse call this system makes).
+  runtimeInternalToken: required("RUNTIME_INTERNAL_TOKEN"),
+
   // Rate limits (requests per window, per client)
   rateLimit: {
     windowMs: optionalNumber("RATE_LIMIT_WINDOW_MS", 60_000),
