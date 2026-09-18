@@ -5,8 +5,14 @@
 - **Inbound:** webhook receiver on issue transitions (`jira.issue.transitioned`) → internal event.
 - **Outbound:** issue/story/task creation, comments, status transitions, provenance-stamped descriptions.
 - **Constraint:** Jira remains the sole source of truth for work; AURA writes back but never forks its own competing work model.
-- **Phase 1 (2026-09-17):** outbound writes go through the `mcp-atlassian` MCP server, called from delegate-tool code in `apps/agent-runtime` after a recorded human approval. No agent holds a Jira tool. Inbound webhooks are not yet wired; runs start from a human brief.
+- **Status (2026-09-18):** outbound writes go through the `mcp-atlassian` MCP server, called from delegate-tool code in `apps/agent-runtime` after a recorded human approval. No agent holds a Jira tool. Inbound webhooks are not yet wired; runs start from a human brief.
 - **Open decision:** plain issues vs. Xray/Zephyr for test management (see [../ARCHITECTURE.md §15.3](../ARCHITECTURE.md#15-open-decisions-to-be-captured-as-adrs)).
+
+## 1a. Architect workspace (filesystem, read-only viewer)
+
+- Not an external system — the Architect's own per-Epic filesystem (ADRs, requirements summary, `architecture.md`, `plan.md`), listed here because `apps/web` reads it over HTTP like any other backend.
+- **Write path:** delegate-tool code only, after the same human approval as Jira filing. No agent holds a file-write tool.
+- **Read path:** `apps/agent-runtime` exposes two read-only routes; `apps/api` proxies them behind the same role grant as the Architect agent; `apps/web`'s Design Documents page browses and renders the files. No write path exists on the read side.
 
 ## 2. Git hosting (GitHub / GitLab)
 

@@ -15,7 +15,7 @@
 
 Full ERD: [../ARCHITECTURE.md §4.1](../ARCHITECTURE.md#41-entities); schema listing: [../ARCHITECTURE.md §9.1](../ARCHITECTURE.md#91-core-schema-supabase-postgres-rls-on-every-table).
 
-### Phase 1 tables in place (2026-09-17)
+### Tables in place (2026-09-18)
 
 | Owner | Store | Contents |
 |---|---|---|
@@ -24,7 +24,8 @@ Full ERD: [../ARCHITECTURE.md §4.1](../ARCHITECTURE.md#41-entities); schema lis
 | `apps/api` (Supabase) | `approval_requests`, `approval_decisions` | what a human was asked, the exact snapshot and its hash, who answered and how |
 | `apps/api` (Supabase) | `audit_logs` | append-only, enforced by trigger |
 | `apps/agent-runtime` (libSQL) | Mastra memory | conversation threads and messages, suspended run snapshots |
-| `apps/agent-runtime` (libSQL) | `aura_drafts` | structured Epic and Story drafts by id, version chain, Jira keys filed per item |
+| `apps/agent-runtime` (libSQL) | `aura_drafts` | structured Epic, Story, and Architecture drafts by id, version chain, Jira keys filed per item |
+| `apps/agent-runtime` (filesystem) | Architect workspace | per-Epic ADRs, requirements summary, `architecture.md`, `plan.md` — not a Supabase table, viewable read-only from the web app |
 
 Supabase rows reference runtime state by id (`thread_id`, `runtime_run_id`, draft ids in step payloads); runtime state is never copied into Supabase.
 

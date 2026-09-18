@@ -22,9 +22,10 @@ Each use case corresponds to one gate in the lifecycle in [../ARCHITECTURE.md §
 ## UC-3 — Approve Architecture (Gate 3)
 
 - **Actor:** Architect
-- **Preconditions:** Architect Agent has produced decomposition, API/data/security/AI/integration/deployment design, and ADRs from approved Stories.
-- **Flow:** Architect reviews ADRs and architecture tasks; approves or rejects.
-- **Postcondition (approve):** Jira architecture tasks created, status `Ready for Development`.
+- **Preconditions:** An approved Epic with approved Stories exists in Jira. The Architect Workflow (a Mastra Workflow, not one model call — requirements analysis, decomposition, then API/data/security/AI design in parallel, then deployment/testing notes, then ADRs and tasks) has produced a design and effort-estimated tasks.
+- **Flow:** The Orchestrator shows the design and pauses; progress from each workflow step streams live while it runs. The Architect approves, requests a revision with feedback, or rejects.
+- **Postcondition (approve):** Jira architecture tasks are created (status `Ready for Development`); ADRs, a requirements summary, `architecture.md`, and `plan.md` are written to the Architect's per-Epic workspace, viewable read-only in the web app; a comment on the Epic points to those files.
+- **Postcondition (revise or reject):** as in UC-1.
 
 ## UC-4 — Review & Merge PR (Gate 4)
 

@@ -20,7 +20,7 @@ It is composed of three deployable services (`apps/web`, `apps/api`, `apps/agent
 |---|---|---|
 | Project Owner | Owns business objectives; briefs the Orchestrator and approves Epics (Gate 1) | Web: Agent Workspace, Approval Inbox, Runs |
 | Business Analyst | Translates Epics into Stories/AC/DoD; approves Stories (Gate 2); domain-fluent, not necessarily technical | Web: Agent Workspace, Approval Inbox, Runs |
-| Architect | Technical decision-maker; approves ADRs and architecture tasks | Web: Run Console, diff viewer |
+| Architect | Technical decision-maker; approves ADRs and architecture tasks (Gate 3) | Web: Agent Workspace, Approval Inbox, Design Documents |
 | Developer | Reviews and merges AI-generated PRs; scoped to a discipline (FE/BE/Data/AI/Integration) | Git host PR review + Web |
 | QA Engineer | Approves test plans; verifies test results | Web: Approval Inbox |
 | Tester | Executes/curates suites | Web + CI |

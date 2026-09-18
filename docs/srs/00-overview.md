@@ -1,7 +1,7 @@
 # SRS — 00. Overview
 
-> **Status:** Draft v0.2, reconciled with the Phase 1 implementation
-> **Last updated:** 2026-09-17
+> **Status:** Draft v0.2, reconciled with the Phase 1/2 implementation
+> **Last updated:** 2026-09-18
 > **Source:** derived from [../ARCHITECTURE.md](../ARCHITECTURE.md)
 
 ## 1. Purpose

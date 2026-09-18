@@ -59,7 +59,7 @@
 | NFR-MAINT-2 | The Policy Engine shall be implemented as pure, unit-testable functions, independent of any specific HTTP framework. |
 | NFR-MAINT-3 | Agent prompts and definitions shall be versioned independently of application code, enabling rollback without a redeploy. |
 
-## Phase 1 implementation status (2026-09-17)
+## Implementation status (2026-09-18)
 
 - NFR-SEC-1: the runtime still uses a long-lived Jira API token from `.env`; per-run scoped tokens are not yet implemented. The API verifies access tokens locally when `SUPABASE_JWT_SECRET` is set and never forwards them to the runtime.
 - NFR-SEC-5: RLS is enabled on every table; governance tables have no client policies, so only the API's service role can read or write them.

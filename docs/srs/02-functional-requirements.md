@@ -98,15 +98,15 @@ Ref: [../ARCHITECTURE.md §4.2](../ARCHITECTURE.md#42-roles--agents-default-gran
 
 Ref: [../ARCHITECTURE.md §11](../ARCHITECTURE.md#11-observability)
 
-## Phase 1 implementation status (2026-09-17)
+## Implementation status (2026-09-18)
 
 | Area | Status | Notes |
 |---|---|---|
 | FR-AUTH | Partial | Supabase email/password with admin-provisioned accounts; policy evaluated in `apps/api` from data tables; strict Zod validation on every request. SSO (FR-AUTH-1), custom JWT claims (FR-AUTH-2), and per-run grant bundles (FR-AUTH-5) are not yet implemented. |
-| FR-JIRA | Partial | Outbound writes (Epic, Stories under the Epic, comment) happen in delegate-tool code after approval, with idempotent retry (FR-JIRA-4/5). Inbound webhooks and status-driven triggers (FR-JIRA-1/2/3) are not yet implemented; runs start from a human brief in the Agent Workspace. |
-| FR-APPR | Implemented for Gates 1 and 2 | Durable `approval_requests` with snapshot and hash, decision bound to the hash, SLA expiry that never auto-approves, inbox with mandatory reason on reject or revise. Four-eyes (FR-APPR-4) is not needed until HIGH-risk tools exist. |
-| FR-AGENT | Partial | FR-AGENT-3 and FR-AGENT-7 implemented as described. Versioned declarative agent definitions, lifecycle statuses, evals, and loop guards (FR-AGENT-1/2/6) are not yet implemented; runs persist steps, snapshots, and decisions but not token cost or trace id (FR-AGENT-5 partial). |
-| FR-TOOL | Partial | No separate gateway; validation, approval flag, idempotency, and provenance live in the delegate tools, policy and audit in the API. Sub-agents have no tools (FR-TOOL-4 by construction). |
-| FR-TEST | Not started | Phase 2. |
+| FR-JIRA | Partial | Outbound writes (Epic, Stories, Architecture Tasks, comments) happen in delegate-tool code after approval, with idempotent retry (FR-JIRA-4/5). Inbound webhooks and status-driven triggers (FR-JIRA-1/2/3) are not yet implemented; runs start from a human brief in the Agent Workspace. |
+| FR-APPR | Implemented for Gates 1-3 | Durable `approval_requests` with snapshot and hash, decision bound to the hash, SLA expiry that never auto-approves, inbox with mandatory reason on reject or revise. Continuation prompts ("Continue to Stories?") are distinguished from gate decisions (display-only, section 5.1) so the inbox never mislabels one as the other. Four-eyes (FR-APPR-4) is not needed until HIGH-risk tools exist. |
+| FR-AGENT | Partial | FR-AGENT-3 and FR-AGENT-7 implemented as described. FR-AGENT-4 (sub-step decomposition) is now real for the Architect: a Mastra Workflow with typed, parallel steps, not just a design intent (§6.3). Versioned declarative agent definitions, lifecycle statuses, evals, and loop guards (FR-AGENT-1/2/6) are not yet implemented; runs persist steps, snapshots, and decisions but not token cost or trace id (FR-AGENT-5 partial). |
+| FR-TOOL | Partial | No separate gateway; validation, approval flag, idempotency, and provenance live in the delegate tools, policy and audit in the API. Sub-agents have no tools (FR-TOOL-4 by construction). The Architect additionally writes ADRs and design documents to a per-Epic filesystem workspace (read-only viewable from the web app), not just Jira. |
+| FR-TEST | Not started | Phase 2 (QA/Tester); needs real CI result ingestion first. |
 | FR-REG | Partial | Registry is read from the runtime and annotated with grants; grants are code-level data, not yet editable in the UI (FR-REG-1/2). Admins cannot decide gates (FR-REG-3). |
-| FR-OBS | Partial | Append-only audit log with explorer (FR-OBS-3); run step timeline. No OpenTelemetry, metrics, or alerts yet. |
+| FR-OBS | Partial | Append-only audit log with explorer (FR-OBS-3); run step timeline, including live per-step progress for the Architect Workflow. No OpenTelemetry, metrics, or alerts yet. |

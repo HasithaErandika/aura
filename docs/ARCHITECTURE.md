@@ -1,8 +1,8 @@
 # AURA — Enterprise AI Agent Orchestration Platform
 
-> **Status:** Draft v0.2, architecture baseline reconciled with the Phase 1 implementation
+> **Status:** Draft v0.2, reconciled with the Phase 1/2 implementation
 > **Owner:** Platform Architecture
-> **Last updated:** 2026-09-17
+> **Last updated:** 2026-09-18
 
 ---
 
@@ -10,7 +10,7 @@
 
 **AURA** — AI Unified Resource & Automation, by Dialog.
 
-AURA is a platform, not a single agent: the name reads as infrastructure that sits above the Orchestrator, BA, Architect, Developer, QA, Tester, and Deployer agents, not as one more bot in the lineup. "Unified" reflects the monorepo/centralized-platform shape; "Automation" states the purpose plainly; and the name has room to grow beyond software delivery if AURA is extended to other Dialog workflows later.
+AURA is a platform that sits above its agents (Orchestrator, PO, BA, Architect, Developer, QA, Tester, Deployer), not one more bot among them. The name has room to grow beyond software delivery if AURA is extended to other workflows later.
 
 Package/CLI namespace: `@aura/agents`, `aura run`, `AURA-1234` as a Jira issue prefix.
 
@@ -37,7 +37,7 @@ AURA is an **enterprise AI agent orchestration and software-delivery platform**.
 | Previous decision | AURA decision | Reason |
 |---|---|---|
 | Agents chained via orchestrator calls | **Event-driven**: Jira webhooks → event bus → durable workflow | Removes tight coupling; Jira remains the trigger; runs are resumable and idempotent |
-| Approval "column" in Jira only | Approval is **both** a Jira transition **and** an AURA `approval_requests` record with signature, timestamp, and diff | Jira alone cannot record *what* was approved (the exact agent output snapshot) |
+| Approval "column" in Jira only | Approval is **both** a Jira transition **and** an AURA `approval_requests` record with a hashed content snapshot and timestamp | Jira alone cannot record *what* was approved (the exact agent output snapshot) |
 | RBAC described as a list | **Policy engine** (deterministic, testable) that evaluates `user × project × agent × tool × risk tier × environment` | Single source of authorization truth; unit-testable; auditable |
 | Single API process running everything | API and **Agent Runtime split into separate services** on a shared queue | LLM work is long-running and bursty; must not block or crash the API; can be scaled and cost-capped independently |
 | Express vs Go left partially open | **TypeScript everywhere**; Go reserved for a future optional sandbox-runner | Shared types across web/API/agents; Mastra is TS-native; no proven need for Go yet |
@@ -158,7 +158,7 @@ flowchart TB
 
 | Service | Owns | Does **not** own |
 |---|---|---|
-| `apps/web` | UX for humans: approval inbox, run console, diff viewer, registry admin | Any authorization logic (display-only) |
+| `apps/web` | UX for humans: approval inbox, run console, proposed-output viewer, registry admin | Any authorization logic (display-only) |
 | `apps/api` | AuthN/AuthZ, policy, approvals, Jira webhook ingestion, registry, audit, REST API | LLM calls, long-running work |
 | `apps/agent-runtime` | Mastra workflows/agents, tool gateway, memory/RAG, evals | User authentication, direct DB writes to governance tables (goes through API/queue) |
 | Event bus | Durable, at-least-once delivery between API and runtime | Business logic |
@@ -244,7 +244,7 @@ sequenceDiagram
     T->>A: create approval_request (snapshot of proposed payload)
     R->>R: workflow.suspend()
     A-->>W: notify approver(s)
-    U->>W: Review diff → Approve
+    U->>W: Review proposed output → Approve
     W->>A: POST /approvals/{id}/decide
     A->>P: can(user, approve, approval)?
     A->>Q: enqueue approval.decided
@@ -323,6 +323,10 @@ flowchart TD
     style G6 fill:#fde68a,stroke:#b45309
     style G7 fill:#fca5a5,stroke:#b91c1c
 ```
+
+**Gates vs. continuation prompts.** Not every human pause above is a numbered Gate. The Orchestrator also uses `ask_user` for plain "Continue?" prompts between gates, which have no output to approve — just a yes/no. Both use the same `approval_requests` record and role-routing (section 4.3); the difference is display-only: a gate decision gets a gate number and name (`AGENT_GATE_INFO` in `policy.ts`), a continuation prompt doesn't, so the Approval Inbox never mislabels one as the other.
+
+**Approver-role precondition.** A role in section 4.2 needs at least one active account *before* its gate can be decided. If nobody holds that role, `resolveApprover` still creates the approval correctly, but it sits undecidable until someone is granted the role or the SLA timer expires it (section 10). Check this when enabling a new gate — the Registry UI should eventually warn "this role has zero members" at grant time, but doesn't yet.
 
 ### 5.2 Jira status machine (per issue type)
 
@@ -428,18 +432,46 @@ evals:
 | **Tester** | CI results, traces, screenshots | Result interpretation, defect tickets, flakiness report | Human QA |
 | **Deployer** | Approved release candidate | Release notes, change plan, rollback plan, deployment execution request | Human Deployer + second approver |
 
+### 6.2a RACI reference across the Jira workflow (target, 2026-09-18)
+
+The agent catalogue above says *what* each agent produces; this table says *who is primary at each stage* across the full lifecycle, including stages with no agent yet (Development, Estimation, Sprint Planning, Testing/Verification, Release, Backlog Refinement - Developer, QA, Tester, and Deployer agents are Phase 2+/3+, section 14). 🟢 primary/owns · 🟡 supports/secondary · 🔵 advisory only · ⚪ not usually involved. "Team" here means the humans on the delivery team, not an AURA agent.
+
+| Jira workflow stage | PO | BA | Architect | Developer | Team |
+|---|---|---|---|---|---|
+| 1. Business need | 🟢 Defines goal | 🟢 Investigates/clarifies | 🔵 Feasibility input | ⚪ | 🟡 |
+| 2. Epic creation | 🟢 Owns Epic | 🟢 Helps scope | 🟡 Technical implications | 🟡 Feasibility | 🟡 Estimates/assesses |
+| 3. Story creation | 🟢 Desired outcome | 🟢 Writes/refines stories | 🟡 Reviews implications | 🟡 Reviews feasibility | 🟡 Refinement |
+| 4. Acceptance criteria | 🟢 Confirms expectation | 🟢 Defines AC | 🟡 Technical constraints | 🟡 Confirms implementability | 🟡 Testability review |
+| 5. Business rules | 🟢 Defines intent | 🟢 Documents rules/validations | 🟡 Design supports rules | 🟡 Implements | ⚪ |
+| 6. Technical analysis | 🟡 Business clarification | 🟡 Requirement clarification | 🟢 Owns architecture/design | 🟢 Implementation input | 🟡 Reviews |
+| 7. Solution design | ⚪ | 🟡 Validates vs. requirements | 🟢 Defines technical solution | 🟢 Implementation approach | 🟡 Reviews |
+| 8. Task breakdown | ⚪ | 🟢 Business/functional breakdown | 🟢 Architecture tasks | 🟢 Technical tasks/sub-tasks | 🟢 Estimates/refines |
+| 9. Estimation | 🟡 Understands effort/value | 🟡 Clarifies scope | 🟢 Estimates architecture effort | 🟢 Development estimates | 🟢 Team agrees |
+| 10. Sprint planning | 🟢 Prioritizes | 🟢 Clarifies requirements | 🟡 Supports decisions | 🟢 Commits | 🟢 Plans together |
+| 11. Development | ⚪ | 🟡 Answers questions | 🟡 Supports decisions | 🟢 Implements | 🟢 Collaborates |
+| 12. Requirement clarification | 🟢 Business decisions | 🟢 Main clarification role | 🟡 Technical constraints | 🟡 Raises questions | 🟡 Collaborates |
+| 13. Testing/verification | 🟢 Confirms acceptance | 🟢 Supports expected behavior | 🟡 Validates architectural concerns | 🟢 Fixes defects | 🟢 Tests/reviews |
+| 14. Story acceptance | 🟢 Accepts/rejects | 🟡 Supports validation | 🟡 Technical review if needed | 🟡 Provides implementation | 🟡 Supports |
+| 15. Release | 🟢 Business priority/decision | 🟢 Requirement readiness | 🟢 Technical readiness | 🟢 Deployment support | 🟢 Release collaboration |
+| 16. Backlog refinement | 🟢 Prioritizes backlog | 🟢 Refines requirements | 🟡 Technical refinement | 🟢 Estimates technical work | 🟢 Participates |
+
+**Fit against what's built.** Rows 1-9 map to the PO/BA/Architect agents (Gates 1-3), already close to this table; the Architect's tasks also carry a rough effort estimate per stage 9 (`architectureTaskSchema.estimate`, section 6.3). Rows 10-16 need Dev/QA/Tester/Deployer agents that don't exist yet (section 14) — those columns describe target state, not current behavior.
+
+**QA/Tester/Deployer: role exists, agent doesn't.** `qa_engineer`, `tester`, and `deployer` are real, assignable roles today, but `ROLE_AGENT_GRANTS` for them is empty — there's no agent in `apps/agent-runtime` to grant. Assigning the role is harmless but does nothing by itself. Building the agent needs real CI result ingestion (QA/Tester) or a real deployment pipeline (Deployer) first — principle 5 means an agent can't interpret a test or trigger a deploy that isn't real.
+
 The **Orchestrator is a Mastra agent** (`apps/agent-runtime/src/mastra/agents/orchestrator.ts`). It decides dynamically which agent to delegate to and when to pause for a human; nothing in `apps/api` or `apps/web` encodes a step order. What contains the risk of a model deciding:
 
-- It has exactly three tools: `ask_user`, `delegate_to_po`, `delegate_to_ba`. It cannot reach Jira, memory, or anything else.
+- It has exactly four tools: `ask_user`, `delegate_to_po`, `delegate_to_ba`, `delegate_to_architect`. It cannot reach Jira, memory, or anything else.
 - Delegate tools validate every call, keep drafts by id (the Orchestrator never restates draft text), and refuse `file` without `approved=true`.
-- The PO and BA agents hold **no tools**; they return structured JSON against Zod schemas (`contracts/drafts.ts`). Rendering and filing are code.
-- The API records every delegation, tool result, and pause as run steps and decides in code which role may answer a pause (`apps/api/src/modules/policy/policy.ts`).
+- PO and BA hold **no tools**; they return structured JSON against Zod schemas (`contracts/drafts.ts`). Rendering and filing are code.
+- The API records every delegation, tool result, and pause as run steps, and decides in code which role may answer a pause (`policy.ts`).
+- Which agent gets which tools and model is data, in `agents/registry.ts` — a stand-in for the Registry until it exists in Supabase (§9.1). Each agent's real wiring is checked against that manifest at startup, so a code change granting an undeclared tool fails the process on boot instead of drifting unnoticed.
 
 A hallucinated step therefore produces at worst a wrong delegation that a human sees and rejects, never a wrong write.
 
 ### 6.3 Sub-agent pattern
 
-Large agents (Architect, BA) decompose into sub-steps inside one workflow rather than spawning independent agents. Each sub-step has its own tool grants and output schema. This keeps context small and outputs structured.
+Large agents (Architect, BA) decompose into sub-steps inside one workflow rather than spawning independent agents, each with its own tool grants and output schema — smaller context, structured output. This is deliberately not Mastra's native `subagents` feature (a parent agent's `agents:` property), where the *model* decides when and how often to delegate. A Mastra **Workflow** keeps that sequencing in code instead, while each step still gets its own narrow, validated LLM call where needed.
 
 ```mermaid
 flowchart LR
@@ -450,9 +482,18 @@ flowchart LR
     S2 --> S5[Security design]
     S2 --> S6[AI design]
     S3 & S4 & S5 & S6 --> S7[Deployment & testing architecture]
-    S7 --> S8[ADRs + Jira tasks]
+    S7 --> S8[ADRs + Jira tasks + workspace docs]
     S8 --> G{{Human Architect}}
 ```
+
+**Status: built**, as a Mastra Workflow (`workflows/architect-workflow.ts`), not a single-shot agent call:
+
+- Steps: Requirements analysis → System decomposition → {API, Data, Security, AI design} in `.parallel()` → Deployment/testing notes → ADRs + tasks + workspace docs. Each step has its own Zod schema; only the final step touches the filesystem.
+- The Orchestrator still sees one tool, `delegate_to_architect` — the workflow runs inside that tool, so its own tool surface is unaffected by how many internal steps the Architect has.
+- **Per-step progress**, with no new plumbing: the delegate tool relays each step's start/result into its own tool stream (Mastra's `writer.custom()` pushes into the same outer agent stream). `apps/api` reads these alongside normal tool chunks and writes them to `run_steps`, so the Run Console shows live progress ("Security design — done") for free.
+- **Workspace**: a filesystem-only `Workspace` per Epic (`workspace/architect-workspace.ts`), rooted at `AURA_WORKSPACE_ROOT/<epicKey>/`, holding `docs/adr/000N-title.md`, `docs/srs/*.md`, `architecture.md`, and `plan.md`. This replaces the ADR-as-Jira-comment stopgap (section 7) with reviewable files — Jira Tasks stay the source of truth and reference the paths. Registered on the Mastra instance itself (`addWorkspace`/`listWorkspaces`), so it's visible to Studio and cleaned up properly rather than living in a private cache.
+- Files are written only after the same `approved=true` gate already required for Jira — nothing is written before a human approves.
+- **Viewing the workspace**: `apps/agent-runtime` exposes two read-only routes (`server/workspace-routes.ts`) since `apps/api` doesn't share a filesystem with it (section 3.2). `apps/api` proxies them behind the same `architect-agent` grant (`canViewArchitectWorkspace`), and the web app's Design Documents page browses and renders them (CodeMirror, source/preview). No write path exists on this surface — it's strictly a viewer.
 
 ---
 
@@ -472,9 +513,9 @@ Tool call
   └─ 8. Provenance stamp on created artifacts
 ```
 
-**Phase 1 status (2026-09-17).** There is no separate gateway service yet. Steps 1, 3 (as the `approved` flag), 4 (idempotent filing keyed on the stored draft), 6, and 8 are implemented inside the delegate tools in `apps/agent-runtime`; step 2 (who may run, who may answer) and step 7 (audit) are implemented in `apps/api`. Timeouts and circuit breakers (step 5) are not yet in place beyond a per-turn ceiling in the API. Sub-agents have no tools at all, which is stronger than a gateway for Phase 1.
+**Status.** There is no separate gateway service yet. Steps 1, 3 (the `approved` flag), 4 (idempotent filing keyed on the stored draft), 6, and 8 live inside the delegate tools; step 2 (who may run/answer) and step 7 (audit) live in `apps/api`. Timeouts/circuit breakers (step 5) don't exist beyond a per-turn ceiling. Sub-agents holding no tools at all is a stronger guarantee than a gateway would give, for now.
 
-Provenance stamp written to every Jira issue / PR / document created by an agent:
+Target provenance stamp, once the Registry and cross-service run linkage exist:
 
 ```
 Created by:  AURA · BA Agent v1.4 · prompt@9 · claude-sonnet-4-6
@@ -482,6 +523,18 @@ Run:         run_01J8ZK... (trace: 3f9a...)
 Source:      AURA-42 (Epic)
 Approved by: j.perera@company.com · 2026-09-16T08:41Z
 ```
+
+What's actually written today — everything the runtime has direct access to:
+
+```
+Created by: AURA · BA Agent · groq/openai/gpt-oss-120b · draft STORIES-a1b2c3d4 v2
+Source: AURA-42 (Epic)
+Filed: 2026-09-18T10:15:00.000Z (human-approved via the AURA Orchestrator)
+```
+
+Prompt version and run/trace id need the Registry (§9.1, not built). Approver identity and
+decision timestamp live in `apps/api`'s approval record but aren't passed down to the runtime
+at filing time yet — a later plumbing task, not a gap in the runtime's own code.
 
 ### 7.1 Prompt-injection boundary
 
@@ -533,14 +586,16 @@ memory          embeddings (pgvector, scoped by project_id)
 governance      audit_logs (append-only) · policy_versions
 ```
 
-**Phase 1 status (2026-09-17).** In place in Supabase: `profiles` (identity), `workflow_runs`, `run_steps`, `approval_requests`, `approval_decisions`, `audit_logs` (append-only by trigger). Owned by the runtime's own storage and referenced by id from Supabase: memory threads and messages (Mastra libSQL) and the draft store (`aura-drafts.db`). Registry, projects, artifacts, and memory embeddings tables are not yet created.
+**Status.** In place in Supabase: `profiles`, `workflow_runs`, `run_steps`, `approval_requests`, `approval_decisions`, `audit_logs` (append-only by trigger). Owned by the runtime's own storage: memory threads/messages (Mastra libSQL) and the draft store (`aura-drafts.db`). Registry, projects, and memory-embeddings tables don't exist yet. The `artifacts.documents`/`artifacts.adrs` gap is partly filled outside Supabase instead: the Architect's per-Epic workspace (section 6.3) writes ADRs and design docs as real files, referenced by path from the filed Jira Tasks — a filesystem store, so it gets none of RLS, cross-project search, or multi-region residency for free. Revisit once Registry/artifacts tables exist and multi-region matters (Phase 4+).
 
-### 9.2 RLS strategy
+### 9.2 RLS strategy (target)
 
 - Every row carries `org_id`, `region_id`, `project_id`.
 - JWT custom claims: `org_id`, `roles[]`, `project_ids[]`.
 - RLS policies enforce project scope in the DB even if the API has a bug.
 - `audit_logs` is **insert-only**: no `UPDATE`/`DELETE` grants for any role, including service role in production.
+
+**Status.** Only the last bullet is built: `audit_logs` has a DB trigger rejecting `UPDATE`/`DELETE` and revoking those grants from `service_role` too — genuinely append-only. The rest is target state: no table has `org_id`/`region_id`/`project_id`, there are no JWT claims for them, and RLS is enabled with no policies (only the API's service-role connection touches these tables today). Project scope is enforced entirely in `policy.ts`, not at the DB layer as this section implies — that defense-in-depth is multi-tenant work for later phases (§14).
 
 ### 9.3 Multi-region
 
@@ -623,7 +678,7 @@ flowchart LR
 
 ## 13. Monorepo layout
 
-Current layout (2026-09-17). Each app is a standalone npm project; there is no root workspace tooling.
+Current layout (2026-09-18). Each app is a standalone npm project; there is no root workspace tooling.
 
 ```
 aura/
@@ -631,7 +686,7 @@ aura/
 │   ├── web/                 # React + Vite + TS: app/ shared/ features/ (see apps/web/README.md)
 │   ├── api/                 # Express + TS: config/ lib/ middleware/ modules/ routes/ (see apps/api/README.md)
 │   │   └── supabase/        # migrations 0001 identity, 0002 runs/approvals/audit
-│   └── agent-runtime/       # Mastra: agents/ tools/ contracts/ store/ mcp/ (see apps/agent-runtime/README.md)
+│   └── agent-runtime/       # Mastra: agents/ tools/ contracts/ store/ mcp/ workflows/ workspace/ server/ lib/ (see apps/agent-runtime/README.md)
 └── docs/
     ├── ARCHITECTURE.md      # this file
     ├── srs/
@@ -654,7 +709,12 @@ Deferred until there is real cross-app duplication: `packages/` (contracts, poli
 | **4 — Deployer + multi-region** (6 wks) | Deployer agent, four-eyes, change windows, second region, regional LLM routing | Production release through Gate 7; EU/APAC residency verified |
 | **5 — Hardening** (ongoing) | Canary agent versions, cost optimisation, advanced RAG, integrations (CRM/ERP/Slack) | Eval-gated promotion in place; SOC2/ISO evidence exportable from audit |
 
-**Status (2026-09-17).** Phase 0: identity and RBAC, policy tables, Supabase schema with RLS, audit log, approval service, and the run state machine are in place; SSO federation, Jira webhook ingestion, and the queue are not. Phase 1: PO and BA agents, Epic and Story drafting with Gates 1 and 2, and the registry view are built; evals and a real-project rejection-rate measurement are not. See `docs/logs/`.
+**Status:**
+- **Phase 0** — done: identity/RBAC, policy tables, Supabase schema with RLS, audit log, approval service, run state machine. Not done: SSO federation, Jira webhook ingestion, the queue.
+- **Phase 1** — done: PO and BA agents, Epic/Story drafting through Gates 1 and 2, the registry view. Not done: evals, real-project rejection-rate measurement.
+- **Phase 2** — done: the Architect agent (as a workflow, not a single call), ADR drafting, architecture-task filing, Gate 3. Not done: QA/Tester agents, Playwright/Robot suites, CI result ingestion.
+
+See `docs/logs/` for day-by-day detail.
 
 ---
 
