@@ -4,12 +4,37 @@ import { formatDateTime } from "../../../shared/lib/format.ts";
 import { cn } from "../../../shared/lib/cn.ts";
 import { ChevronRightIcon } from "../../../shared/icons/index.tsx";
 
-const AGENT_NAMES: Record<string, string> = { po: "PO Agent", "po-agent": "PO Agent", ba: "BA Agent", "ba-agent": "BA Agent" };
+const AGENT_NAMES: Record<string, string> = {
+  po: "PO Agent",
+  "po-agent": "PO Agent",
+  ba: "BA Agent",
+  "ba-agent": "BA Agent",
+  architect: "Architect Agent",
+  "architect-agent": "Architect Agent",
+};
+
+// Step ids from apps/agent-runtime/src/mastra/workflows/architect-workflow.ts.
+const ARCHITECT_STEP_NAMES: Record<string, string> = {
+  "requirements-analysis": "Requirements analysis",
+  "system-decomposition": "System decomposition",
+  "api-design": "API design",
+  "data-design": "Data design",
+  "security-design": "Security design",
+  "ai-design": "AI design",
+  "deployment-testing": "Deployment and testing notes",
+  assemble: "ADRs and tasks",
+};
 
 function label(step: RunStep): { title: string; tone: "neutral" | "success" | "warning" | "danger" } {
   const tool = step.toolName ?? "";
   const agent = tool.startsWith("delegate_to_") ? (AGENT_NAMES[tool.slice(12)] ?? `${tool.slice(12)} agent`) : null;
   switch (step.kind) {
+    case "progress": {
+      const stepId = typeof step.payload?.stepId === "string" ? step.payload.stepId : "";
+      const phase = typeof step.payload?.phase === "string" ? step.payload.phase : "";
+      const stepLabel = ARCHITECT_STEP_NAMES[stepId] ?? stepId;
+      return { title: `Architect: ${stepLabel}${phase === "start" ? "..." : " done"}`, tone: "neutral" };
+    }
     case "tool-call":
       return { title: agent ? `Orchestrator delegated to ${agent}` : `Called ${tool}`, tone: "neutral" };
     case "tool-result": {

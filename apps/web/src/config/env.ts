@@ -10,6 +10,5 @@ export const env = {
   apiUrl: requireEnv("VITE_API_URL", "http://localhost:4000").replace(/\/+$/, ""),
   supabaseUrl: requireEnv("VITE_SUPABASE_URL"),
   supabaseAnonKey: requireEnv("VITE_SUPABASE_ANON_KEY"),
-  // Mastra Studio stays available for engineers; the platform UI links to it from the registry.
   runtimeStudioUrl: requireEnv("VITE_RUNTIME_STUDIO_URL", "http://localhost:4111"),
 };

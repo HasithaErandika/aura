@@ -9,6 +9,7 @@ import {
   ApprovalDetailPage,
   AuditPage,
   DashboardPage,
+  DesignDocsPage,
   InboxPage,
   LandingPage,
   LoginPage,
@@ -36,7 +37,6 @@ function page(node: ReactNode) {
 export const router = createBrowserRouter([
   { path: paths.landing, element: page(<LandingPage />) },
   { path: paths.login, element: page(<LoginPage />) },
-  // Legacy paths from the first shell.
   { path: "/dashboard", element: <Navigate to={paths.dashboard} replace /> },
   { path: "/admin", element: <Navigate to={paths.users} replace /> },
   {
@@ -55,6 +55,7 @@ export const router = createBrowserRouter([
       { path: "runs", element: page(<RunsPage />), handle: { title: "Runs" } },
       { path: "runs/:id", element: page(<RunDetailPage />), handle: { title: "Runs" } },
       { path: "agents", element: page(<RegistryPage />), handle: { title: "Agent Registry" } },
+      { path: "design-docs", element: page(<DesignDocsPage />), handle: { title: "Design Documents" } },
       {
         path: "audit",
         element: (

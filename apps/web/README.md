@@ -16,7 +16,7 @@ src/
     ui/           neutral component kit (Button, Card, Table, Badge, Field, Menu, Markdown, ...)
     icons/ brand/ hooks/ lib/
   features/
-    landing/ auth/ dashboard/ workspace/ approvals/ runs/ registry/ audit/ admin/users/
+    landing/ auth/ dashboard/ workspace/ approvals/ runs/ registry/ design-docs/ audit/ admin/users/
 ```
 
 Each feature owns its API calls (`api.ts`), hooks, and components. Nothing renders placeholder data; every list, count, and status comes from `apps/api`.
@@ -44,6 +44,7 @@ Each feature owns its API calls (`api.ts`), hooks, and components. Nothing rende
 | `/app/approvals`, `/app/approvals/:id` | approver roles, requesters, admin | Approval Inbox and decision screen |
 | `/app/runs`, `/app/runs/:id` | requesters, approver roles, admin | runs and step timeline |
 | `/app/agents` | any role with a read grant | Agent Registry (live from the runtime) |
+| `/app/design-docs` | Architect, admin | Design Documents - browse and view the Architect's per-Epic workspace files (read-only CodeMirror) |
 | `/app/audit` | admin | Audit Explorer |
 | `/app/admin/users` | admin | User Management |
 

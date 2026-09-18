@@ -157,6 +157,19 @@ export function useConversation(agentId: string, threadId: string | null) {
             runStatus: "SUSPENDED_FOR_APPROVAL",
             pendingGate: { ...event.data, snapshotHash: null },
           };
+        case "progress": {
+          // A workflow-backed delegate tool (e.g. the Architect) reports its own internal
+          // step progress; shown as a synthetic tool-activity row so it appears in the same
+          // list as delegate_to_* calls without a separate UI element.
+          const { stepId, phase, status } = event.data;
+          const toolCallId = `progress-${stepId ?? "step"}`;
+          const tools = [...streaming.tools];
+          const idx = tools.findIndex((t) => t.toolCallId === toolCallId);
+          const next: ChatToolActivity = { toolCallId, toolName: `architect_step_${stepId ?? "unknown"}`, state: phase === "start" ? "call" : "result", result: status };
+          if (idx >= 0) tools[idx] = next;
+          else tools.push(next);
+          return { ...s, streaming: { ...streaming, tools } };
+        }
         case "decision":
           return { ...s, pendingGate: null };
         case "error":

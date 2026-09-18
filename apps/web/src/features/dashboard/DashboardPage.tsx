@@ -34,7 +34,7 @@ export function DashboardPage() {
         description={
           canRun
             ? `You are signed in as ${profile?.roleLabel}. ${approves.length ? `You sign off on ${approves.map((a) => a.replace(/-agent$/, "").toUpperCase()).join(" and ")} agent output.` : ""}`
-            : `You are signed in as ${profile?.roleLabel}. Your role's agents arrive in a later phase; Phase 1 covers Project Owner and Business Analyst work.`
+            : `You are signed in as ${profile?.roleLabel}. Your role's agents arrive in a later phase.`
         }
         actions={
           canRun ? (

@@ -46,7 +46,7 @@ export interface Run {
   updatedAt: string;
 }
 
-export type RunStepKind = "tool-call" | "tool-result" | "tool-error" | "text" | "suspended" | "resumed" | "error" | "finish";
+export type RunStepKind = "tool-call" | "tool-result" | "tool-error" | "text" | "suspended" | "resumed" | "error" | "finish" | "progress";
 
 export interface RunStep {
   id: number;
@@ -228,5 +228,6 @@ export type StreamEvent =
       };
     }
   | { event: "decision"; data: { approvalId: string; status: ApprovalStatus; decision: Decision } }
+  | { event: "progress"; data: { stepId?: string; phase?: string; status?: string } }
   | { event: "error"; data: { message: string } }
   | { event: "done"; data: { runId: string; status: RunStatus; approvalId: string | null } };

@@ -4,10 +4,34 @@ import { cn } from "../../../shared/lib/cn.ts";
 import { ChevronRightIcon } from "../../../shared/icons/index.tsx";
 import { Spinner } from "../../../shared/ui/Spinner.tsx";
 
-const AGENT_NAMES: Record<string, string> = { po: "PO Agent", "po-agent": "PO Agent", ba: "BA Agent", "ba-agent": "BA Agent" };
+const AGENT_NAMES: Record<string, string> = {
+  po: "PO Agent",
+  "po-agent": "PO Agent",
+  ba: "BA Agent",
+  "ba-agent": "BA Agent",
+  architect: "Architect Agent",
+  "architect-agent": "Architect Agent",
+};
+
+// Step ids from apps/agent-runtime/src/mastra/workflows/architect-workflow.ts.
+const ARCHITECT_STEP_NAMES: Record<string, string> = {
+  "requirements-analysis": "Requirements analysis",
+  "system-decomposition": "System decomposition",
+  "api-design": "API design",
+  "data-design": "Data design",
+  "security-design": "Security design",
+  "ai-design": "AI design",
+  "deployment-testing": "Deployment and testing notes",
+  assemble: "ADRs and tasks",
+};
 
 function describe(tool: ChatToolActivity): { title: string; detail: string | null } {
   const name = tool.toolName;
+  if (name.startsWith("architect_step_")) {
+    const stepId = name.slice("architect_step_".length);
+    const label = ARCHITECT_STEP_NAMES[stepId] ?? stepId;
+    return { title: `Architect: ${label}${tool.state === "call" ? "..." : " done"}`, detail: null };
+  }
   if (name.startsWith("delegate_to_")) {
     const agent = name.slice("delegate_to_".length);
     const label = AGENT_NAMES[agent] ?? `${agent} agent`;

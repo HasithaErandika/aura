@@ -10,5 +10,6 @@ export const ApprovalDetailPage = lazy(() => import("../features/approvals/Appro
 export const RunsPage = lazy(() => import("../features/runs/RunsPage.tsx").then((m) => ({ default: m.RunsPage })));
 export const RunDetailPage = lazy(() => import("../features/runs/RunDetailPage.tsx").then((m) => ({ default: m.RunDetailPage })));
 export const RegistryPage = lazy(() => import("../features/registry/RegistryPage.tsx").then((m) => ({ default: m.RegistryPage })));
+export const DesignDocsPage = lazy(() => import("../features/design-docs/DesignDocsPage.tsx").then((m) => ({ default: m.DesignDocsPage })));
 export const AuditPage = lazy(() => import("../features/audit/AuditPage.tsx").then((m) => ({ default: m.AuditPage })));
 export const UsersPage = lazy(() => import("../features/admin/users/UsersPage.tsx").then((m) => ({ default: m.UsersPage })));

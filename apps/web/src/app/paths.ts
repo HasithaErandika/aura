@@ -9,6 +9,7 @@ export const paths = {
   runs: "/app/runs",
   run: (id: string) => `/app/runs/${id}`,
   registry: "/app/agents",
+  designDocs: "/app/design-docs",
   audit: "/app/audit",
   users: "/app/admin/users",
 } as const;

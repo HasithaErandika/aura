@@ -2,7 +2,7 @@ import type { ComponentType, SVGProps } from "react";
 import type { Role } from "../lib/roles.ts";
 import type { Me } from "../../types/api.ts";
 import { paths } from "../../app/paths.ts";
-import { AuditIcon, ChatIcon, ClipboardCheckIcon, DashboardIcon, ListIcon, RegistryIcon, UsersIcon } from "../icons/index.tsx";
+import { AuditIcon, ChatIcon, ClipboardCheckIcon, DashboardIcon, DocumentIcon, ListIcon, RegistryIcon, UsersIcon } from "../icons/index.tsx";
 
 export interface NavItem {
   label: string;
@@ -34,6 +34,7 @@ export const navigation: NavGroup[] = [
       { label: "Agent Workspace", to: paths.workspace, icon: ChatIcon, visible: hasRunGrant },
       { label: "Approval Inbox", to: paths.approvals, icon: ClipboardCheckIcon, visible: (me) => decides(me) || isAdmin(me) },
       { label: "Runs", to: paths.runs, icon: ListIcon, visible: (me) => decides(me) || isAdmin(me) },
+      { label: "Design Documents", to: paths.designDocs, icon: DocumentIcon, visible: (me) => isAdmin(me) || Boolean(me.grants.agents["architect-agent"]) },
     ],
   },
   {
