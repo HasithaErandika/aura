@@ -15,7 +15,7 @@ import { architectAgent } from './agents/architect-agent';
 import { architectWorkflow } from './workflows/architect-workflow';
 import { printManifest, type AgentId } from './agents/registry';
 import { jiraMcp } from './mcp/jira-client';
-import { listEpicsRoute, listWorkspaceFilesRoute, readWorkspaceFileRoute } from './server/workspace-routes';
+import { getArchitectThreadRoute, listEpicsRoute, listWorkspaceFilesRoute, readWorkspaceFileRoute, writeWorkspaceFileRoute } from './server/workspace-routes';
 
 // Prints each agent's real tool wiring at startup, read live from the agent itself - there is no
 // separate declared list to keep in sync (see agents/registry.ts).
@@ -41,7 +41,7 @@ export const mastra = new Mastra({
   // Mastra resolves getWorkflow() by this key, not by the workflow's own internal `id` field.
   workflows: { 'architect-workflow': architectWorkflow },
   server: {
-    apiRoutes: [listEpicsRoute, listWorkspaceFilesRoute, readWorkspaceFileRoute],
+    apiRoutes: [listEpicsRoute, listWorkspaceFilesRoute, readWorkspaceFileRoute, writeWorkspaceFileRoute, getArchitectThreadRoute],
   },
   mcpServers: {
     ...(await jiraMcp.toMCPServerProxies()),

@@ -111,4 +111,17 @@ export const draftStore = {
       args: epicKey ? [JSON.stringify(filed), epicKey, id] : [JSON.stringify(filed), id],
     });
   },
+
+  // The thread that most recently drafted this kind of content for this Epic - lets a caller
+  // outside the conversation (the web app) find where to continue it, since draftId only makes
+  // sense inside that thread's own tool-call history (server/workspace-routes.ts).
+  async latestThreadFor(kind: DraftKind, epicKey: string): Promise<string | null> {
+    const c = await db();
+    const result = await c.execute({
+      sql: 'select thread_id from aura_drafts where kind = ? and epic_key = ? order by created_at desc limit 1',
+      args: [kind, epicKey],
+    });
+    const row = result.rows[0] as unknown as { thread_id: string | null } | undefined;
+    return row?.thread_id ?? null;
+  },
 };

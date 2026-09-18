@@ -11,6 +11,7 @@ import {
   DashboardPage,
   DesignDocsPage,
   InboxPage,
+  JiraPage,
   LandingPage,
   LoginPage,
   RegistryPage,
@@ -56,6 +57,7 @@ export const router = createBrowserRouter([
       { path: "runs/:id", element: page(<RunDetailPage />), handle: { title: "Runs" } },
       { path: "agents", element: page(<RegistryPage />), handle: { title: "Agent Registry" } },
       { path: "design-docs", element: page(<DesignDocsPage />), handle: { title: "Design Documents" } },
+      { path: "jira", element: page(<JiraPage />), handle: { title: "Jira" } },
       {
         path: "audit",
         element: (

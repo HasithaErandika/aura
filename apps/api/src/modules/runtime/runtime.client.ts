@@ -192,7 +192,7 @@ export const runtimeClient = {
   },
 
   // Custom routes registered in apps/agent-runtime/src/mastra/server/workspace-routes.ts -
-  // read-only access to the Architect's per-Epic workspace (docs/ARCHITECTURE.md section 6.3).
+  // access to the Architect's per-Epic workspace (docs/ARCHITECTURE.md section 6.3).
   listWorkspaceEpics(): Promise<{ epics: string[] }> {
     return request(`/workspace`);
   },
@@ -204,5 +204,19 @@ export const runtimeClient = {
   readWorkspaceFile(epicKey: string, path: string): Promise<{ path: string; content: string }> {
     const params = new URLSearchParams({ path });
     return request(`/workspace/${encodeURIComponent(epicKey)}/file?${params.toString()}`);
+  },
+
+  // Overwrites one existing design document with human-edited content. Narrow and audited by
+  // the caller (workspace.router.ts) - see writeWorkspaceFileRoute's own comment for why this
+  // cannot create new files or write outside the Epic's workspace.
+  writeWorkspaceFile(epicKey: string, path: string, content: string): Promise<{ path: string; content: string }> {
+    return request(`/workspace/${encodeURIComponent(epicKey)}/file`, { method: "PUT", body: JSON.stringify({ path, content }) });
+  },
+
+  // Which thread last drafted this Epic's architecture, so a human's feedback from the Design
+  // Documents page can continue that conversation instead of starting one with no draftId to
+  // revise.
+  getArchitectThread(epicKey: string): Promise<{ threadId: string | null }> {
+    return request(`/workspace/${encodeURIComponent(epicKey)}/thread`);
   },
 };

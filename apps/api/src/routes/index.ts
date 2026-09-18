@@ -9,6 +9,7 @@ import { approvalsRouter } from "../modules/approvals/approvals.router.js";
 import { auditRouter } from "../modules/audit/audit.router.js";
 import { dashboardRouter } from "../modules/dashboard/dashboard.router.js";
 import { workspaceRouter } from "../modules/workspace/workspace.router.js";
+import { jiraRouter } from "../modules/jira/jira.router.js";
 import { requireAuth } from "../middleware/auth.js";
 import { perUserLimit } from "../middleware/limits.js";
 
@@ -26,3 +27,4 @@ apiRouter.use("/approvals", approvalsRouter);
 apiRouter.use("/audit", auditRouter);
 apiRouter.use("/dashboard", dashboardRouter);
 apiRouter.use("/workspace", workspaceRouter);
+apiRouter.use("/jira", jiraRouter);

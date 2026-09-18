@@ -171,4 +171,19 @@ export const approvalsRepository = {
     if (error) throw dbError("count approvals", error);
     return count ?? 0;
   },
+
+  // Counts pending approvals this exact user can decide right now - mirrors canDecide()'s own
+  // rule (policy.ts): a gate requiring their role, or a clarification question (no required
+  // role) on a run they started. listForUser() is broader than this (it also returns gates on
+  // the user's own runs that need a *different* role, for context) - this is the narrower,
+  // "needs your decision" count that belongs on a headline stat.
+  async countPendingForUser(userId: string, role: Role): Promise<number> {
+    const { count, error } = await supabaseAdmin
+      .from("approval_requests")
+      .select("id", { count: "exact", head: true })
+      .eq("status", "PENDING")
+      .or(`required_role.eq.${role},and(required_role.is.null,requested_by.eq.${userId})`);
+    if (error) throw dbError("count approvals for user", error);
+    return count ?? 0;
+  },
 };

@@ -58,8 +58,24 @@ export const architectureTaskSchema = z.object({
 });
 export type ArchitectureTask = z.infer<typeof architectureTaskSchema>;
 
+export const backendFrameworks = ['Spring Boot', 'NestJS'] as const;
+
+// Plain strings, not an enum: the human's choice is validated once, at the point of decision
+// (delegate-tools.ts's architectInputSchema, against `backendFrameworks`). This schema only
+// describes an already-decided value flowing through the workflow and draft store, and must
+// stay parseable for the placeholder the workflow returns before delegate-tools.ts overwrites
+// it with the real, human-chosen stack.
+export const techStackSchema = z.object({
+  frontend: z.string().describe('Always "React 19 (Vite 19)" - fixed, not a human choice'),
+  backend: z.string().describe('Chosen by the human before drafting, from backendFrameworks; never invented by the model'),
+  database: z.string().describe('Always "PostgreSQL" - fixed, not a human choice'),
+});
+export type TechStack = z.infer<typeof techStackSchema>;
+
 export const architectureDraftSchema = z.object({
-  epicKey: z.string().min(1),
+  epicKey: z.string().min(1).describe('The primary/lead Epic - where architecture Tasks are filed and the workspace lives'),
+  relatedEpicKeys: z.array(z.string().min(1)).min(1).describe('Every Epic this shared design covers, including epicKey'),
+  techStack: techStackSchema,
   requirementsSummary: z.string().min(10).describe('Cross-story synthesis of the functional and non-functional requirement themes driving this design'),
   decomposition: z.string().min(10).describe('System decomposition: components/services and how they fit together'),
   apiDesign: z.string().min(10).describe('Endpoints, contracts, versioning approach'),
@@ -181,12 +197,24 @@ export function renderArchitectureTask(task: ArchitectureTask, index?: number): 
     .join('\n');
 }
 
+// "KAN-3" alone, or "KAN-3 (+ KAN-8, KAN-14)" when the design spans more than one Epic.
+function epicsHeading(draft: ArchitectureDraft): string {
+  const others = draft.relatedEpicKeys.filter((k) => k !== draft.epicKey);
+  return others.length ? `${draft.epicKey} (+ ${others.join(', ')})` : draft.epicKey;
+}
+
 // Renders the full architecture draft as Markdown for the human approval gate.
 export function renderArchitecture(draft: ArchitectureDraft): string {
   return [
-    `# Architecture for ${draft.epicKey}`,
+    `# Architecture for ${epicsHeading(draft)}`,
     '',
     ARCHITECT_PERSPECTIVE,
+    '',
+    ...(draft.relatedEpicKeys.length > 1 ? ['## Epics covered', bullets(draft.relatedEpicKeys), ''] : []),
+    '## Technology stack',
+    `- **Frontend:** ${draft.techStack.frontend}`,
+    `- **Backend:** ${draft.techStack.backend}`,
+    `- **Database:** ${draft.techStack.database}`,
     '',
     '## Requirements summary',
     draft.requirementsSummary,
@@ -237,13 +265,13 @@ export function architectureTaskJiraDescription(task: ArchitectureTask, stamp: s
 
 // Renders the Architect's requirements-analysis document for the workspace.
 export function renderRequirementsDoc(draft: ArchitectureDraft): string {
-  return [`# Requirements analysis for ${draft.epicKey}`, '', ARCHITECT_PERSPECTIVE, '', draft.requirementsSummary].join('\n');
+  return [`# Requirements analysis for ${epicsHeading(draft)}`, '', ARCHITECT_PERSPECTIVE, '', draft.requirementsSummary].join('\n');
 }
 
 // Renders a human-readable delivery plan mirroring the filed Jira tasks.
 export function renderPlan(draft: ArchitectureDraft): string {
   return [
-    `# Delivery plan for ${draft.epicKey}`,
+    `# Delivery plan for ${epicsHeading(draft)}`,
     '',
     ARCHITECT_PERSPECTIVE,
     '',
@@ -265,10 +293,13 @@ export interface ArchitectureDocPaths {
   adrs: string[];
 }
 
-// Renders the Jira comment pointing at the Architect workspace's design documents.
+// Renders the Jira comment pointing at the Architect workspace's design documents. Posted on
+// every Epic the design covers (relatedEpicKeys), not just the primary one that holds the
+// filed Tasks and the workspace files, so a human reading any of the combined Epics finds it.
 export function architectureFiledComment(draft: ArchitectureDraft, paths: ArchitectureDocPaths, stamp: string): string {
+  const scopeNote = draft.relatedEpicKeys.length > 1 ? ` This is a shared design across ${draft.relatedEpicKeys.join(', ')}; Tasks are filed under ${draft.epicKey}.` : '';
   return [
-    `AURA Architect Agent filed ${draft.tasks.length} architecture task${draft.tasks.length === 1 ? '' : 's'} and ${draft.adrs.length} ADR${draft.adrs.length === 1 ? '' : 's'}.`,
+    `AURA Architect Agent filed ${draft.tasks.length} architecture task${draft.tasks.length === 1 ? '' : 's'} and ${draft.adrs.length} ADR${draft.adrs.length === 1 ? '' : 's'}.${scopeNote}`,
     '',
     `Design documents (Architect workspace for ${draft.epicKey}):`,
     `- ${paths.architecture}`,

@@ -1,50 +1,59 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import CodeMirror from "@uiw/react-codemirror";
 import { markdown } from "@codemirror/lang-markdown";
 import { useAsync } from "../../shared/hooks/useAsync.ts";
+import { useAuth } from "../../shared/auth/useAuth.ts";
 import { describeError } from "../../shared/api/errors.ts";
-import { designDocsApi, type WorkspaceFile } from "./api.ts";
+import { classifyWorkspaceFile, designDocsApi, sortedWorkspaceFiles, workspaceFileTitle, type WorkspaceFile } from "./api.ts";
+import { workspaceApi } from "../workspace/api.ts";
+import { paths } from "../../app/paths.ts";
 import { PageHeader } from "../../shared/ui/PageHeader.tsx";
 import { Card } from "../../shared/ui/Card.tsx";
 import { Alert } from "../../shared/ui/Alert.tsx";
-import { Badge, type Tone } from "../../shared/ui/Badge.tsx";
+import { Badge } from "../../shared/ui/Badge.tsx";
+import { Button } from "../../shared/ui/Button.tsx";
+import { Textarea } from "../../shared/ui/Field.tsx";
 import { EmptyState } from "../../shared/ui/EmptyState.tsx";
 import { Skeleton } from "../../shared/ui/Skeleton.tsx";
 import { Markdown } from "../../shared/ui/Markdown.tsx";
-import { ChevronRightIcon, CodeIcon, DocumentIcon, LayersIcon, TicketIcon, TreeIcon } from "../../shared/icons/index.tsx";
+import { ChevronRightIcon, CodeIcon, DocumentIcon, LayersIcon, SendIcon, TicketIcon, TreeIcon } from "../../shared/icons/index.tsx";
 import { cn } from "../../shared/lib/cn.ts";
 
-// Classifies a workspace file path into the kind of document the Architect Workflow produces
-// (workflows/architect-workflow.ts + delegate-tools.ts's `file` mode), for a label and icon a
-// reader can scan at a glance instead of parsing the raw path.
-function classify(path: string): { label: string; tone: Tone; icon: typeof DocumentIcon } {
-  if (path === "architecture.md") return { label: "Architecture", tone: "brand", icon: LayersIcon };
-  if (path === "plan.md") return { label: "Plan", tone: "success", icon: TicketIcon };
-  if (path.startsWith("docs/srs/")) return { label: "Requirements", tone: "warning", icon: DocumentIcon };
-  if (path.startsWith("docs/adr/")) return { label: "ADR", tone: "outline", icon: CodeIcon };
-  return { label: "Doc", tone: "neutral", icon: DocumentIcon };
-}
-
-function fileTitle(path: string): string {
-  const base = path.split("/").pop() ?? path;
-  return base.replace(/\.md$/, "").replace(/^\d+-/, "").replace(/-/g, " ");
-}
-
-function sortedFiles(files: WorkspaceFile[]): WorkspaceFile[] {
-  // A fixed, sensible reading order (architecture/plan/requirements first, ADRs after) rather
-  // than plain alphabetical, which would separate architecture.md from its companions.
-  const rank = (p: string) => (p === "architecture.md" ? 0 : p === "plan.md" ? 1 : p.startsWith("docs/srs/") ? 2 : p.startsWith("docs/adr/") ? 3 : 4);
-  return [...files].sort((a, b) => rank(a.path) - rank(b.path) || a.path.localeCompare(b.path));
-}
+// Icon per classifyWorkspaceFile() kind - the label/tone/ordering live in features/design-docs/api.ts
+// so the Jira page's embedded Documents section classifies files identically; only the icon
+// choice is specific to this page's tree view.
+const KIND_ICON: Record<ReturnType<typeof classifyWorkspaceFile>["kind"], typeof DocumentIcon> = {
+  architecture: LayersIcon,
+  plan: TicketIcon,
+  requirements: DocumentIcon,
+  adr: CodeIcon,
+  doc: DocumentIcon,
+};
 
 type EpicFiles = { status: "loading" } | { status: "error"; message: string } | { status: "ready"; files: WorkspaceFile[] };
 
 export function DesignDocsPage() {
+  const { profile } = useAuth();
+  const navigate = useNavigate();
+  const canEdit = profile?.role === "architect";
+  const canSendFeedback = profile ? profile.grants.agents["orchestrator"] === "run" : false;
+
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [filesByEpic, setFilesByEpic] = useState<Record<string, EpicFiles>>({});
   const [selected, setSelected] = useState<{ epicKey: string; path: string } | null>(null);
-  const [viewMode, setViewMode] = useState<"source" | "preview">("source");
+  const [viewMode, setViewMode] = useState<"source" | "preview">("preview");
   const autoOpened = useRef(false);
+
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+
+  const [feedbackOpen, setFeedbackOpen] = useState(false);
+  const [feedback, setFeedback] = useState("");
+  const [sending, setSending] = useState(false);
+  const [sendError, setSendError] = useState<string | null>(null);
 
   const epicsState = useAsync(() => designDocsApi.listEpics(), []);
   const epics = epicsState.data?.epics ?? [];
@@ -53,7 +62,7 @@ export function DesignDocsPage() {
     setFilesByEpic((prev) => ({ ...prev, [epicKey]: { status: "loading" } }));
     try {
       const { files } = await designDocsApi.list(epicKey);
-      setFilesByEpic((prev) => ({ ...prev, [epicKey]: { status: "ready", files: sortedFiles(files) } }));
+      setFilesByEpic((prev) => ({ ...prev, [epicKey]: { status: "ready", files: sortedWorkspaceFiles(files) } }));
       return files;
     } catch (err) {
       setFilesByEpic((prev) => ({ ...prev, [epicKey]: { status: "error", message: describeError(err) } }));
@@ -74,20 +83,80 @@ export function DesignDocsPage() {
     [filesByEpic, loadFiles],
   );
 
-  // "Shows what is always there" - open the explorer straight into the first Epic's first
-  // document, VS Code's own default, rather than making the human click through an empty tree.
+  // "Shows what is always there" - open the explorer straight into an Epic's first document,
+  // VS Code's own default, rather than making the human click through an empty tree. Deep-links
+  // from elsewhere (the Jira page's Documents section) land on their Epic via ?epic=; otherwise
+  // the first Epic in the list opens, same as before.
+  const [searchParams] = useSearchParams();
   useEffect(() => {
     if (autoOpened.current || epics.length === 0) return;
     autoOpened.current = true;
-    const first = epics[0]!;
+    const requested = searchParams.get("epic")?.trim().toUpperCase();
+    const first = (requested && epics.includes(requested) ? requested : epics[0])!;
     setExpanded(new Set([first]));
     void loadFiles(first).then((files) => {
-      const sorted = sortedFiles(files);
+      const sorted = sortedWorkspaceFiles(files);
       if (sorted[0]) setSelected({ epicKey: first, path: sorted[0].path });
     });
-  }, [epics, loadFiles]);
+  }, [epics, loadFiles, searchParams]);
 
   const fileState = useAsync(() => (selected ? designDocsApi.read(selected.epicKey, selected.path) : Promise.resolve(null)), [selected?.epicKey, selected?.path]);
+
+  // Switching documents drops any in-progress edit or feedback draft rather than carrying it
+  // to a different file.
+  useEffect(() => {
+    setEditing(false);
+    setSaveError(null);
+    setFeedbackOpen(false);
+    setFeedback("");
+    setSendError(null);
+  }, [selected?.epicKey, selected?.path]);
+
+  function startEditing() {
+    if (!fileState.data) return;
+    setDraft(fileState.data.content);
+    setSaveError(null);
+    setEditing(true);
+    setViewMode("source");
+  }
+
+  async function saveEdit() {
+    if (!selected) return;
+    setSaving(true);
+    setSaveError(null);
+    try {
+      await designDocsApi.write(selected.epicKey, selected.path, draft);
+      setEditing(false);
+      await fileState.reload();
+    } catch (err) {
+      setSaveError(describeError(err));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  // Sends feedback to the Architect by continuing the Orchestrator thread that produced this
+  // Epic's design (so it still has the draftId to revise), or starting a fresh one if none is
+  // found - the Orchestrator can still re-draft from the feedback and the Epic key.
+  async function sendFeedback() {
+    if (!selected || !feedback.trim()) return;
+    setSending(true);
+    setSendError(null);
+    try {
+      const { threadId } = await designDocsApi.thread(selected.epicKey);
+      if (threadId) {
+        navigate(paths.workspaceThread(threadId), { state: { initialMessage: `Revise. Feedback: ${feedback.trim()}` } });
+      } else {
+        const thread = await workspaceApi.createThread("orchestrator");
+        navigate(paths.workspaceThread(thread.id), {
+          state: { initialMessage: `Design the architecture for ${selected.epicKey} (its Stories are already approved). Feedback to incorporate: ${feedback.trim()}` },
+        });
+      }
+    } catch (err) {
+      setSendError(describeError(err));
+      setSending(false);
+    }
+  }
 
   // Ctrl+Shift+V toggles Markdown preview, matching the same shortcut in VS Code.
   useEffect(() => {
@@ -107,7 +176,7 @@ export function DesignDocsPage() {
     <>
       <PageHeader
         title="Design Documents"
-        description="The Architect's per-Epic workspace: ADRs, requirements analysis, architecture.md, and plan.md - written after Gate 3 approval (docs/ARCHITECTURE.md section 6.3)."
+        description="The Architect's per-Epic workspace: ADRs, requirements analysis, architecture.md, and plan.md"
       />
 
       {epicsState.error ? <Alert tone="danger">{epicsState.error}</Alert> : null}
@@ -168,8 +237,8 @@ export function DesignDocsPage() {
                             ) : (
                               <ul>
                                 {entry.files.map((f) => {
-                                  const meta = classify(f.path);
-                                  const Icon = meta.icon;
+                                  const meta = classifyWorkspaceFile(f.path);
+                                  const Icon = KIND_ICON[meta.kind];
                                   const isSelected = selected?.epicKey === epicKey && selected.path === f.path;
                                   return (
                                     <li key={f.path}>
@@ -183,7 +252,7 @@ export function DesignDocsPage() {
                                         title={f.path}
                                       >
                                         <Icon className={cn("size-3.5 shrink-0", isSelected ? "text-brand" : "text-ink-400")} />
-                                        <span className="truncate capitalize">{fileTitle(f.path)}</span>
+                                        <span className="truncate capitalize">{workspaceFileTitle(f.path)}</span>
                                         <Badge tone={meta.tone} className="ml-auto shrink-0">
                                           {meta.label}
                                         </Badge>
@@ -216,31 +285,86 @@ export function DesignDocsPage() {
                 </div>
               ) : fileState.data ? (
                 <>
-                  <div className="flex shrink-0 items-center justify-between gap-3 border-b border-line px-4 py-2.5">
+                  <div className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-b border-line px-4 py-2.5">
                     <div className="min-w-0">
                       <p className="truncate font-mono text-sm font-semibold text-ink-900">{fileState.data.path}</p>
                       <p className="text-[11px] text-ink-400">{selected.epicKey}</p>
                     </div>
-                    <div className="flex shrink-0 items-center rounded-md border border-line p-0.5 text-xs">
-                      <button
-                        type="button"
-                        onClick={() => setViewMode("source")}
-                        className={cn("rounded px-2.5 py-1 font-medium transition-colors", viewMode === "source" ? "bg-ink-900 text-white" : "text-ink-600 hover:bg-ink-50")}
-                      >
-                        Source
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setViewMode("preview")}
-                        className={cn("rounded px-2.5 py-1 font-medium transition-colors", viewMode === "preview" ? "bg-ink-900 text-white" : "text-ink-600 hover:bg-ink-50")}
-                        title="Ctrl+Shift+V"
-                      >
-                        Preview
-                      </button>
+                    <div className="flex shrink-0 items-center gap-2">
+                      {editing ? (
+                        <>
+                          <Button size="sm" variant="secondary" onClick={() => setEditing(false)} disabled={saving}>
+                            Cancel
+                          </Button>
+                          <Button size="sm" variant="primary" onClick={() => void saveEdit()} loading={saving}>
+                            Save
+                          </Button>
+                        </>
+                      ) : (
+                        <>
+                          <div className="flex items-center rounded-md border border-line p-0.5 text-xs">
+                            <button
+                              type="button"
+                              onClick={() => setViewMode("source")}
+                              className={cn("rounded px-2.5 py-1 font-medium transition-colors", viewMode === "source" ? "bg-ink-900 text-white" : "text-ink-600 hover:bg-ink-50")}
+                            >
+                              Source
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setViewMode("preview")}
+                              className={cn("rounded px-2.5 py-1 font-medium transition-colors", viewMode === "preview" ? "bg-ink-900 text-white" : "text-ink-600 hover:bg-ink-50")}
+                              title="Ctrl+Shift+V"
+                            >
+                              Preview
+                            </button>
+                          </div>
+                          {canSendFeedback ? (
+                            <Button size="sm" variant="secondary" icon={<SendIcon className="size-3.5" />} onClick={() => setFeedbackOpen((v) => !v)}>
+                              Comment
+                            </Button>
+                          ) : null}
+                          {canEdit ? (
+                            <Button size="sm" variant="secondary" onClick={startEditing}>
+                              Edit
+                            </Button>
+                          ) : null}
+                        </>
+                      )}
                     </div>
                   </div>
+
+                  {editing ? (
+                    <div className="shrink-0 border-b border-line bg-warning-soft px-4 py-2 text-xs text-warning">
+                      Manual edits aren't versioned - if the Architect agent revises this design again, this file is overwritten from that new draft.
+                    </div>
+                  ) : null}
+                  {saveError ? (
+                    <div className="shrink-0 px-4 pt-2">
+                      <Alert tone="danger">{saveError}</Alert>
+                    </div>
+                  ) : null}
+
+                  {feedbackOpen && !editing ? (
+                    <div className="shrink-0 space-y-2 border-b border-line bg-neutral-soft/40 px-4 py-3">
+                      <p className="text-xs font-medium text-ink-700">Send feedback to the Architect - it will revise this design and update the filed Jira Tasks in place.</p>
+                      <Textarea rows={3} value={feedback} onChange={(e) => setFeedback(e.target.value)} placeholder="What should change, and why?" className="text-sm" />
+                      {sendError ? <p className="text-xs text-danger">{sendError}</p> : null}
+                      <div className="flex justify-end gap-2">
+                        <Button size="sm" variant="ghost" onClick={() => setFeedbackOpen(false)} disabled={sending}>
+                          Cancel
+                        </Button>
+                        <Button size="sm" variant="primary" icon={<SendIcon className="size-3.5" />} onClick={() => void sendFeedback()} loading={sending} disabled={!feedback.trim()}>
+                          Send to Architect
+                        </Button>
+                      </div>
+                    </div>
+                  ) : null}
+
                   <div className="min-h-0 flex-1 overflow-hidden">
-                    {viewMode === "source" ? (
+                    {editing ? (
+                      <CodeMirror value={draft} onChange={(value) => setDraft(value)} height="100%" extensions={[markdown()]} basicSetup={{ lineNumbers: true, foldGutter: false }} className="h-full" />
+                    ) : viewMode === "source" ? (
                       <CodeMirror value={fileState.data.content} editable={false} height="100%" extensions={[markdown()]} basicSetup={{ lineNumbers: true, foldGutter: false }} className="h-full" />
                     ) : (
                       <div className="h-full overflow-y-auto px-6 py-4">

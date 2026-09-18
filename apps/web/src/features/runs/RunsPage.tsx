@@ -21,7 +21,7 @@ type Tab = "active" | "all";
 const ACTIVE: RunStatus[] = ["PENDING", "RUNNING", "SUSPENDED_FOR_APPROVAL"];
 
 export function RunsPage() {
-  const [tab, setTab] = useState<Tab>("active");
+  const [tab, setTab] = useState<Tab>("all");
   const state = useAsync(() => runsApi.list(), []);
   usePolling(state.reload, 15_000, true);
 
@@ -40,8 +40,8 @@ export function RunsPage() {
             value={tab}
             onChange={setTab}
             items={[
-              { value: "active", label: "Active", count: (state.data ?? []).filter((r) => ACTIVE.includes(r.status)).length },
               { value: "all", label: "All", count: (state.data ?? []).length },
+              { value: "active", label: "Active", count: (state.data ?? []).filter((r) => ACTIVE.includes(r.status)).length },
             ]}
           />
         </div>

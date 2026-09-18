@@ -1,5 +1,7 @@
 import { Link } from "react-router-dom";
 import { LogoMark, LogoWordmarkImage } from "../../shared/brand/Logo.tsx";
+import { HowAuraWorksDiagram } from "./HowAuraWorksDiagram.tsx";
+import { AuraNetworkCanvas } from "./AuraNetworkCanvas.tsx";
 import {
   ArrowRightIcon,
   AuditIcon,
@@ -16,19 +18,38 @@ import {
   SwapIcon,
   TicketIcon,
   UsersIcon,
+  BoltIcon,
 } from "../../shared/icons/index.tsx";
 
-const lifecycle = [
-  { title: "Epic", description: "The Project Owner defines the objective, scope, and success metrics." },
-  { title: "Stories", description: "The Business Analyst writes acceptance criteria and a definition of done." },
-  { title: "Architecture", description: "The Architect proposes the technical design and records the decision." },
-  { title: "Development", description: "A developer reviews and merges every change; nothing is pushed directly." },
-  { title: "Test plan", description: "QA approves the coverage before any suite runs." },
-  { title: "Verification", description: "QA confirms the results against the raw evidence." },
-  { title: "Release", description: "The Deployer and a second approver sign off before production." },
+const principles = [
+  {
+    num: "01",
+    title: "Agents propose; deterministic systems decide",
+    description: "Authorization, risk classification, state transitions, test execution, and audit are never delegated to a prompt.",
+  },
+  {
+    num: "02",
+    title: "Jira is the work state machine",
+    description: "Agents are triggered by Jira status transitions and write back to Jira. AURA never becomes a second project-management system.",
+  },
+  {
+    num: "03",
+    title: "Human-in-the-loop is a workflow primitive",
+    description: "Every agent stage ends in a durable SUSPENDED_FOR_APPROVAL state; nothing continues without a recorded human decision.",
+  },
+  {
+    num: "04",
+    title: "Authorized, validated & bounded tools",
+    description: "The LLM cannot call anything the policy engine has not granted for this user, this project, this agent version, this run.",
+  },
+  {
+    num: "05",
+    title: "Evidence over assertion",
+    description: "An agent may never claim a test passed, a deployment succeeded, or a requirement is met without a machine-generated artifact.",
+  },
 ];
 
-const governance = [
+const governanceFeatures = [
   {
     icon: GateIcon,
     title: "Human in the loop",
@@ -37,214 +58,280 @@ const governance = [
   {
     icon: AuditIcon,
     title: "Complete audit trail",
-    description: "Every run, decision, and artifact is logged and traceable end to end, in order.",
+    description: "Every run, decision, and artifact is logged and traceable end to end, with SHA-256 payload hashes.",
   },
   {
     icon: UsersIcon,
     title: "Role-based access",
-    description: "Access to each agent and action is governed by role, evaluated in code, never by the model.",
+    description: "Access to each agent and action is governed by role, evaluated in code outside the LLM.",
   },
   {
     icon: TicketIcon,
-    title: "Jira stays the source of truth",
-    description: "AURA writes back to Jira on approval. It never becomes a second system of record.",
+    title: "Jira single source of truth",
+    description: "AURA writes back to Jira on approval, maintaining Jira as your single system of record.",
   },
 ];
 
 const roles = [
-  { label: "Project Owner", icon: PersonIcon },
-  { label: "Business Analyst", icon: DocumentIcon },
-  { label: "Architect", icon: SwapIcon },
-  { label: "Developer", icon: CodeIcon },
-  { label: "QA Engineer", icon: ClipboardCheckIcon },
-  { label: "Tester", icon: SearchIcon },
-  { label: "Deployer", icon: CloudIcon },
+  { label: "Project Owner", icon: PersonIcon, tier: "MEDIUM Risk", scope: "Epic Definition & Scope" },
+  { label: "Business Analyst", icon: DocumentIcon, tier: "MEDIUM Risk", scope: "User Stories & Gherkin AC" },
+  { label: "Architect", icon: SwapIcon, tier: "MEDIUM Risk", scope: "System Design & ADRs" },
+  { label: "Developer", icon: CodeIcon, tier: "MEDIUM/HIGH Risk", scope: "Sandbox Code & PR Merges" },
+  { label: "QA Engineer", icon: ClipboardCheckIcon, tier: "LOW Risk", scope: "Test Plans & Playwright Specs" },
+  { label: "Tester", icon: SearchIcon, tier: "LOW Risk", scope: "Result Verification & Defects" },
+  { label: "Deployer", icon: CloudIcon, tier: "HIGH Risk (4-Eyes)", scope: "Production Release & Rollback" },
 ];
 
 const integrations = [
-  { label: "Jira", icon: TicketIcon },
-  { label: "Git", icon: GitIcon },
-  { label: "CI/CD", icon: InfinityIcon },
-  { label: "Governance", icon: GateIcon },
+  { label: "Jira Cloud / DC", icon: TicketIcon },
+  { label: "GitHub / GitLab", icon: GitIcon },
+  { label: "CI/CD Pipelines", icon: InfinityIcon },
+  { label: "Policy Engine", icon: GateIcon },
 ];
 
 export function LandingPage() {
   return (
-    <div className="min-h-screen bg-surface text-ink-900">
-      <header className="sticky top-0 z-40 border-b border-line bg-surface/95 backdrop-blur">
+    <div className="min-h-screen bg-canvas text-ink-900 selection:bg-brand selection:text-on-dark font-sans">
+      {/* Top Header */}
+      <header className="sticky top-0 z-40 border-b border-line bg-surface/90 backdrop-blur-md">
         <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-6 lg:px-8">
           <Link to="/" className="flex items-center gap-2.5">
             <LogoMark className="h-7 w-auto" />
             <LogoWordmarkImage className="h-5 w-auto" />
+            <span className="hidden sm:inline-block rounded-full bg-brand-soft px-2.5 py-0.5 text-[10px] font-bold tracking-wider text-brand uppercase border border-brand/20">
+              Enterprise Platform
+            </span>
           </Link>
 
           <nav className="hidden items-center gap-8 md:flex">
-            <a href="#how-it-works" className="text-sm font-medium text-ink-600 transition-colors hover:text-ink-900">
+            <a href="#how-it-works" className="text-xs font-semibold uppercase tracking-wider text-ink-600 transition-colors hover:text-brand">
               How it works
             </a>
-            <a href="#governance" className="text-sm font-medium text-ink-600 transition-colors hover:text-ink-900">
+            <a href="#principles" className="text-xs font-semibold uppercase tracking-wider text-ink-600 transition-colors hover:text-brand">
+              Architecture
+            </a>
+            <a href="#governance" className="text-xs font-semibold uppercase tracking-wider text-ink-600 transition-colors hover:text-brand">
               Governance
             </a>
-            <a href="#roles" className="text-sm font-medium text-ink-600 transition-colors hover:text-ink-900">
+            <a href="#roles" className="text-xs font-semibold uppercase tracking-wider text-ink-600 transition-colors hover:text-brand">
               Roles
             </a>
           </nav>
 
-          <Link
-            to="/login"
-            className="rounded-md bg-brand px-4 py-2 text-sm font-semibold text-on-dark transition-colors hover:bg-brand-hover"
-          >
-            Sign in
-          </Link>
+          <div className="flex items-center gap-3">
+            <Link
+              to="/login"
+              className="rounded-md bg-brand px-4 py-2 text-xs font-bold text-on-dark transition-all hover:bg-brand-hover shadow-sm"
+            >
+              Sign in
+            </Link>
+          </div>
         </div>
       </header>
 
       <main>
-        {/* Hero */}
-        <section className="mx-auto max-w-7xl px-6 pb-20 pt-16 sm:pt-24 lg:px-8">
-          <div className="grid grid-cols-1 items-start gap-16 lg:grid-cols-2">
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-widest text-brand">AI delivery platform</p>
-              <h1 className="mt-4 text-4xl font-bold leading-tight tracking-tight text-ink-900 sm:text-5xl">
-                AI agents that ship software, with a human in control at every step.
-              </h1>
-              <p className="mt-6 max-w-xl text-lg leading-relaxed text-ink-600">
-                AURA coordinates specialised agents across the software delivery lifecycle, uses Jira as the single
-                system of record, and gates every consequential action behind a recorded human approval.
-              </p>
+        {/* HERO SECTION: Minimal Text Left, 3D Agent Network Canvas Right */}
+        <section className="relative overflow-hidden border-b border-line bg-surface pt-12 pb-16 lg:pt-16 lg:pb-20">
+          <div className="mx-auto max-w-7xl px-6 lg:px-8">
+            <div className="grid grid-cols-1 items-center gap-12 lg:grid-cols-12 lg:gap-10">
+              {/* Left Column: Clean & Minimal Professional Typography */}
+              <div className="lg:col-span-5">
+                <div className="inline-flex items-center gap-2 rounded-full border border-line bg-canvas px-3 py-1 text-xs font-semibold text-ink-700">
+                  <span className="size-2 rounded-full bg-brand animate-pulse" />
+                  AURA Enterprise Platform
+                </div>
 
-              <div className="mt-10 flex flex-wrap items-center gap-x-8 gap-y-4">
-                <Link
-                  to="/login"
-                  className="flex items-center gap-2 rounded-md bg-brand px-6 py-3 text-sm font-semibold text-on-dark transition-colors hover:bg-brand-hover"
-                >
-                  Sign in
-                  <ArrowRightIcon className="size-4" />
-                </Link>
-                <a
-                  href="#how-it-works"
-                  className="flex items-center gap-1.5 text-sm font-semibold text-ink-700 transition-colors hover:text-ink-900"
-                >
-                  See how it works
-                  <ChevronRightIcon className="size-4" />
-                </a>
-              </div>
+                <h1 className="mt-5 text-3xl font-extrabold tracking-tight text-ink-900 sm:text-4xl lg:text-5xl sm:leading-[1.12]">
+                  AI agents that ship software.{" "}
+                  <span className="text-brand">
+                    Humans in control.
+                  </span>
+                </h1>
 
-              <div className="mt-14 border-t border-line pt-8">
-                <p className="text-xs font-semibold uppercase tracking-wide text-ink-400">
-                  Built around the tools you already use
+                <p className="mt-5 text-sm text-ink-600 leading-relaxed sm:text-base">
+                  AURA coordinates specialized AI agents across your software delivery lifecycle, using Jira as the single system of record and gating every consequential action behind a recorded human approval.
                 </p>
-                <ul className="mt-4 flex flex-wrap items-center gap-x-8 gap-y-3">
-                  {integrations.map(({ label, icon: Icon }) => (
-                    <li key={label} className="flex items-center gap-2 text-sm font-medium text-ink-500">
-                      <Icon className="size-4 text-ink-400" />
-                      {label}
-                    </li>
-                  ))}
-                </ul>
+
+                <div className="mt-8 flex flex-wrap items-center gap-3">
+                  <Link
+                    to="/login"
+                    className="flex items-center gap-2 rounded-md bg-brand px-5 py-3 text-xs font-bold text-on-dark transition-all hover:bg-brand-hover shadow-sm"
+                  >
+                    Sign in to Workspace
+                    <ArrowRightIcon className="size-4" />
+                  </Link>
+
+                  <a
+                    href="#how-it-works"
+                    className="flex items-center gap-1.5 rounded-md border border-line bg-surface px-4 py-3 text-xs font-semibold text-ink-700 transition-colors hover:bg-canvas"
+                  >
+                    Explore Workflow
+                    <ChevronRightIcon className="size-4 text-ink-400" />
+                  </a>
+                </div>
+
+                {/* Minimal Integrations Row */}
+                <div className="mt-10 border-t border-line/70 pt-5">
+                  <p className="text-[10px] font-bold uppercase tracking-widest text-ink-400">
+                    Enterprise Integrations
+                  </p>
+                  <ul className="mt-3 flex flex-wrap items-center gap-x-6 gap-y-2">
+                    {integrations.map(({ label, icon: Icon }) => (
+                      <li key={label} className="flex items-center gap-1.5 text-xs font-medium text-ink-500">
+                        <Icon className="size-3.5 text-ink-400" />
+                        {label}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
               </div>
-            </div>
 
-            <div id="how-it-works" className="scroll-mt-24 rounded-xl border border-line bg-surface p-6 shadow-sm sm:p-8">
-              <p className="text-sm font-semibold text-ink-900">How AURA works</p>
-              <p className="mt-1 text-sm text-ink-500">One pipeline, seven human gates.</p>
-
-              <ol className="relative mt-6 space-y-6">
-                <div aria-hidden className="absolute bottom-4 left-[15px] top-4 w-px bg-line" />
-                {lifecycle.map((stage, i) => (
-                  <li key={stage.title} className="relative flex gap-4">
-                    <span className="z-10 flex size-8 shrink-0 items-center justify-center rounded-full border border-line-strong bg-surface text-xs font-semibold text-ink-700">
-                      {i + 1}
-                    </span>
-                    <div className="min-w-0 pt-1">
-                      <p className="text-sm font-semibold text-ink-900">{stage.title}</p>
-                      <p className="mt-0.5 text-sm leading-relaxed text-ink-500">{stage.description}</p>
-                    </div>
-                  </li>
-                ))}
-              </ol>
-
-              <div className="mt-6 flex items-center gap-2 border-t border-line pt-5 text-xs font-medium text-ink-500">
-                <GateIcon className="size-4 shrink-0 text-brand" />
-                Every stage pauses for a recorded human decision before the next one starts.
+              {/* Right Column: 3D Agent Network Particle Canvas */}
+              <div className="lg:col-span-7">
+                <AuraNetworkCanvas />
               </div>
             </div>
           </div>
         </section>
 
-        {/* Governance */}
-        <section id="governance" className="scroll-mt-24 border-t border-line bg-canvas">
-          <div className="mx-auto max-w-7xl px-6 py-20 lg:px-8">
-            <div className="max-w-2xl">
-              <h2 className="text-2xl font-bold tracking-tight text-ink-900 sm:text-3xl">Governance is not a feature bolted on after</h2>
-              <p className="mt-3 text-base leading-relaxed text-ink-600">
-                Authorization, approvals, and audit are deterministic systems that sit outside the model, so nothing an
-                agent proposes can execute without a person and a record.
+        {/* HOW AURA WORKS SECTION — Live Interactive Diagram Workflow */}
+        <section id="how-it-works" className="scroll-mt-20 border-b border-line bg-canvas py-16 sm:py-20">
+          <div className="mx-auto max-w-7xl px-6 lg:px-8">
+            <HowAuraWorksDiagram />
+          </div>
+        </section>
+
+        {/* ARCHITECTURAL PRINCIPLES SECTION */}
+        <section id="principles" className="scroll-mt-20 border-t border-line bg-surface py-16 sm:py-20">
+          <div className="mx-auto max-w-7xl px-6 lg:px-8">
+            <div className="max-w-3xl">
+              <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-brand">
+                <BoltIcon className="size-4 text-brand-orange" />
+                Architectural Foundation
+              </div>
+              <h2 className="mt-2 text-2xl font-bold tracking-tight text-ink-900 sm:text-3xl">
+                The Five Non-Negotiable Principles of AURA
+              </h2>
+              <p className="mt-2 text-sm leading-relaxed text-ink-600">
+                AURA is built on strict architectural boundaries defined in <code className="text-brand font-mono text-xs bg-brand-soft px-1.5 py-0.5 rounded">ARCHITECTURE.md</code> to guarantee safety and compliance.
               </p>
             </div>
 
-            <div className="mt-12 grid grid-cols-1 gap-8 sm:grid-cols-2 lg:grid-cols-4">
-              {governance.map(({ icon: Icon, title, description }) => (
-                <div key={title}>
-                  <div className="flex size-10 items-center justify-center rounded-lg bg-brand-soft text-brand">
-                    <Icon className="size-5" />
-                  </div>
-                  <p className="mt-4 text-sm font-semibold text-ink-900">{title}</p>
-                  <p className="mt-1.5 text-sm leading-relaxed text-ink-600">{description}</p>
+            <div className="mt-10 grid grid-cols-1 gap-5 md:grid-cols-2 lg:grid-cols-3">
+              {principles.map((p) => (
+                <div
+                  key={p.num}
+                  className="relative rounded-xl border border-line bg-canvas p-6 shadow-sm transition-all hover:border-brand/30"
+                >
+                  <span className="text-2xl font-black text-brand-orange/40">{p.num}</span>
+                  <h3 className="mt-2 text-base font-bold text-ink-900">{p.title}</h3>
+                  <p className="mt-1.5 text-xs leading-relaxed text-ink-600">{p.description}</p>
                 </div>
               ))}
             </div>
           </div>
         </section>
 
-        {/* Roles */}
-        <section id="roles" className="scroll-mt-24 border-t border-line">
-          <div className="mx-auto max-w-7xl px-6 py-20 lg:px-8">
+        {/* GOVERNANCE & ACCESS CONTROL */}
+        <section id="governance" className="scroll-mt-20 border-t border-line bg-surface py-16 sm:py-20">
+          <div className="mx-auto max-w-7xl px-6 lg:px-8">
             <div className="max-w-2xl">
-              <h2 className="text-2xl font-bold tracking-tight text-ink-900 sm:text-3xl">Specialised agents for every role</h2>
-              <p className="mt-3 text-base leading-relaxed text-ink-600">
-                Each agent is scoped to one part of the lifecycle and to the people whose role approves its work.
+              <h2 className="text-2xl font-bold tracking-tight text-ink-900 sm:text-3xl">
+                Governance is not a feature bolted on after
+              </h2>
+              <p className="mt-2 text-sm leading-relaxed text-ink-600">
+                Authorization, approvals, and audit are deterministic systems that sit outside the model. Nothing an agent proposes can execute without a person and an audit record.
               </p>
             </div>
 
-            <ul className="mt-10 grid grid-cols-2 gap-4 sm:grid-cols-4 lg:grid-cols-7">
-              {roles.map(({ label, icon: Icon }) => (
-                <li
-                  key={label}
-                  className="flex flex-col items-center gap-3 rounded-lg border border-line bg-surface px-3 py-6 text-center transition-colors hover:border-ink-300"
-                >
-                  <span className="flex size-10 items-center justify-center rounded-full bg-neutral-soft text-ink-600">
+            <div className="mt-10 grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-4">
+              {governanceFeatures.map(({ icon: Icon, title, description }) => (
+                <div key={title} className="rounded-xl border border-line bg-canvas p-5 shadow-sm">
+                  <div className="flex size-9 items-center justify-center rounded-lg bg-brand-soft text-brand">
                     <Icon className="size-5" />
-                  </span>
-                  <span className="text-xs font-medium leading-tight text-ink-700">{label}</span>
-                </li>
+                  </div>
+                  <h3 className="mt-3 text-sm font-bold text-ink-900">{title}</h3>
+                  <p className="mt-1 text-xs leading-relaxed text-ink-600">{description}</p>
+                </div>
               ))}
-            </ul>
+            </div>
           </div>
         </section>
 
-        {/* CTA band */}
-        <section className="border-y border-line bg-canvas">
-          <div className="mx-auto flex max-w-7xl flex-col items-center gap-6 px-6 py-16 text-center lg:px-8">
-            <h2 className="text-2xl font-bold tracking-tight text-ink-900 sm:text-3xl">Sign in to get started</h2>
-            <p className="max-w-md text-base text-ink-600">
-              Accounts are provisioned by an administrator. There is no public sign-up.
+        {/* AGENT ROLES MATRIX */}
+        <section id="roles" className="scroll-mt-20 border-t border-line bg-canvas py-16 sm:py-20">
+          <div className="mx-auto max-w-7xl px-6 lg:px-8">
+            <div className="max-w-2xl">
+              <h2 className="text-2xl font-bold tracking-tight text-ink-900 sm:text-3xl">
+                Specialized Agents for Every Lifecycle Role
+              </h2>
+              <p className="mt-2 text-sm leading-relaxed text-ink-600">
+                Each agent is strictly scoped to its discipline and to the team members whose role approves its work.
+              </p>
+            </div>
+
+            <div className="mt-8 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+              {roles.map(({ label, icon: Icon, tier, scope }) => (
+                <div
+                  key={label}
+                  className="flex flex-col justify-between rounded-xl border border-line bg-surface p-5 shadow-sm transition-all hover:border-brand/30"
+                >
+                  <div>
+                    <div className="flex items-center justify-between">
+                      <span className="flex size-9 items-center justify-center rounded-lg bg-canvas text-brand border border-line">
+                        <Icon className="size-4" />
+                      </span>
+                      <span className="rounded-full bg-brand-soft px-2.5 py-0.5 text-[10px] font-bold text-brand border border-brand/20">
+                        {tier}
+                      </span>
+                    </div>
+
+                    <h3 className="mt-3 text-sm font-bold text-ink-900">{label}</h3>
+                    <p className="mt-0.5 text-xs text-ink-500">{scope}</p>
+                  </div>
+
+                  <div className="mt-4 flex items-center gap-1 text-[11px] font-semibold text-brand">
+                    <span>Gate Approval Required</span>
+                    <ChevronRightIcon className="size-3.5" />
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </section>
+
+        {/* CTA BAND */}
+        <section className="border-t border-line bg-brand-navy py-16 text-on-dark">
+          <div className="mx-auto flex max-w-7xl flex-col items-center gap-5 px-6 text-center lg:px-8">
+            <span className="rounded-full bg-brand-soft/15 px-3 py-1 text-xs font-semibold text-brand-orange border border-brand-orange/30">
+              Enterprise Security & Governance
+            </span>
+            <h2 className="text-2xl font-bold tracking-tight sm:text-3xl">
+              Ready to ship software with AURA?
+            </h2>
+            <p className="max-w-md text-xs text-ink-300">
+              Accounts are provisioned by an enterprise platform administrator with SAML / OIDC SSO federation.
             </p>
             <Link
               to="/login"
-              className="flex items-center gap-2 rounded-md bg-brand px-6 py-3 text-sm font-semibold text-on-dark transition-colors hover:bg-brand-hover"
+              className="flex items-center gap-2 rounded-md bg-brand px-6 py-3 text-xs font-bold text-on-dark transition-all hover:bg-brand-hover shadow-md"
             >
-              Sign in
+              Sign in to Workspace
               <ArrowRightIcon className="size-4" />
             </Link>
           </div>
         </section>
       </main>
 
-      <footer className="border-t border-line">
-        <div className="mx-auto flex max-w-7xl flex-col items-center justify-between gap-3 px-6 py-8 text-xs text-ink-500 sm:flex-row lg:px-8">
-          <p>&copy; {new Date().getFullYear()} AURA, by Dialog.</p>
-          <p>Accounts are provisioned by an administrator. There is no public sign-up.</p>
+      {/* FOOTER */}
+      <footer className="border-t border-line bg-surface">
+        <div className="mx-auto flex max-w-7xl flex-col items-center justify-between gap-4 px-6 py-6 text-xs text-ink-500 sm:flex-row lg:px-8">
+          <div className="flex items-center gap-2">
+            <LogoMark className="h-5 w-auto" />
+            <span className="font-bold text-ink-900">&copy; {new Date().getFullYear()} AURA</span>
+            <span>: Enterprise AI Agent Orchestration Platform.</span>
+          </div>
+          <p>Single source of truth: Jira Cloud / DC.</p>
         </div>
       </footer>
     </div>

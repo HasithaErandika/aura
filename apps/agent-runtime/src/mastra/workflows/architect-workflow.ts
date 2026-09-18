@@ -18,6 +18,7 @@ const stateSchema = z.object({
   epicKey: z.string(),
   epicSummary: z.string(),
   storiesText: z.string(),
+  techStackText: z.string(),
   requirementsSummary: z.string(),
   decomposition: z.string(),
   apiDesign: z.string(),
@@ -30,17 +31,18 @@ const stateSchema = z.object({
 // Synthesizes requirement themes from the approved Stories into requirementsSummary.
 const requirementsAnalysisStep = createStep({
   id: 'requirements-analysis',
-  inputSchema: z.object({ epicKey: z.string(), epicSummary: z.string(), storiesText: z.string() }),
+  inputSchema: z.object({ epicKey: z.string(), epicSummary: z.string(), storiesText: z.string(), techStackText: z.string() }),
   outputSchema: ready,
   stateSchema,
   execute: async ({ inputData, setState, mastra }) => {
-    const { epicKey, epicSummary, storiesText } = inputData;
+    const { epicKey, epicSummary, storiesText, techStackText } = inputData;
     const prompt = `Synthesize the functional and non-functional requirement themes from these approved Stories for Epic ${epicKey}: ${epicSummary}.\n\nStories:\n${storiesText}\n\nReturn only the JSON the schema describes.`;
     const { requirementsSummary } = await generateObject(mastra, 'architect', prompt, z.object({ requirementsSummary: z.string().min(10) }));
     await setState({
       epicKey,
       epicSummary,
       storiesText,
+      techStackText,
       requirementsSummary,
       decomposition: '',
       apiDesign: '',
@@ -60,7 +62,7 @@ const systemDecompositionStep = createStep({
   outputSchema: ready,
   stateSchema,
   execute: async ({ state, setState, mastra }) => {
-    const prompt = `Decompose the system for Epic ${state.epicKey}: ${state.epicSummary} into components/services and how they fit together.\n\nRequirements synthesis:\n${state.requirementsSummary}\n\nStories:\n${state.storiesText}\n\nReturn only the JSON the schema describes.`;
+    const prompt = `Decompose the system for Epic ${state.epicKey}: ${state.epicSummary} into components/services and how they fit together.\n\nTechnology stack (fixed - design within it, do not propose a different framework or database):\n${state.techStackText}\n\nRequirements synthesis:\n${state.requirementsSummary}\n\nStories:\n${state.storiesText}\n\nReturn only the JSON the schema describes.`;
     const { decomposition } = await generateObject(mastra, 'architect', prompt, z.object({ decomposition: z.string().min(10) }));
     await setState({ ...state, decomposition });
     return { ready: true as const };
@@ -69,7 +71,7 @@ const systemDecompositionStep = createStep({
 
 // Builds a shared prompt for a design-section step, given the already-assembled state.
 function designPrompt(state: z.infer<typeof stateSchema>, focus: string): string {
-  return `${focus} for Epic ${state.epicKey}: ${state.epicSummary}, given this decomposition:\n${state.decomposition}\n\nRequirements synthesis:\n${state.requirementsSummary}\n\nReturn only the JSON the schema describes.`;
+  return `${focus} for Epic ${state.epicKey}: ${state.epicSummary}, given this decomposition:\n${state.decomposition}\n\nTechnology stack (fixed - design within it, do not propose a different framework or database):\n${state.techStackText}\n\nRequirements synthesis:\n${state.requirementsSummary}\n\nReturn only the JSON the schema describes.`;
 }
 
 // Designs the API: endpoints, contracts, versioning approach.
@@ -156,6 +158,11 @@ const assembleStep = createStep({
     const { adrs, tasks } = await generateObject(mastra, 'architect', prompt, z.object({ adrs: z.array(adrSchema).min(1).max(10), tasks: z.array(architectureTaskSchema).min(1).max(30) }));
     return {
       epicKey: state.epicKey,
+      // Placeholders: the caller (delegate-tools.ts) always overwrites these deterministically
+      // with the real Epic list and human-chosen stack right after this workflow returns - the
+      // model never decides either (docs/ARCHITECTURE.md principle 5).
+      relatedEpicKeys: [state.epicKey],
+      techStack: { frontend: '', backend: '', database: '' },
       requirementsSummary: state.requirementsSummary,
       decomposition: state.decomposition,
       apiDesign: state.apiDesign,
@@ -172,7 +179,7 @@ const assembleStep = createStep({
 // Runs the Architect's design steps: requirements -> decomposition -> parallel design sections -> deployment notes -> assemble.
 export const architectWorkflow = createWorkflow({
   id: 'architect-workflow',
-  inputSchema: z.object({ epicKey: z.string(), epicSummary: z.string(), storiesText: z.string() }),
+  inputSchema: z.object({ epicKey: z.string(), epicSummary: z.string(), storiesText: z.string(), techStackText: z.string() }),
   outputSchema: architectureDraftSchema,
   stateSchema,
 })

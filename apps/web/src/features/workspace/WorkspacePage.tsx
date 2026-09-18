@@ -73,7 +73,7 @@ export function WorkspacePage() {
       byRole.push("An approved Epic already exists in Jira. Break it into Stories with acceptance criteria and a definition of done. Epic key: ");
     }
     if (profile?.role === "architect") {
-      byRole.push("An approved Epic with Stories already exists in Jira. Design the architecture: decomposition, API/data/security design, ADRs, and tasks. Epic key: ");
+      byRole.push("Approved Epics with Stories already exist in Jira. Design one shared architecture: decomposition, API/data/security design, ADRs, and tasks. Epic key(s) (comma-separated if more than one): ");
     }
     return [...byRole, ...fromRuntime];
   }, [agent, profile?.role]);
@@ -116,7 +116,7 @@ export function WorkspacePage() {
       : profile?.role === "business_analyst"
         ? "Describe the Epic to break down, or give the Orchestrator an approved Epic key"
         : profile?.role === "architect"
-          ? "Give the Orchestrator an Epic key with approved Stories to design its architecture"
+          ? "Give the Orchestrator one or more Epic keys with approved Stories to design a shared architecture"
           : "Describe the business requirement you want turned into an Epic";
 
   return (

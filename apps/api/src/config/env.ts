@@ -51,6 +51,16 @@ export const env = {
   // (FR-APPR-5).
   approvalSlaHours: optionalNumber("APPROVAL_SLA_HOURS", 72),
 
+  // Direct, read-only Jira Cloud REST access for browsing Epics/Stories/Tasks (same
+  // credentials the agent-runtime's Jira MCP uses to write). The API talks to Jira itself
+  // for this - it never asks the runtime or an agent to do it, so viewing Jira data can
+  // never trigger an agent run.
+  jiraUrl: optionalString("JIRA_URL")?.replace(/\/+$/, ""),
+  jiraUsername: optionalString("JIRA_USERNAME"),
+  jiraApiToken: optionalString("JIRA_API_TOKEN"),
+  jiraProjectKey: optionalString("JIRA_PROJECT_KEY"),
+  jiraTimeoutMs: optionalNumber("JIRA_TIMEOUT_MS", 10_000),
+
   // Rate limits (requests per window, per client)
   rateLimit: {
     windowMs: optionalNumber("RATE_LIMIT_WINDOW_MS", 60_000),

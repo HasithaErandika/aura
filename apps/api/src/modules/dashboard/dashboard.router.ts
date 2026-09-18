@@ -21,16 +21,24 @@ dashboardRouter.get(
     const isAdmin = user.role === "admin";
     const approves = agentsApprovedByRole(user.role);
 
-    const [pendingForRole, pendingOnMyRuns, runCounts, recentRuns, needsDecision, runtime] = await Promise.all([
-      approvalsRepository.countPending({ requiredRole: isAdmin ? undefined : user.role }),
+    const [pendingForRole, pendingOnMyRuns, runCounts, recentRuns, rawNeedsDecision, runtime] = await Promise.all([
+      isAdmin ? approvalsRepository.countPending({}) : approvalsRepository.countPendingForUser(user.id, user.role),
       approvalsRepository.countPending({ requestedBy: user.id }),
       runsRepository.countByStatus(isAdmin ? {} : { requestedBy: user.id }),
       isAdmin ? runsRepository.list({ limit: 8 }) : runsRepository.listVisibleTo(user.id, approves, 8),
+      // Admin sees every pending gate (visibility only, per policy.ts - admins never decide).
+      // A non-admin's listForUser() is broader than "needs my decision": it also returns
+      // pending gates on their own runs that need a *different* role, for context. Fetch a
+      // wider page and filter to canDecide below so this card only shows what its title
+      // promises, without capping to 6 before that filter runs.
       isAdmin
         ? approvalsRepository.list({ status: ["PENDING"], limit: 6 })
-        : approvalsRepository.listForUser(user.id, user.role, ["PENDING"], 6),
+        : approvalsRepository.listForUser(user.id, user.role, ["PENDING"], 30),
       runtimeClient.health(),
     ]);
+
+    const needsDecisionViews = await toApprovalViews(rawNeedsDecision, user);
+    const needsDecision = isAdmin ? needsDecisionViews : needsDecisionViews.filter((a) => a.canDecide).slice(0, 6);
 
     const profiles = await profilesById(recentRuns.map((r) => r.requested_by));
 
@@ -46,7 +54,7 @@ dashboardRouter.get(
         failedRuns: (runCounts.FAILED ?? 0) + (runCounts.EXPIRED ?? 0) + (runCounts.HALTED_LOOP_GUARD ?? 0),
         rejectedRuns: runCounts.REJECTED ?? 0,
       },
-      needsDecision: await toApprovalViews(needsDecision, user),
+      needsDecision,
       recentRuns: recentRuns.map((row) => {
         const p = profiles.get(row.requested_by);
         return toRunView(row, p ? { fullName: p.fullName, email: p.email } : null);

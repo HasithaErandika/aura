@@ -84,12 +84,32 @@ export function assertCanRunAgent(role: Role, agentId: string): void {
   }
 }
 
-// Who may view the Architect's per-Epic workspace files (docs/ARCHITECTURE.md section 6.3).
-// There is no projects/jira_project_links table yet (section 9.1) to scope this by project
-// membership, so it piggybacks on the existing architect-agent grant: anyone who can run or
-// read that agent (architect, admin) can see what it produced.
+// Who may view the artifacts of the Epic/Story/Task pipeline - the Architect's per-Epic
+// workspace files (docs/ARCHITECTURE.md section 6.3) and Jira itself (modules/jira). There is
+// no projects/jira_project_links table yet (section 9.1) to scope this by project membership,
+// so it is scoped by "is this person part of the pipeline at all": anyone with at least one
+// agent grant (PO, BA, Architect), plus admins. PO and BA only ever get a "read" grant on
+// architect-agent (they cannot run it), but that is enough to also read what it produced - the
+// same read/run split every other agent grant already uses.
+function canViewEpicArtifacts(role: Role): boolean {
+  return role === "admin" || Object.keys(ROLE_AGENT_GRANTS[role]).length > 0;
+}
+
 export function canViewArchitectWorkspace(role: Role): boolean {
-  return canReadAgent(role, "architect-agent");
+  return canViewEpicArtifacts(role);
+}
+
+// Who may hand-edit an Architect workspace document. Narrower than viewing it: only the human
+// architect (the one role with a "run" grant on architect-agent, i.e. the one actually
+// producing this design) - not admins (they never author/decide, per canDecide's own rule) and
+// not PO/BA (they can read the design but do not own it).
+export function canEditArchitectWorkspace(role: Role): boolean {
+  return canRunAgent(role, "architect-agent");
+}
+
+// Read-only browsing of Jira Epics/Stories/Tasks, fetched directly from Jira - see modules/jira.
+export function canViewJira(role: Role): boolean {
+  return canViewEpicArtifacts(role);
 }
 
 export interface ApprovalScope {
