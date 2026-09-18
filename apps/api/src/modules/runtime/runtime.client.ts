@@ -190,4 +190,19 @@ export const runtimeClient = {
   resumeStream(agentId: string, body: ResumeBody, signal?: AbortSignal) {
     return openStream(`/api/agents/${encodeURIComponent(agentId)}/resume-stream`, body, signal);
   },
+
+  // Custom routes registered in apps/agent-runtime/src/mastra/server/workspace-routes.ts -
+  // read-only access to the Architect's per-Epic workspace (docs/ARCHITECTURE.md section 6.3).
+  listWorkspaceEpics(): Promise<{ epics: string[] }> {
+    return request(`/workspace`);
+  },
+
+  listWorkspaceFiles(epicKey: string): Promise<{ files: { path: string; size: number | null }[] }> {
+    return request(`/workspace/${encodeURIComponent(epicKey)}/files`);
+  },
+
+  readWorkspaceFile(epicKey: string, path: string): Promise<{ path: string; content: string }> {
+    const params = new URLSearchParams({ path });
+    return request(`/workspace/${encodeURIComponent(epicKey)}/file?${params.toString()}`);
+  },
 };

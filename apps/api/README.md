@@ -21,16 +21,17 @@ src/
     approvals/             approval inbox, decide + resume
     audit/                 append-only audit writer and explorer feed
     dashboard/             summary for the signed-in role
+    workspace/             read-only proxy onto the Architect's per-Epic design documents
     health/                liveness for the API and the runtime
   routes/index.ts          mounts every module
-supabase/migrations/       0001 identity, 0002 runs/approvals/audit
+supabase/migrations/       0001 identity, 0002 runs/approvals/audit, 0003 run_steps 'progress' kind
 ```
 
 The Orchestrator in the runtime decides the workflow. The API observes its stream (delegations, tool results, `ask_user` pauses) and records what happened; it never encodes a step order. Authorization is the one thing decided here, from two tables in `modules/policy/policy.ts`: who may run an agent and which role answers when the runtime pauses after delegating to an agent.
 
 ## Setup
 
-1. Create a Supabase project and run `supabase/migrations/0001_identity.sql` then `0002_runs_approvals_audit.sql` in the SQL editor.
+1. Create a Supabase project and run `supabase/migrations/0001_identity.sql`, then `0002_runs_approvals_audit.sql`, then `0003_run_step_progress_kind.sql`, in the SQL editor.
 2. Copy `.env.example` to `.env` and fill in the Supabase URL, anon key, service role key, and the runtime URL.
 3. `npm install`
 4. Create the first admin (no self-serve signup):

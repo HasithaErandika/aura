@@ -5,7 +5,7 @@ import { errorMessage, logger } from "../../lib/logger.js";
 import type { AuthedUser } from "../../middleware/auth.js";
 import { writeAudit } from "../audit/audit.service.js";
 import { approvalsRepository } from "../approvals/approvals.repository.js";
-import { canDecide, delegatedAgentFromTool, gateInfoFor, resolveApprover } from "../policy/policy.js";
+import { canDecide, delegatedAgentFromTool, gateInfoForPause, resolveApprover } from "../policy/policy.js";
 import { runsRepository } from "../runs/runs.repository.js";
 import type { RunRow, RunStatus } from "../runs/runs.types.js";
 import { runtimeClient } from "../runtime/runtime.client.js";
@@ -68,7 +68,7 @@ export async function pipeRuntimeStream(context: StreamContext, stream: AsyncGen
 
   // Steps are buffered and written in one insert at each durable point (suspension, error,
   // end of turn) so forwarding the stream to the browser never waits on the database.
-  type StepKind = "tool-call" | "tool-result" | "tool-error" | "text" | "suspended" | "resumed" | "error" | "finish";
+  type StepKind = "tool-call" | "tool-result" | "tool-error" | "text" | "suspended" | "resumed" | "error" | "finish" | "progress";
   const buffered: Parameters<typeof runsRepository.addSteps>[0] = [];
   const step = async (kind: StepKind, fields: { toolName?: string; toolCallId?: string; payload?: Record<string, unknown> }) => {
     buffered.push({ runId: run.id, seq: seq++, kind, ...fields });
@@ -183,7 +183,7 @@ export async function pipeRuntimeStream(context: StreamContext, stream: AsyncGen
             metadata: { runId: run.id, producingAgent: scope.producingAgent, requiredRole: scope.requiredRole },
           });
           outcome = { status: "SUSPENDED_FOR_APPROVAL", approvalId: approval.id };
-          const gate = gateInfoFor(scope.producingAgent);
+          const gate = gateInfoForPause(scope.producingAgent, suspend.options);
           writer.send("gate", {
             approvalId: approval.id,
             runId: run.id,
@@ -207,6 +207,18 @@ export async function pipeRuntimeStream(context: StreamContext, stream: AsyncGen
           outcome = { status: "FAILED", approvalId: null };
           finished = true;
           writer.send("error", { message });
+          break;
+        }
+
+        // A workflow-backed delegate tool (e.g. delegate_to_architect) relays its internal
+        // step progress as a transient custom chunk into this same stream (Mastra's tool
+        // `writer` API - see apps/agent-runtime/src/mastra/tools/delegate-tools.ts). Mirrored
+        // as a run step exactly like a tool call, so the Run Console shows per-section
+        // progress without a second tracking mechanism (docs/ARCHITECTURE.md section 6.3).
+        case "data-architect-step": {
+          const data = (chunk as unknown as { data?: Record<string, unknown> }).data ?? {};
+          await step("progress", { payload: data });
+          writer.send("progress", data);
           break;
         }
 

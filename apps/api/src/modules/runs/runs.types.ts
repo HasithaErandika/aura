@@ -33,7 +33,7 @@ export interface RunRow {
   updated_at: string;
 }
 
-export const RUN_STEP_KINDS = ["tool-call", "tool-result", "tool-error", "text", "suspended", "resumed", "error", "finish"] as const;
+export const RUN_STEP_KINDS = ["tool-call", "tool-result", "tool-error", "text", "suspended", "resumed", "error", "finish", "progress"] as const;
 export type RunStepKind = (typeof RUN_STEP_KINDS)[number];
 
 export interface RunStepRow {

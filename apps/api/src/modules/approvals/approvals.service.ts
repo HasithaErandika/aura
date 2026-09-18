@@ -1,7 +1,7 @@
 import { badRequest, conflict, notFound } from "../../lib/http/errors.js";
 import type { AuthedUser } from "../../middleware/auth.js";
 import { profilesById } from "../identity/profiles.service.js";
-import { canDecide, gateInfoFor, resolveApprover } from "../policy/policy.js";
+import { canDecide, gateInfoForPause, resolveApprover } from "../policy/policy.js";
 import { runsRepository } from "../runs/runs.repository.js";
 import { approvalsRepository } from "./approvals.repository.js";
 import { toDecisionView, type ApprovalRow, type ApprovalStatus, type ApprovalView, type Decision } from "./approvals.types.js";
@@ -25,7 +25,7 @@ export async function toApprovalViews(rows: ApprovalRow[], viewer: AuthedUser): 
   for (const d of decisions) if (!decisionByApproval.has(d.approval_id)) decisionByApproval.set(d.approval_id, d);
 
   return rows.map((row) => {
-    const gate = gateInfoFor(row.producing_agent);
+    const gate = gateInfoForPause(row.producing_agent, row.options);
     const requester = profiles.get(row.requested_by);
     const decision = decisionByApproval.get(row.id);
     return {

@@ -19,6 +19,7 @@ export type AgentAccess = "run" | "read";
 export const AGENT_ALIASES: Record<string, string> = {
   po: "po-agent",
   ba: "ba-agent",
+  architect: "architect-agent",
 };
 
 export function canonicalAgentId(agentId: string): string {
@@ -30,8 +31,8 @@ export function canonicalAgentId(agentId: string): string {
 export const ROLE_AGENT_GRANTS: Record<Role, Record<string, AgentAccess>> = {
   project_owner: { orchestrator: "run", "po-agent": "run", "ba-agent": "read" },
   business_analyst: { orchestrator: "run", "ba-agent": "run", "po-agent": "read" },
-  admin: { orchestrator: "read", "po-agent": "read", "ba-agent": "read" },
-  architect: { "ba-agent": "read" },
+  admin: { orchestrator: "read", "po-agent": "read", "ba-agent": "read", "architect-agent": "read" },
+  architect: { orchestrator: "run", "architect-agent": "run", "ba-agent": "read" },
   developer: {},
   qa_engineer: {},
   tester: {},
@@ -45,6 +46,7 @@ export const ROLE_AGENT_GRANTS: Record<Role, Record<string, AgentAccess>> = {
 export const AGENT_APPROVER_ROLE: Record<string, Role> = {
   "po-agent": "project_owner",
   "ba-agent": "business_analyst",
+  "architect-agent": "architect",
 };
 
 // Human-readable gate metadata keyed by the producing agent. Display only; the runtime
@@ -52,6 +54,7 @@ export const AGENT_APPROVER_ROLE: Record<string, Role> = {
 export const AGENT_GATE_INFO: Record<string, { gate: number; name: string; outcome: string }> = {
   "po-agent": { gate: 1, name: "Epic approval", outcome: "Jira Epic filed, status Ready for Analysis" },
   "ba-agent": { gate: 2, name: "Story approval", outcome: "Jira Stories filed, status Ready for Architecture" },
+  "architect-agent": { gate: 3, name: "Architecture approval", outcome: "Jira Tasks filed, status Ready for Development" },
 };
 
 const DELEGATE_TOOL_PREFIX = "delegate_to_";
@@ -79,6 +82,14 @@ export function assertCanRunAgent(role: Role, agentId: string): void {
   if (!canRunAgent(role, agentId)) {
     throw forbidden(`Role ${role} is not granted to run agent ${agentId}`, { role, agentId });
   }
+}
+
+// Who may view the Architect's per-Epic workspace files (docs/ARCHITECTURE.md section 6.3).
+// There is no projects/jira_project_links table yet (section 9.1) to scope this by project
+// membership, so it piggybacks on the existing architect-agent grant: anyone who can run or
+// read that agent (architect, admin) can see what it produced.
+export function canViewArchitectWorkspace(role: Role): boolean {
+  return canReadAgent(role, "architect-agent");
 }
 
 export interface ApprovalScope {
@@ -140,4 +151,23 @@ export function rolesWithAccess(agentId: string, access: AgentAccess): Role[] {
 
 export function gateInfoFor(agentId: string | null) {
   return agentId ? (AGENT_GATE_INFO[canonicalAgentId(agentId)] ?? null) : null;
+}
+
+const GATE_DECISION_PATTERN = /approve|reject|revise/i;
+
+// An ask_user pause offering Approve/Reject/Revise is a gate decision reviewing a specific
+// agent's output; anything else (e.g. a plain "Continue to the next stage?" Continue/Stop
+// prompt) is a continuation question with no agent output to review, and must not be labeled
+// with the previous gate's name (docs/ARCHITECTURE.md section 5.1). Mastra's built-in ask_user
+// tool has a fixed {question, options, selectionMode} payload with no room for a custom "kind"
+// field, so this is content-based - the same signal buildResumeData() already relies on in
+// approvals.service.ts.
+export function isGateDecision(options: { label: string; value?: string }[] | null | undefined): boolean {
+  return Boolean(options?.some((o) => GATE_DECISION_PATTERN.test(o.label) || (o.value ? GATE_DECISION_PATTERN.test(o.value) : false)));
+}
+
+// Only a real gate decision gets gate metadata; a continuation prompt never does, even when
+// producingAgent still points at the last delegated agent.
+export function gateInfoForPause(producingAgent: string | null, options: { label: string; value?: string }[] | null | undefined) {
+  return isGateDecision(options) ? gateInfoFor(producingAgent) : null;
 }
