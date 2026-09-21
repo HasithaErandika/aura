@@ -1,17 +1,27 @@
-import { readdir } from 'node:fs/promises';
+import { readdir, stat } from 'node:fs/promises';
 import { Workspace, LocalFilesystem } from '@mastra/core/workspace';
+import { AURA_WORKSPACE_ROOT } from './root';
 
-// Creates one filesystem-only workspace per Epic for Architect documents, written only by deterministic code-not by the LLM agents.
-// Uses an absolute workspace path via `AURA_WORKSPACE_ROOT` or `.workspaces` to avoid environment-dependent path resolution.
-
-export const workspaceRoot = process.env.AURA_WORKSPACE_ROOT || '.workspaces';
+// Creates one filesystem-only workspace per Epic for Architect documents, written only by
+// deterministic code, not by the LLM agents - lives at <AURA_WORKSPACE_ROOT>/<epicKey>/architecture,
+// one of three kinds nested under the shared per-Epic root (see workspace/root.ts).
+export const workspaceRoot = AURA_WORKSPACE_ROOT;
 const root = workspaceRoot;
 
-// Lists every Epic that has a workspace on disk.
+// Lists every Epic that has an Architect workspace on disk (an `architecture` subfolder) - the
+// shared root's top-level folders may also hold `dev`/`qa` subfolders with no architecture at all.
 export async function listEpicWorkspaces(): Promise<string[]> {
   try {
     const entries = await readdir(root, { withFileTypes: true });
-    return entries.filter((e) => e.isDirectory()).map((e) => e.name).sort();
+    const epics: string[] = [];
+    for (const e of entries) {
+      if (!e.isDirectory()) continue;
+      const hasArchitecture = await stat(`${root}/${e.name}/architecture`)
+        .then((s) => s.isDirectory())
+        .catch(() => false);
+      if (hasArchitecture) epics.push(e.name);
+    }
+    return epics.sort();
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') return [];
     throw error;
@@ -32,7 +42,7 @@ export function architectWorkspace(mastra: WorkspaceRegistry, epicKey: string): 
   const workspace = new Workspace({
     id: key,
     name: `Architect workspace for ${epicKey}`,
-    filesystem: new LocalFilesystem({ basePath: `${root}/${epicKey}` }),
+    filesystem: new LocalFilesystem({ basePath: `${root}/${epicKey}/architecture` }),
   });
   mastra.addWorkspace(workspace, key);
   return workspace;

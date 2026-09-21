@@ -20,7 +20,7 @@ function segmentParam(raw: string | undefined, label: string): string {
 // Resolves a task directory the same way devWorkspaceDir does, without creating it - this route
 // only ever reads.
 function taskDir(epicKey: string, discipline: string): string {
-  return path.resolve(devWorkspaceRoot, epicKey, discipline.toLowerCase());
+  return path.resolve(devWorkspaceRoot, epicKey, 'dev', discipline.toLowerCase());
 }
 
 // Rejects `..`, an absolute path, or anything that resolves outside `base` - the same

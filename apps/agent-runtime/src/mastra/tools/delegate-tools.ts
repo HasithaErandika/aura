@@ -1315,7 +1315,7 @@ export const delegateToTestTool = createTool({
           if (!entry) return testFail(`No test runner is configured for ${record.content.discipline}`);
           if (!(await isDockerAvailable())) return testFail('Docker is not available - install/start Docker to run tests');
 
-          const qaTestsDir = path.resolve(qaWorkspaceRoot, record.content.epicKey, 'tests');
+          const qaTestsDir = path.resolve(qaWorkspaceRoot, record.content.epicKey, 'qa', 'tests');
           try {
             await access(qaTestsDir);
           } catch {
