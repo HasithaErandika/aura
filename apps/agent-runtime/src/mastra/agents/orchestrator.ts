@@ -123,13 +123,15 @@ Gate 4, Dev scaffold (also the starting point when the user names a filed archit
 Gate 5, Coding agent (also the starting point when the user names an already-scaffolded Task directly)
 27. Establish epicKey, taskKey, and provider. If already given, use those. The Task must already
     be scaffolded (Gate 4) - delegate_to_code draft will say so plainly if it is not, do not try
-    to work around that. For provider, ask_user "Which coding agent?" with options: Claude Code,
-    Codex, AURA Coding Agent (built-in, no key needed). Never assume - map the answer to
-    provider "anthropic" (Claude Code), "openai" (Codex), or "mastra" (AURA Coding Agent).
+    to work around that. For provider, ask_user "Which coding agent?" with options: AURA Coding
+    Agent (built-in, the main option), Claude Code, Codex - only offer Claude Code/Codex as
+    alternatives if the human wants one specifically. Never assume - map the answer to provider
+    "mastra" (AURA Coding Agent), "anthropic" (Claude Code), or "openai" (Codex).
 28. delegate_to_code draft with epicKey, taskKey, and provider. If it returns ok=false because
-    the human has not connected an API key for an anthropic/openai provider, tell them plainly
-    to connect it in their profile, then stop - do not ask for the key in chat, it is never
-    typed into a conversation. The mastra provider needs no key and cannot fail this way.
+    Claude Code or Codex is not logged in on the machine running agent-runtime, tell them
+    plainly to run "claude login" or "codex login" there, then stop - this is a CLI login, never
+    an API key typed into chat or stored anywhere. The mastra provider needs no login and cannot
+    fail this way.
 29. Show the markdown (the exact prompt the coding agent will receive). ask_user "Run the coding
     agent with this prompt?" with options: Approve, Reject. There is no Revise here either - the
     prompt is built deterministically from the Task; if it needs to say something different,

@@ -29,10 +29,10 @@ import { generateObject, type MastraLike } from '../lib/generate-object';
 import { architectWorkspace, type WorkspaceRegistry } from '../workspace/architect-workspace';
 import { devWorkspaceDir } from '../workspace/dev-workspace';
 import { isDockerAvailable, runInContainer } from '../lib/docker-exec';
-import { getApiKey } from '../lib/credentials-client';
 import { createCodingAgent } from '../agents/mastra-coding-agent';
-import { readdir, writeFile } from 'node:fs/promises';
+import { readdir, writeFile, access } from 'node:fs/promises';
 import path from 'node:path';
+import os from 'node:os';
 
 // Centralizes Orchestrator access to PO, BA, Architect, Jira, and Architect workspace actions 
 // while storing drafts by ID to ensure approved content is filed exactly once.
@@ -575,7 +575,15 @@ const SCAFFOLD_COMMANDS: Partial<Record<Exclude<(typeof scaffoldDisciplines)[num
 const BACKEND_SCAFFOLDS: Partial<Record<'Spring Boot' | 'NestJS', ScaffoldEntry>> = {
   NestJS: {
     image: 'node:22-slim',
-    command: 'npx --yes @nestjs/cli new . --package-manager npm --skip-git --language TS',
+    // Root cause of the "Cannot read properties of null (reading 'edgesOut')" crash: it's
+    // node:22-slim's bundled npm 10.9.8 arborist itself - reproduces on a plain `npm install`
+    // in a freshly scaffolded project, npx not involved. Fixed by upgrading npm before
+    // scaffolding. The container runs as the host UID (docker-exec.ts), so a plain
+    // `npm install -g` would fail with EACCES against the root-owned default prefix
+    // (/usr/local/lib/node_modules) - point the global prefix at a writable path first.
+    // Verified with two real Docker runs, exit 0, dependencies installed, files on disk.
+    command:
+      'npm config set prefix /tmp/npm-global && export PATH=/tmp/npm-global/bin:$PATH && npm install -g npm@latest @nestjs/cli --silent && nest new . --package-manager npm --skip-git --language TS',
     description: 'NestJS starter (@nestjs/cli new), TypeScript, npm - the backend framework chosen at Gate 3.',
   },
 };
@@ -771,16 +779,26 @@ const PROMPT_FILE = '.aura-task-prompt.txt';
 // `--sandbox workspace-write --ask-for-approval never` is the less blunt equivalent - Codex
 // offers a tiered sandbox rather than only an all-or-nothing bypass, so that is preferred here
 // over its own `--dangerously-bypass-approvals-and-sandbox`.
-const CODING_COMMANDS: Record<Exclude<CodingProvider, 'mastra'>, { image: string; envVar: string; command: string }> = {
+// Claude Code and Codex authenticate via their own CLI login (a browser/OAuth flow run once,
+// interactively, outside AURA - `claude login` / `codex login`), not an API key. AURA never
+// asks for or stores a key for either: it mounts the developer's own already-logged-in
+// credential file from the host running agent-runtime (read-only) into the sandbox, so the CLI
+// inside the container is authenticated as whoever is running AURA - the same "runs as the
+// host user" trust boundary docker-exec.ts already uses for file ownership.
+const CODING_COMMANDS: Record<Exclude<CodingProvider, 'mastra'>, { image: string; command: string; hostCredential: string; containerCredential: string; loginHint: string }> = {
   anthropic: {
     image: 'node:22-slim',
-    envVar: 'ANTHROPIC_API_KEY',
     command: `npm install -g @anthropic-ai/claude-code --silent && claude -p --dangerously-skip-permissions --output-format json "$(cat ${PROMPT_FILE})"`,
+    hostCredential: path.join(os.homedir(), '.claude', '.credentials.json'),
+    containerCredential: '/tmp/.claude/.credentials.json',
+    loginHint: 'Run `claude login` on this machine (the one running agent-runtime), then approve this again.',
   },
   openai: {
     image: 'node:22-slim',
-    envVar: 'OPENAI_API_KEY',
     command: `npm install -g @openai/codex --silent && codex exec --sandbox workspace-write --ask-for-approval never --json "$(cat ${PROMPT_FILE})"`,
+    hostCredential: path.join(os.homedir(), '.codex', 'auth.json'),
+    containerCredential: '/tmp/.codex/auth.json',
+    loginHint: 'Run `codex login` on this machine (the one running agent-runtime), then approve this again.',
   },
 };
 
@@ -789,7 +807,7 @@ const codingInputSchema = z
     mode: z.enum(['draft', 'execute']),
     epicKey: z.string().optional().describe('draft: the Epic this Task belongs to'),
     taskKey: z.string().optional().describe('draft: the Jira Task key to implement (must already be scaffolded via delegate_to_dev)'),
-    provider: z.enum(codingProviders).optional().describe('draft: which coding agent to use - "anthropic" for Claude Code, "openai" for Codex. Ask the human, never assume.'),
+    provider: z.enum(codingProviders).optional().describe('draft: which coding agent to use - "mastra" (AURA\'s own built-in agent) is the main option; "anthropic" (Claude Code) and "openai" (Codex) are available if the human specifically wants them. Ask the human, never assume.'),
     draftId: z.string().optional().describe('execute: the draftId returned by draft'),
     approved: z.boolean().optional().describe('execute: must be true; set only after ask_user returned an approval'),
   })
@@ -813,7 +831,7 @@ function codeFail(error: unknown): z.infer<typeof codingOutputSchema> {
 export const delegateToCodeTool = createTool({
   id: 'delegate_to_code',
   description:
-    "Coding Agent. draft: epicKey + taskKey + provider ('anthropic' for Claude Code, 'openai' for Codex, 'mastra' for AURA's own built-in agent, no key needed) -> a deterministic plan built from the Task's own content, no model call (returns draftId + markdown with the exact prompt). execute: draftId + approved -> for anthropic/openai, runs that CLI with the human's own connected API key inside the sandboxed container the Task was scaffolded into; for mastra, runs AURA's own agent directly against that same directory (list_files/read_file/write_file only, no shell access). Either way it then comments the Task and moves it toward In Review. Never execute without an explicit human approval. Fails clearly if the Task has not been scaffolded yet (run delegate_to_dev first) or, for anthropic/openai, if the human has not connected a key for that provider.",
+    "Coding Agent. 'mastra' (AURA's own built-in agent, always available) is the main option - use it unless the human asks for Claude Code or Codex specifically. draft: epicKey + taskKey + provider ('mastra' for AURA's own built-in agent, 'anthropic' for Claude Code, 'openai' for Codex) -> a deterministic plan built from the Task's own content, no model call (returns draftId + markdown with the exact prompt). execute: draftId + approved -> for mastra, runs AURA's own agent directly against the scaffolded directory (list_files/read_file/write_file only, no shell access); for anthropic/openai, runs that CLI inside the sandboxed container using the developer's own CLI login on this machine (claude login / codex login - not an API key). Either way it then comments the Task and moves it toward In Review. Never execute without an explicit human approval. Fails clearly if the Task has not been scaffolded yet (run delegate_to_dev first) or, for anthropic/openai, if that CLI has not been logged into on this machine.",
   inputSchema: codingInputSchema,
   outputSchema: codingOutputSchema,
   execute: async (input, { agent, writer }) => {
@@ -895,23 +913,22 @@ export const delegateToCodeTool = createTool({
               result = { exitCode: 1, output: error instanceof Error ? error.message : String(error) };
             }
           } else {
-            // agent.resourceId is the Supabase user id - the same value run-stream.service.ts
-            // sends as memory.resource on every turn/resume (apps/api never needed to change).
-            const resourceId = agent?.resourceId ?? null;
-            if (!resourceId) return codeFail('Could not identify the requesting user for this conversation - cannot look up a coding-agent credential');
+            const cli = CODING_COMMANDS[record.content.provider];
 
-            const apiKey = await getApiKey(resourceId, record.content.provider);
-            if (!apiKey) return codeFail(`Connect your ${codingProviderLabel[record.content.provider]} API key in your profile first, then approve this again`);
+            try {
+              await access(cli.hostCredential);
+            } catch {
+              return codeFail(`${codingProviderLabel[record.content.provider]} is not logged in on this machine. ${cli.loginHint}`);
+            }
 
             if (!(await isDockerAvailable())) return codeFail('Docker is not available - install/start Docker to run the coding agent');
 
-            const cli = CODING_COMMANDS[record.content.provider];
             try {
               result = await runInContainer({
                 image: cli.image,
                 hostDir: record.content.targetDir,
                 command: cli.command,
-                env: { [cli.envVar]: apiKey },
+                mounts: [{ hostPath: cli.hostCredential, containerPath: cli.containerCredential, readOnly: true }],
                 timeoutMs: 20 * 60_000,
                 onOutput: (chunk) => {
                   void writer?.custom({ type: 'data-code-output', data: { chunk }, transient: true });

@@ -21,14 +21,25 @@ export async function isDockerAvailable(): Promise<boolean> {
   });
 }
 
+export interface ContainerMount {
+  hostPath: string;
+  containerPath: string;
+  readOnly?: boolean;
+}
+
 export interface RunInContainerInput {
   image: string;
   hostDir: string;
   command: string;
   timeoutMs: number;
-  // Extra environment for the container (e.g. a coding CLI's API key) - passed as `-e` args to
-  // `docker run`, never interpolated into `command`'s shell string. Values are not logged.
+  // Extra environment for the container - passed as `-e` args to `docker run`, never
+  // interpolated into `command`'s shell string. Values are not logged.
   env?: Record<string, string>;
+  // Extra read-only-by-default bind mounts beyond hostDir (e.g. a coding CLI's own login
+  // credentials from the host, so it runs authenticated as whoever is running AURA - see
+  // delegate-tools.ts's CODING_COMMANDS. Claude Code and Codex use a browser/CLI login, not an
+  // API key; there is nothing to inject as an env var).
+  mounts?: ContainerMount[];
   onOutput?: (chunk: string) => void;
 }
 
@@ -51,7 +62,8 @@ function userArgs(): string[] {
 
 export async function runInContainer(input: RunInContainerInput): Promise<DockerRunResult> {
   const extraEnv = Object.entries(input.env ?? {}).flatMap(([k, v]) => ['-e', `${k}=${v}`]);
-  const args = ['run', '--rm', ...RESOURCE_LIMITS, ...userArgs(), ...extraEnv, '-v', `${input.hostDir}:/workspace`, '-w', '/workspace', input.image, 'sh', '-c', input.command];
+  const extraMounts = (input.mounts ?? []).flatMap((m) => ['-v', `${m.hostPath}:${m.containerPath}${m.readOnly === false ? '' : ':ro'}`]);
+  const args = ['run', '--rm', ...RESOURCE_LIMITS, ...userArgs(), ...extraEnv, '-v', `${input.hostDir}:/workspace`, ...extraMounts, '-w', '/workspace', input.image, 'sh', '-c', input.command];
 
   return new Promise((resolve, reject) => {
     const proc = spawn('docker', args);

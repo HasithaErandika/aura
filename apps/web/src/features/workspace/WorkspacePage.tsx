@@ -21,8 +21,6 @@ import {
   EditIcon,
   CheckIcon,
   XIcon,
-  AgentIcon,
-  SparkleIcon,
   PlusIcon,
   AgentLiveIcon,
 } from "../../shared/icons/index.tsx";

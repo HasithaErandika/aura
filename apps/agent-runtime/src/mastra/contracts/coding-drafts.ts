@@ -4,9 +4,11 @@ import { scaffoldDisciplines } from './dev-drafts';
 // The Coding Agent's plan (Gate 5). The draft itself is never model-authored, for any
 // provider: `prompt` is built deterministically from the Task's own Jira content by
 // delegate-tools.ts. What differs per provider is *who does the actual implementation* -
-// Claude Code / Codex are external CLIs the developer connects their own key to (run in
-// Docker, delegate-tools.ts's CODING_COMMANDS); "mastra" is AURA's own built-in agent
-// (agents/mastra-coding-agent.ts, three file tools, no external key needed).
+// "mastra" (AURA's own built-in agent, agents/mastra-coding-agent.ts, three file tools) is the
+// main option and always available; Claude Code / Codex are external CLIs a human can pick
+// instead, authenticated via their own CLI login on the machine running agent-runtime
+// (`claude login` / `codex login` - not an API key), run in Docker via
+// delegate-tools.ts's CODING_COMMANDS.
 
 export const codingProviders = ['anthropic', 'openai', 'mastra'] as const;
 export type CodingProvider = (typeof codingProviders)[number];
@@ -37,7 +39,7 @@ export function renderCodingPlan(draft: CodingTaskDraft): string {
     CODING_PERSPECTIVE,
     '',
     `**Discipline:** ${draft.discipline}`,
-    `**Coding agent:** ${codingProviderLabel[draft.provider]}${draft.provider === 'mastra' ? ' (built-in, no key needed)' : " (your own connected key)"}`,
+    `**Coding agent:** ${codingProviderLabel[draft.provider]}${draft.provider === 'mastra' ? ' (built-in, always available)' : ' (your own CLI login on this machine)'}`,
     `**Directory:** ${draft.targetDir}`,
     '',
     '## Exact prompt it will receive',
