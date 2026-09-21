@@ -117,6 +117,28 @@ threadsRouter.post(
   }),
 );
 
+const updateThreadSchema = z.object({ agentId: agentIdSchema, title: z.string().trim().min(1).max(200) }).strict();
+
+threadsRouter.patch(
+  "/:threadId",
+  asyncHandler(async (req, res) => {
+    const user = currentUser(req);
+    const { agentId, title } = parseOrThrow(updateThreadSchema, req.body);
+    const thread = await ownedThread(agentId, idParam(req.params.threadId, "Conversation"), user.id);
+    const updated = await runtimeClient.updateThread(agentId, thread.id, { title });
+    await writeAudit({
+      actorId: user.id,
+      actorRole: user.role,
+      action: "thread.updated",
+      entityType: "thread",
+      entityId: thread.id,
+      requestId: req.requestId,
+      metadata: { agentId, title },
+    });
+    res.json({ thread: { id: updated.id, title: updated.title ?? null, createdAt: updated.createdAt, updatedAt: updated.updatedAt } });
+  }),
+);
+
 threadsRouter.delete(
   "/:threadId",
   asyncHandler(async (req, res) => {
@@ -138,3 +160,4 @@ threadsRouter.delete(
     res.status(204).send();
   }),
 );
+

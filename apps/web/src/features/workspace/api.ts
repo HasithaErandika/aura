@@ -22,6 +22,8 @@ export const workspaceApi = {
   agents: () => api.get<{ agents: RegistryAgent[] }>("/agents").then((r) => r.agents),
   threads: (agentId: string) => api.get<{ threads: Thread[] }>(`/threads?agentId=${encodeURIComponent(agentId)}`).then((r) => r.threads),
   createThread: (agentId: string, title?: string) => api.post<{ thread: Thread }>("/threads", { agentId, title }).then((r) => r.thread),
+  updateThread: (agentId: string, threadId: string, title: string) =>
+    api.patch<{ thread: Thread }>(`/threads/${threadId}?agentId=${encodeURIComponent(agentId)}`, { agentId, title }).then((r) => r.thread),
   deleteThread: (agentId: string, threadId: string) => api.delete<void>(`/threads/${threadId}?agentId=${encodeURIComponent(agentId)}`),
   history: (agentId: string, threadId: string) => api.get<ThreadHistory>(`/threads/${threadId}/messages?agentId=${encodeURIComponent(agentId)}`),
 
