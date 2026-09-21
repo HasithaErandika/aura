@@ -49,6 +49,40 @@ AURA is an **enterprise AI agent orchestration and software-delivery platform**.
 
 ## 3. Platform architecture
 
+### 3.0 System at a glance (simplified)
+
+The full layered/authorization/gate diagrams below are precise but dense. This is the short version: what talks to what, and which parts are a model versus deterministic code.
+
+```mermaid
+flowchart TD
+    H([Human - any role]) -->|chat message| ORCH{{Orchestrator<br/>no tools of its own except ask_user}}
+    ORCH -->|ask_user| H
+
+    subgraph SUBAGENTS["Sub-agents (LLM) - propose only, hold no tools of their own"]
+        PO[PO Agent]
+        BA[BA Agent]
+        AR[Architect Agent]
+        DEV[Dev Agent<br/>explains a fixed plan, decides nothing]
+        QA[QA Agent]
+        TS[Tester Agent<br/>interprets a real result, decides nothing]
+        DP[Deployer Agent<br/>plan only]
+    end
+
+    ORCH -->|"delegate_to_po / ba / architect / dev / qa / test / deploy"| SUBAGENTS
+    SUBAGENTS -->|structured JSON draft| DRAFTSTORE[(Draft store<br/>libSQL)]
+
+    ORCH -->|"delegate_to_code / delegate_to_git<br/>no model call - fully deterministic"| ACTORS[Coding CLI<br/>AURA built-in, or Claude Code / Codex<br/>+ git, on the host]
+
+    DRAFTSTORE -->|human approves| EXEC{{Deterministic execute code<br/>tools/delegate-tools.ts}}
+    ACTORS --> EXEC
+
+    EXEC --> JIRA[(Jira<br/>source of truth for work)]
+    EXEC --> DOCKER[(Docker sandbox<br/>scaffold - coding CLI - real Playwright run)]
+    EXEC --> FILES[(.workspaces/epicKey/<br/>architecture - dev/discipline - qa)]
+```
+
+Every gate (1 through 8, section 5.1) is the same shape: a sub-agent proposes structured content (or, for Dev/Code/Git, code decides the action entirely and the agent only narrates it), a human approves or rejects, and only approved content ever reaches Jira, Docker, or disk.
+
 ### 3.1 Layered view
 
 ```mermaid
@@ -277,43 +311,49 @@ Tiers are attached to **tools**, optionally overridden per environment (a `deplo
 
 ### 5.1 Lifecycle with gates
 
+This diagram now matches the gate numbering actually built (section 6.4/6.5 and the QA/Tester/Deployer additions below) - an earlier version of this diagram numbered QA/Tester/Deployer as Gates 5/6/7 and Dev as Gate 4 "code review & merge"; the real Gate 4/5 split (scaffold, then a separate coding step) came first, so QA/Tester/Deployer are Gates 6/7/8 to avoid clashing with what already shipped.
+
 ```mermaid
 flowchart TD
     REQ([Business requirement from PO]) --> PO_A[PO Agent<br/>drafts Epic: objective, scope, stakeholders, priority]
     PO_A --> G1{{Gate 1<br/>Human PO approves Epic}}
     G1 -- reject --> PO_A
-    G1 -- approve --> J1[(Jira: Epic created<br/>status: Ready for Analysis)]
+    G1 -- approve --> J1[(Jira: Epic created)]
 
-    J1 --> BA_A[BA Agent<br/>As-Is / To-Be · Stories · AC · DoD · NFRs · risks]
+    J1 --> BA_A[BA Agent<br/>Stories · AC · DoD · NFRs · risks]
     BA_A --> G2{{Gate 2<br/>Human BA approves Stories}}
     G2 -- reject --> BA_A
-    G2 -- approve --> J2[(Jira: Stories created<br/>status: Ready for Architecture)]
+    G2 -- approve --> J2[(Jira: Stories created)]
 
-    J2 --> AR_A[Architect Agent<br/>decomposition · API · data · security · ADRs]
-    AR_A --> G3{{Gate 3<br/>Human Architect approves ADRs & tasks}}
+    J2 --> AR_A[Architect Agent<br/>decomposition · API · data · security · ADRs · architecture Tasks]
+    AR_A --> G3{{Gate 3<br/>Human Architect approves design}}
     G3 -- reject --> AR_A
-    G3 -- approve --> J3[(Jira: Architecture tasks<br/>status: Ready for Development)]
+    G3 -- approve --> J3[(Jira: architecture Tasks filed<br/>.workspaces/epicKey/architecture/)]
 
-    J3 --> DEV_A[Dev Agents<br/>code in sandbox → branch → PR linked to task]
-    DEV_A --> G4{{Gate 4<br/>Human code review & merge}}
-    G4 -- changes requested --> DEV_A
-    G4 -- merged --> J4[(Jira: task → In QA)]
+    J3 --> DEV_A[Dev Agent<br/>fixed scaffold command per discipline - Frontend/Backend only]
+    DEV_A --> G4{{Gate 4<br/>Human Developer approves scaffold}}
+    G4 -- reject --> DEV_A
+    G4 -- approve --> SCAFFOLD[Real Docker run<br/>.workspaces/epicKey/dev/discipline/]
 
-    J4 --> QA_A[QA Agent<br/>test plan · Playwright/Robot suites from AC]
-    QA_A --> G5{{Gate 5<br/>Human QA approves test plan}}
-    G5 -- reject --> QA_A
-    G5 -- approve --> EXEC[CI executes suites<br/>machine-generated results + traces]
+    SCAFFOLD --> CODE_A[Coding Agent<br/>AURA built-in, or Claude Code / Codex]
+    CODE_A --> G5{{Gate 5<br/>Human Developer approves the prompt}}
+    G5 -- reject --> CODE_A
+    G5 -- approve --> IMPL[Real code written<br/>Task → In Review<br/>no git branch/PR automation yet - a human commits by hand]
 
-    EXEC --> TS_A[Tester Agent<br/>interprets results · files defects · flags flakiness]
-    TS_A --> G6{{Gate 6<br/>Human QA verifies results}}
-    G6 -- defects --> DEV_A
-    G6 -- pass --> J5[(Jira: story → Ready for Release)]
+    IMPL --> QA_A[QA Agent<br/>test plan + real Playwright source, from the Epic's Stories]
+    QA_A --> G6{{Gate 6<br/>Human QA approves the test plan}}
+    G6 -- reject --> QA_A
+    G6 -- approve --> FILEDQA[(.workspaces/epicKey/qa/<br/>test-plan.md + .spec.ts files)]
 
-    J5 --> DP_A[Deployer Agent<br/>release notes · change plan · rollback plan]
-    DP_A --> G7{{Gate 7<br/>Human Deployer + second approver<br/>change window check}}
-    G7 -- reject --> DP_A
-    G7 -- approve --> PROD[(Production deploy via CI/CD<br/>with automatic rollback trigger)]
-    PROD --> J6[(Jira: Done · release linked)]
+    FILEDQA --> TS_A[Tester Agent<br/>starts the app for real, runs the real suite in Docker, interprets only]
+    TS_A --> G7{{Gate 7<br/>Human approves running the suite}}
+    G7 -- reject --> TS_A
+    G7 -- approve --> RESULT[Real pass/fail/skipped counts<br/>Task commented; moves on only if failed = 0]
+
+    RESULT --> DP_A[Deployer Agent<br/>release notes · change plan · rollback plan - plan only]
+    DP_A --> G8{{Gate 8<br/>Human Deployer approves the plan}}
+    G8 -- reject --> DP_A
+    G8 -- approve --> PLAN[(Epic commented with the plan<br/>a human executes the release by hand - no real deploy pipeline exists)]
 
     style G1 fill:#fde68a,stroke:#b45309
     style G2 fill:#fde68a,stroke:#b45309
@@ -321,10 +361,11 @@ flowchart TD
     style G4 fill:#fde68a,stroke:#b45309
     style G5 fill:#fde68a,stroke:#b45309
     style G6 fill:#fde68a,stroke:#b45309
-    style G7 fill:#fca5a5,stroke:#b91c1c
+    style G7 fill:#fde68a,stroke:#b45309
+    style G8 fill:#fca5a5,stroke:#b91c1c
 ```
 
-**Gates vs. continuation prompts.** Not every human pause above is a numbered Gate. The Orchestrator also uses `ask_user` for plain "Continue?" prompts between gates, which have no output to approve — just a yes/no. Both use the same `approval_requests` record and role-routing (section 4.3); the difference is display-only: a gate decision gets a gate number and name (`AGENT_GATE_INFO` in `policy.ts`), a continuation prompt doesn't, so the Approval Inbox never mislabels one as the other.
+**Gates vs. continuation prompts.** Not every human pause above is a numbered Gate - the Orchestrator's own clarifying questions (e.g. "which Epic(s)?", "which backend framework?") are `ask_user` calls with no gate number. **Corrected (2026-09-21):** the Orchestrator used to also auto-offer "Continue to the next gate?" after every approval - removed, because it meant BA/Architect/Dev/etc. always ran as an unrequested follow-up instead of only when a human actually asked for that stage. Each gate now reports its result and stops; the next gate starts only when the human's next message asks for it. A gate decision and a plain clarifying question still share the same `approval_requests` record and role-routing (section 4.3) and the same display distinction: a gate decision gets a gate number and name (`AGENT_GATE_INFO` in `policy.ts`), a clarifying question doesn't.
 
 **Approver-role precondition.** A role in section 4.2 needs at least one active account *before* its gate can be decided. If nobody holds that role, `resolveApprover` still creates the approval correctly, but it sits undecidable until someone is granted the role or the SLA timer expires it (section 10). Check this when enabling a new gate — the Registry UI should eventually warn "this role has zero members" at grant time, but doesn't yet.
 
@@ -423,45 +464,41 @@ evals:
 | **PO** | Free-text requirement, stakeholder list | Epic draft with objective, scope, success metrics | Human PO |
 | **BA** | Approved Epic | Stories, AC, DoD, BRD/FRD sections, process map (BPMN/Mermaid), risks, priority | Human BA |
 | **Architect** | Approved Stories, existing architecture, NFRs | Decomposition, API/data/security/AI/integration/deployment design, ADRs, architecture tasks | Human Architect |
-| **Dev — Frontend** | Architecture task, design system | Branch + PR (React/Vite/TS) | Human reviewer |
-| **Dev — Backend** | Architecture task, API spec | Branch + PR (Express/TS) | Human reviewer |
-| **Dev — Data** | Architecture task, schema | Migration PR, RLS policies | Human reviewer + DBA for prod |
-| **Dev — AI** | Architecture task | Mastra agents/tools/evals PR | Human reviewer |
-| **Dev — Integration** | Architecture task | Connector PR (Jira, CRM, ERP, email…) | Human reviewer |
-| **QA** | Stories + AC + DoD | Test plan, Playwright (UI) & Robot Framework (API) suites, coverage matrix | Human QA |
-| **Tester** | CI results, traces, screenshots | Result interpretation, defect tickets, flakiness report | Human QA |
-| **Deployer** | Approved release candidate | Release notes, change plan, rollback plan, deployment execution request | Human Deployer + second approver |
+| **Dev** (Frontend, Backend/NestJS built; Spring Boot/Data/AI/Integration/Deployment not implemented) | Architecture task | Fixed scaffold command explanation; `execute` runs it in Docker | Human Developer, Gate 4 |
+| **Coding Agent** (AURA built-in, or Claude Code/Codex) | Scaffolded Task | Real code written into the scaffold; no branch/PR automation yet | Human Developer, Gate 5 |
+| **QA** | Epic's approved Stories | Test plan + real Playwright source (UI and API via its `request` fixture; Robot Framework out of scope) | Human QA, Gate 6 |
+| **Tester** | A real Playwright JSON result (Gate 7 runs it for real first) | Interpretation only - never decides pass/fail itself | Human QA, Gate 7 |
+| **Deployer** | Epic's filed Tasks | Release notes, change plan, rollback plan - plan only, no execute mode | Human Deployer, Gate 8 |
+| **Git tool** (no model - fully deterministic) | A scaffolded Task's directory | init/branch/commit (gated) or status/diff (ungated, read-only) | Human Developer |
 
 ### 6.2a RACI reference across the Jira workflow (target, 2026-09-18)
 
-The agent catalogue above says *what* each agent produces; this table says *who is primary at each stage* across the full lifecycle, including stages with no agent yet (Development, Estimation, Sprint Planning, Testing/Verification, Release, Backlog Refinement - Developer, QA, Tester, and Deployer agents are Phase 2+/3+, section 14). 🟢 primary/owns · 🟡 supports/secondary · 🔵 advisory only · ⚪ not usually involved. "Team" here means the humans on the delivery team, not an AURA agent.
+The agent catalogue above says *what* each agent produces; this table says *who is primary at each stage* across the full lifecycle. 🟢 primary/owns · 🟡 supports/secondary · 🔵 advisory only · ⚪ not usually involved. **Corrected (2026-09-21):** the original version of this table had a generic "Team" column for undifferentiated human involvement - removed, because there is no generic "team" role in this system (`apps/api/src/modules/identity/roles.ts`'s `Role` enum has no such value). What that column was gesturing at is now two real, built roles with real agents: **QA** (`qa_engineer`, covering both the QA Agent's test-plan generation and the Tester Agent's real execution/interpretation - one column since `qa_engineer` is the sole approver of both, see the note below) and **Deployer** (`deployer`, Gate 8's release-plan agent). Estimation/Sprint Planning/Backlog Refinement (rows 9, 10, 16) still have no AURA agent for any role - they stay human-only, tracked in Jira directly.
 
-| Jira workflow stage | PO | BA | Architect | Developer | Team |
-|---|---|---|---|---|---|
-| 1. Business need | 🟢 Defines goal | 🟢 Investigates/clarifies | 🔵 Feasibility input | ⚪ | 🟡 |
-| 2. Epic creation | 🟢 Owns Epic | 🟢 Helps scope | 🟡 Technical implications | 🟡 Feasibility | 🟡 Estimates/assesses |
-| 3. Story creation | 🟢 Desired outcome | 🟢 Writes/refines stories | 🟡 Reviews implications | 🟡 Reviews feasibility | 🟡 Refinement |
-| 4. Acceptance criteria | 🟢 Confirms expectation | 🟢 Defines AC | 🟡 Technical constraints | 🟡 Confirms implementability | 🟡 Testability review |
-| 5. Business rules | 🟢 Defines intent | 🟢 Documents rules/validations | 🟡 Design supports rules | 🟡 Implements | ⚪ |
-| 6. Technical analysis | 🟡 Business clarification | 🟡 Requirement clarification | 🟢 Owns architecture/design | 🟢 Implementation input | 🟡 Reviews |
-| 7. Solution design | ⚪ | 🟡 Validates vs. requirements | 🟢 Defines technical solution | 🟢 Implementation approach | 🟡 Reviews |
-| 8. Task breakdown | ⚪ | 🟢 Business/functional breakdown | 🟢 Architecture tasks | 🟢 Technical tasks/sub-tasks | 🟢 Estimates/refines |
-| 9. Estimation | 🟡 Understands effort/value | 🟡 Clarifies scope | 🟢 Estimates architecture effort | 🟢 Development estimates | 🟢 Team agrees |
-| 10. Sprint planning | 🟢 Prioritizes | 🟢 Clarifies requirements | 🟡 Supports decisions | 🟢 Commits | 🟢 Plans together |
-| 11. Development | ⚪ | 🟡 Answers questions | 🟡 Supports decisions | 🟢 Implements | 🟢 Collaborates |
-| 12. Requirement clarification | 🟢 Business decisions | 🟢 Main clarification role | 🟡 Technical constraints | 🟡 Raises questions | 🟡 Collaborates |
-| 13. Testing/verification | 🟢 Confirms acceptance | 🟢 Supports expected behavior | 🟡 Validates architectural concerns | 🟢 Fixes defects | 🟢 Tests/reviews |
-| 14. Story acceptance | 🟢 Accepts/rejects | 🟡 Supports validation | 🟡 Technical review if needed | 🟡 Provides implementation | 🟡 Supports |
-| 15. Release | 🟢 Business priority/decision | 🟢 Requirement readiness | 🟢 Technical readiness | 🟢 Deployment support | 🟢 Release collaboration |
-| 16. Backlog refinement | 🟢 Prioritizes backlog | 🟢 Refines requirements | 🟡 Technical refinement | 🟢 Estimates technical work | 🟢 Participates |
+| Jira workflow stage | PO | BA | Architect | Developer | QA | Deployer |
+|---|---|---|---|---|---|---|
+| 1. Business need | 🟢 Defines goal | 🟢 Investigates/clarifies | 🔵 Feasibility input | ⚪ | ⚪ | ⚪ |
+| 2. Epic creation | 🟢 Owns Epic | 🟢 Helps scope | 🟡 Technical implications | 🟡 Feasibility | ⚪ | ⚪ |
+| 3. Story creation | 🟢 Desired outcome | 🟢 Writes/refines stories | 🟡 Reviews implications | 🟡 Reviews feasibility | 🔵 Testability input | ⚪ |
+| 4. Acceptance criteria | 🟢 Confirms expectation | 🟢 Defines AC | 🟡 Technical constraints | 🟡 Confirms implementability | 🟡 Testability review (drives Gate 6 scenarios) | ⚪ |
+| 5. Business rules | 🟢 Defines intent | 🟢 Documents rules/validations | 🟡 Design supports rules | 🟡 Implements | ⚪ | ⚪ |
+| 6. Technical analysis | 🟡 Business clarification | 🟡 Requirement clarification | 🟢 Owns architecture/design | 🟢 Implementation input | ⚪ | ⚪ |
+| 7. Solution design | ⚪ | 🟡 Validates vs. requirements | 🟢 Defines technical solution | 🟢 Implementation approach | ⚪ | ⚪ |
+| 8. Task breakdown | ⚪ | 🟢 Business/functional breakdown | 🟢 Architecture tasks | 🟢 Technical tasks/sub-tasks | ⚪ | ⚪ |
+| 9. Estimation | 🟡 Understands effort/value | 🟡 Clarifies scope | 🟢 Estimates architecture effort | 🟢 Development estimates | ⚪ | ⚪ |
+| 10. Sprint planning | 🟢 Prioritizes | 🟢 Clarifies requirements | 🟡 Supports decisions | 🟢 Commits | ⚪ | ⚪ |
+| 11. Development | ⚪ | 🟡 Answers questions | 🟡 Supports decisions | 🟢 Implements (Dev + Coding Agent, Gates 4-5) | ⚪ | ⚪ |
+| 12. Requirement clarification | 🟢 Business decisions | 🟢 Main clarification role | 🟡 Technical constraints | 🟡 Raises questions | ⚪ | ⚪ |
+| 13. Testing/verification | 🟡 Confirms acceptance | 🟡 Supports expected behavior | 🔵 Validates architectural concerns | 🟡 Fixes defects | 🟢 Owns - real Playwright generation (Gate 6) and real execution/interpretation (Gate 7) | ⚪ |
+| 14. Story acceptance | 🟢 Accepts/rejects | 🟡 Supports validation | 🔵 Technical review if needed | 🟡 Provides implementation | 🟢 Provides the real test evidence acceptance is based on | ⚪ |
+| 15. Release | 🟡 Business priority/decision | 🟡 Requirement readiness | 🟡 Technical readiness | 🟡 Deployment support | 🟡 Confirms test evidence before release | 🟢 Owns - release notes/change/rollback plan (Gate 8, plan-only) |
+| 16. Backlog refinement | 🟢 Prioritizes backlog | 🟢 Refines requirements | 🟡 Technical refinement | 🟢 Estimates technical work | ⚪ | ⚪ |
 
-**Fit against what's built.** Rows 1-9 map to the PO/BA/Architect agents (Gates 1-3), already close to this table; the Architect's tasks also carry a rough effort estimate per stage 9 (`architectureTaskSchema.estimate`, section 6.3). Rows 10-16 need Dev/QA/Tester/Deployer agents that don't exist yet (section 14) — those columns describe target state, not current behavior.
-
-**QA/Tester/Deployer: role exists, agent doesn't.** `qa_engineer`, `tester`, and `deployer` are real, assignable roles today, but `ROLE_AGENT_GRANTS` for them is empty — there's no agent in `apps/agent-runtime` to grant. Assigning the role is harmless but does nothing by itself. Building the agent needs real CI result ingestion (QA/Tester) or a real deployment pipeline (Deployer) first — principle 5 means an agent can't interpret a test or trigger a deploy that isn't real.
+**Fit against what's built (2026-09-21).** Rows 1-9 map to the PO/BA/Architect agents (Gates 1-3); the Architect's tasks also carry a rough effort estimate per stage 9 (`architectureTaskSchema.estimate`, section 6.3). Row 11 (Development) maps to Dev + Coding Agent (Gates 4-5). Row 13 (Testing/verification) maps to QA + Tester (Gates 6-7) - real, not simulated: Tester actually starts the app and runs the suite in Docker before interpreting it. Row 15 (Release) maps to Deployer (Gate 8) - plan-only, since no real deployment pipeline exists yet to trigger for real (principle 5: an agent can't claim a deploy happened that didn't). `qa_engineer`, `tester`, and `deployer` have real `ROLE_AGENT_GRANTS` entries (`apps/api/src/modules/policy/policy.ts`) matching this table exactly - QA Engineer can run both QA and Tester and is the sole approver of both their gates (hence one QA column above, not two); Tester can also run the Tester agent but doesn't approve its gate.
 
 The **Orchestrator is a Mastra agent** (`apps/agent-runtime/src/mastra/agents/orchestrator.ts`). It decides dynamically which agent to delegate to and when to pause for a human; nothing in `apps/api` or `apps/web` encodes a step order. What contains the risk of a model deciding:
 
-- It has exactly four tools: `ask_user`, `delegate_to_po`, `delegate_to_ba`, `delegate_to_architect`. It cannot reach Jira, memory, or anything else.
+- It has exactly ten tools, all in `agents/orchestrator.ts`'s `orchestratorTools`: `ask_user` and one `delegate_to_*` per gate (`po`, `ba`, `architect`, `dev`, `code`, `qa`, `test`, `deploy`) plus `git` (the git workspace tool, not tied to a numbered gate - section 6.4/6.5's siblings). It cannot reach Jira, memory, or anything else directly.
 - Delegate tools validate every call, keep drafts by id (the Orchestrator never restates draft text), and refuse `file` without `approved=true`.
 - PO and BA hold **no tools**; they return structured JSON against Zod schemas (`contracts/drafts.ts`). Rendering and filing are code.
 - The API records every delegation, tool result, and pause as run steps, and decides in code which role may answer a pause (`policy.ts`).
@@ -493,7 +530,7 @@ flowchart LR
 - **Per-step progress**, with no new plumbing: the delegate tool relays each step's start/result into its own tool stream (Mastra's `writer.custom()` pushes into the same outer agent stream). `apps/api` reads these alongside normal tool chunks and writes them to `run_steps`, so the Run Console shows live progress ("Security design — done") for free.
 - **One project, several Epics, one architecture.** A single Jira project can have several Epics; the Architect can be given one or several Epic keys (`delegate_to_architect` `epicKeys`) and designs one shared system architecture across all of their combined Stories, rather than a separate design per Epic. `relatedEpicKeys` on the draft records which Epics a design covers; Tasks are filed under the first (primary) Epic, and the "filed" Jira comment is posted on every covered Epic so a human reading any of them finds the shared design. The workspace and `architecture.md`/`plan.md` documents likewise cover the whole combined design, keyed by the primary Epic.
 - **Fixed technology stack, human-chosen backend.** Before drafting, the Orchestrator asks the human which backend framework to use (Spring Boot or NestJS) — frontend is always React 19 + Vite 19 and the database is always PostgreSQL, so those are never asked. This choice is a deterministic input (`techStack`), never invented by the model (principle 5): it is threaded into every design-step prompt so the API/data/security design reads as a concrete design for that exact stack, and it is rendered as its own "Technology stack" section in `architecture.md`. It also fixes what the (not yet built, section 14 Phase 3) Dev agent should scaffold — see `docs/adr/0001-dev-agent-scaffold-and-template-strategy.md`.
-- **Workspace**: a filesystem-only `Workspace` per (primary) Epic (`workspace/architect-workspace.ts`), rooted at `AURA_WORKSPACE_ROOT/<epicKey>/`, holding `docs/adr/000N-title.md`, `docs/srs/*.md`, `architecture.md`, and `plan.md`. This replaces the ADR-as-Jira-comment stopgap (section 7) with reviewable files — Jira Tasks stay the source of truth and reference the paths. Registered on the Mastra instance itself (`addWorkspace`/`listWorkspaces`), so it's visible to Studio and cleaned up properly rather than living in a private cache.
+- **Workspace**: a filesystem-only `Workspace` per (primary) Epic (`workspace/architect-workspace.ts`), rooted at `AURA_WORKSPACE_ROOT/<epicKey>/architecture/`, holding `docs/adr/000N-title.md`, `docs/srs/*.md`, `architecture.md`, and `plan.md`. **Single shared workspace root (2026-09-21, `workspace/root.ts`):** `AURA_WORKSPACE_ROOT` is now the one root all three of Architecture, Dev, and QA nest under per Epic (`<root>/<epicKey>/architecture|dev/<discipline>|qa/`), replacing three separate env vars (`AURA_WORKSPACE_ROOT`/`AURA_DEV_ROOT`/`AURA_QA_ROOT`) with one - cosmetic/discoverability only, each still uses its own write mechanism (Architecture/QA are Mastra `Workspace`/`LocalFilesystem`; Dev stays a plain host path for Docker's bind mount - see its own note below). This replaces the ADR-as-Jira-comment stopgap (section 7) with reviewable files — Jira Tasks stay the source of truth and reference the paths. Registered on the Mastra instance itself (`addWorkspace`/`listWorkspaces`), so it's visible to Studio and cleaned up properly rather than living in a private cache.
 - Files are written only after the same `approved=true` gate already required for Jira — nothing is written before a human approves.
 - **Viewing and editing the workspace**: `apps/agent-runtime` exposes the workspace over HTTP (`server/workspace-routes.ts`) since `apps/api` doesn't share a filesystem with it (section 3.2): two read routes, plus a narrow write route (`PUT /workspace/:epicKey/file`) that can only overwrite a file the Architect Workflow already created — it cannot create new files or write outside the Epic's own workspace. `apps/api` proxies all of it behind the Epic-artifacts grant (`canViewArchitectWorkspace` for reads; `canEditArchitectWorkspace`, architect-role only, for the write), and the web app's Design Documents page browses, renders, and — for the human architect — edits them (CodeMirror, source/preview/edit). A manual edit has no version history and is overwritten if the Architect agent revises the design again; the UI says so. Every edit is audit-logged (`workspace.file.edit`).
 - **Continuing the conversation with feedback**: `GET /workspace/:epicKey/thread` returns the Orchestrator thread that last drafted an Epic's architecture, read from the draft store's own `thread_id` column. The Design Documents page uses this so a human's "send feedback to the Architect" comment continues that thread (and its `draftId`, which only exists in that thread's own tool-call history) instead of starting a disconnected new one that could only re-draft from scratch.
@@ -521,10 +558,10 @@ flowchart TD
     SBE --> J
 ```
 
-- **What the Dev agent does, and does not, decide.** Given a filed architecture Task, `agents/dev-agent.ts` writes a short explanation of why the (already-fixed) scaffold command fits that Task's content. It never chooses or writes the command itself, and it never picks the discipline either — `tools/delegate-tools.ts` reads the Task's own `**Discipline:** X` line (`disciplineFromTask`, AURA's own deterministic formatting from `renderArchitectureTask`, not free prose) and resolves a fixed command from it (`resolveScaffold`; Backend additionally reads the Epic's stored `techStack.backend` choice from Gate 3, via `draftStore.latestByEpic`). This is principle 5 taken further than PO/BA/Architect: there the model proposes content a human approves; here the model doesn't even propose the action, only explains a decision AURA already made.
+- **What the Dev agent does, and does not, decide.** Given a filed architecture Task, `agents/dev-agent.ts` writes a short explanation of why the (already-fixed) scaffold command fits that Task's content. It never chooses or writes the command itself, and it never picks the discipline either — `tools/delegate-tools.ts` reads the Task's own `**Discipline:** X` line (`disciplineFromTask`, AURA's own deterministic formatting from `renderArchitectureTask`, not free prose) and resolves a fixed command from it (`resolveScaffold`; Backend additionally reads the Epic's stored `techStack.backend` choice from Gate 3). **Fixed (2026-09-21):** `resolveScaffold` used to read `draftStore.latestByEpic('architecture', epicKey)` - the most recently *created* architecture draft, not the most recently *filed* one. A later `draft`/`revise` call that was shown to the human and rejected (never filed) still writes its own row, so it could silently outrank the real, already-filed design that created the Task in the first place - caught live running Gate 4 for KAN-36, whose real filed design is NestJS but an earlier rejected re-draft attempt (Spring Boot) had become the "latest" row. Now uses `draftStore.listByEpic` and picks the latest row with `filed.workspaceWritten` set, so only an architecture design that was actually approved and filed can decide the scaffold. This is principle 5 taken further than PO/BA/Architect: there the model proposes content a human approves; here the model doesn't even propose the action, only explains a decision AURA already made - and now that decision is read from what was actually built, not merely last proposed.
 - **One discipline, one Task, one Dev agent invocation - naturally parallel.** There is one `dev-agent` definition, parameterized by discipline through this lookup rather than separate per-discipline agents: the model's job (explain a fixed plan) is identical across disciplines, so the specialization lives entirely in the deterministic command table, not in separate system prompts. A human can run `delegate_to_dev` for a Frontend Task and a Backend Task from the same Epic independently - each is its own draft/approve/execute cycle with its own container, so nothing about the design serializes them; "Frontend, then Backend, then Database" is a narration choice, not an enforced order (docs/adr/0001, "Sequencing").
 - **Gate 4.** `delegate_to_dev`: `draft` (epicKey + taskKey → reads the Task's discipline, resolves its scaffold, returns a plan as `markdown`) then `execute` (draftId + `approved=true` → runs). There is no `revise` mode — the plan's command is fixed, so feedback means a different Task or conversation, not an edited plan.
-- **Sandbox.** `execute` runs the fixed command inside an ephemeral Docker container (`lib/docker-exec.ts`): `--rm`, memory/CPU/PID limits, a hard wall-clock timeout, run as the host user (not root - scaffolded files must be owned by whoever is running AURA, not the container), bind-mounting only the Epic+discipline's own directory under `AURA_DEV_ROOT` (default `.dev-workspaces/<epicKey>/<discipline>/`) as `/workspace`. Chosen over Firecracker/gVisor for this local/solo-use pass — open decision #4 (section 15) is now resolved for that scope. Progress streams out via `writer.custom()` the same way the Architect Workflow's step progress does (section 6.3).
+- **Sandbox.** `execute` runs the fixed command inside an ephemeral Docker container (`lib/docker-exec.ts`): `--rm`, memory/CPU/PID limits, a hard wall-clock timeout, run as the host user (not root - scaffolded files must be owned by whoever is running AURA, not the container), bind-mounting only the Epic+discipline's own directory under `AURA_WORKSPACE_ROOT` (default `.workspaces/<epicKey>/dev/<discipline>/`) as `/workspace`. Chosen over Firecracker/gVisor for this local/solo-use pass — open decision #4 (section 15) is now resolved for that scope. Progress streams out via `writer.custom()` the same way the Architect Workflow's step progress does (section 6.3).
 - **Jira sync.** As the container starts, the Task is moved to "In Progress" (best-effort - a missing transition of that name never blocks the scaffold itself). On completion, success or failure, a comment is posted with the local path, the exact command run, and — on failure — a tail of its output, so a teammate reading Jira sees what happened without opening AURA (`devScaffoldFiledComment`, the same provenance-stamp pattern as PO/BA/Architect). A draft already executed is not run twice (`draftStore`'s `filed` marker, the same idempotency mechanism Architect's `file` mode uses).
 - **"Security" is not a scaffold discipline.** Architecture Tasks carry one of `Frontend, Backend, Data, AI, Integration, Deployment` (`contracts/drafts.ts`'s `disciplines`) - there is no `Security` value, and no obvious "official live tooling" scaffold analogous to `npm create vite` for it the way the ADR's model works. Security today is the Architect's `securityDesign` section, cross-cutting every Task, implemented as part of whichever Task addresses it (usually Backend) rather than as its own scaffold. If a dedicated security-scanning or secrets-setup scaffold is wanted, that needs its own concrete definition (what commands, what tool) before it can be added the same way Frontend/Backend were.
 - **Grants.** `developer` is the first role with real capability: `orchestrator: run`, `dev-agent: run`, `architect-agent: read` (needs to read the design it's implementing, but not to comment on or revise it — that stays PO/BA/Architect, section 6.3). `architect` gets `dev-agent: read` (RACI section 4.2: "Architect (read)" on Dev output).
@@ -593,30 +630,31 @@ Jira ticket text, PR descriptions, and repository contents are **untrusted input
 
 ## 8. Testing architecture
 
+**Status (2026-09-21): built**, and simpler than the diagram this replaced - no CI pipeline, no Robot Framework, no object storage exist, so the design doesn't pretend they run tests. AURA runs its own tests, for real, in its own sandbox:
+
 ```mermaid
 flowchart LR
-    AC[Acceptance Criteria<br/>from approved Stories] --> QA_A[QA Agent]
-    QA_A --> TP[Test plan + coverage matrix]
-    QA_A --> UI_S[Playwright suites<br/>UI / E2E]
-    QA_A --> API_S[Robot Framework suites<br/>API]
-    TP --> G5{{Human QA approves}}
-    G5 --> CI[CI pipeline]
-    UI_S --> CI
-    API_S --> CI
-    CI --> RES[(Raw results · JUnit XML<br/>traces · screenshots · logs)]
-    RES --> STO[(Object storage)]
-    RES --> TS_A[Tester Agent<br/>interprets ONLY]
-    TS_A --> DEF[Defect tickets in Jira]
-    TS_A --> RPT[Result summary<br/>links to raw evidence]
-    RPT --> G6{{Human QA verifies}}
+    AC[Epic's approved Stories<br/>acceptance criteria] --> QA_A[QA Agent]
+    QA_A --> TP[test-plan.md + coverage matrix]
+    QA_A --> SPECS[Real Playwright .spec.ts files<br/>UI via page/locators, API via the request fixture]
+    TP --> G6{{Gate 6<br/>Human QA approves}}
+    SPECS --> G6
+    G6 --> FILED[(.workspaces/epicKey/qa/)]
+
+    FILED --> RUN[Tester's execute:<br/>starts the scaffolded app for real,<br/>runs Playwright in a sandboxed Docker container]
+    RUN --> RES[(Real JSON result<br/>passed / failed / skipped, per-test errors)]
+    RES --> TS_A[Tester Agent<br/>interprets ONLY - never decides pass/fail]
+    TS_A --> RPT[Jira comment: real numbers<br/>+ AI interpretation, kept separate]
+    RPT --> G7{{Gate 7<br/>Human approved running it - result is informational, not a second approval}}
 ```
 
 Rules:
 
-- Tests execute in **CI or an ephemeral sandbox**, never inside the LLM's process.
-- A `test_results` row is written **by the CI reporter**, not by an agent. Agents have read-only access to it.
-- The Tester Agent's output is labelled `AI interpretation` and stored separately from `machine result`.
-- Test evidence is retained per regional policy and linked from Jira (Xray/Zephyr optional).
+- Tests execute in the same **ephemeral Docker sandbox** `lib/docker-exec.ts` already uses for Gate 4/5, never inside the LLM's process.
+- The real result (`passed`/`failed`/`skipped`, from Playwright's own JSON reporter) is read back from disk by code and stored in the draft record (`filed.summary`/`filed.failureNotes`) - the Tester Agent never invents these numbers, only comments on them.
+- The Tester Agent's output is labelled as interpretation and shown separately from the machine result everywhere it appears (Jira comment, `TestRunHistory` panel in the QA Files & Test Runs page).
+- Only Frontend and Backend/NestJS are supported (the disciplines Gate 4 actually scaffolds) - other disciplines fail clearly at Gate 7's `draft` step rather than being silently skipped.
+- No defect-ticket creation, no test-management integration (Xray/Zephyr) - a failure is a Jira comment on the Task itself, not a new issue.
 
 ---
 
@@ -761,8 +799,8 @@ Deferred until there is real cross-app duplication: `packages/` (contracts, poli
 **Status:**
 - **Phase 0** — done: identity/RBAC, policy tables, Supabase schema with RLS, audit log, approval service, run state machine. Not done: SSO federation, Jira webhook ingestion, the queue.
 - **Phase 1** — done: PO and BA agents, Epic/Story drafting through Gates 1 and 2, the registry view. Not done: evals, real-project rejection-rate measurement.
-- **Phase 2** — done: the Architect agent (as a workflow, not a single call), ADR drafting, architecture-task filing, Gate 3. Not done: QA/Tester agents, Playwright/Robot suites, CI result ingestion.
-- **Phase 3** — started early, Frontend and Backend/NestJS: the Dev agent, Docker-sandboxed scaffold execution, Gate 4 (section 6.4). Not done: Backend/Spring Boot, Data/AI/Integration scaffolds, the sandbox runner as a general capability beyond Docker, PR creation, loop guards.
+- **Phase 2** — done: the Architect agent (as a workflow, not a single call), ADR drafting, architecture-task filing (Gate 3); QA Agent and real Playwright test execution (Gates 6-7, section 8). Not done: Robot Framework (deliberately out of scope, section 8), CI integration (AURA runs tests itself, not via CI).
+- **Phase 3** — Frontend and Backend/NestJS: the Dev agent, Docker-sandboxed scaffold execution (Gate 4), the Coding Agent - AURA built-in, Claude Code, or Codex (Gate 5, section 6.5); a Deployer agent, plan-only (Gate 8, section 6.2). Not done: Backend/Spring Boot, Data/AI/Integration/Deployment scaffolds, the sandbox runner as a general capability beyond Docker, git branch/PR creation, loop guards, a real deployment pipeline for Deployer to trigger.
 
 See `docs/logs/` for day-by-day detail.
 
