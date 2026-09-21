@@ -11,6 +11,7 @@ export const paths = {
   registry: "/app/agents",
   designDocs: "/app/design-docs",
   designDocsEpic: (epicKey: string) => `/app/design-docs?epic=${encodeURIComponent(epicKey)}`,
+  devFiles: "/app/dev-files",
   jira: "/app/jira",
   profile: "/app/profile",
   audit: "/app/audit",

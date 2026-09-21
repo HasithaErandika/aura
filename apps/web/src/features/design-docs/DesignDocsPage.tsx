@@ -3,6 +3,8 @@ import { useNavigate, useSearchParams } from "react-router-dom";
 import type { Role } from "../../shared/lib/roles.ts";
 import CodeMirror from "@uiw/react-codemirror";
 import { markdown } from "@codemirror/lang-markdown";
+import { vscodeDark } from "@uiw/codemirror-theme-vscode";
+import { vscode } from "../../shared/lib/vscodeTheme.ts";
 import { useAsync } from "../../shared/hooks/useAsync.ts";
 import { useAuth } from "../../shared/auth/useAuth.ts";
 import { describeError } from "../../shared/api/errors.ts";
@@ -205,11 +207,14 @@ export function DesignDocsPage() {
       ) : (
         <Card className="overflow-hidden p-0">
           <div className="grid grid-cols-1 lg:grid-cols-[280px_1fr]" style={{ height: "78vh" }}>
-            {/* Sidebar: the explorer tree - one bordered pane instead of a separate card. */}
-            <div className="flex min-h-0 flex-col border-b border-line bg-neutral-soft/40 lg:border-b-0 lg:border-r">
-              <div className="shrink-0 border-b border-line px-3 py-2.5">
-                <p className="text-[11px] font-semibold tracking-wide text-ink-500 uppercase">Explorer</p>
-                <p className="mt-0.5 text-[11px] text-ink-400">
+            {/* Sidebar: the explorer tree - VS Code dark Explorer chrome, one bordered pane
+                instead of a separate card. */}
+            <div className="flex min-h-0 flex-col" style={{ backgroundColor: vscode.sidebarBg, borderRight: `1px solid ${vscode.border}` }}>
+              <div className="shrink-0 px-3 py-2.5" style={{ borderBottom: `1px solid ${vscode.border}` }}>
+                <p className="text-[11px] font-semibold tracking-wide uppercase" style={{ color: vscode.mutedText }}>
+                  Explorer
+                </p>
+                <p className="mt-0.5 text-[11px]" style={{ color: vscode.mutedText }}>
                   {epics.length} Epic{epics.length === 1 ? "" : "s"} · {totalFiles} file{totalFiles === 1 ? "" : "s"} loaded
                 </p>
               </div>
@@ -223,14 +228,17 @@ export function DesignDocsPage() {
                         <button
                           type="button"
                           onClick={() => toggleEpic(epicKey)}
-                          className="flex w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-left font-mono text-xs font-semibold text-ink-800 hover:bg-ink-100"
+                          style={{ color: vscode.text }}
+                          className="flex w-full items-center gap-1.5 rounded px-2 py-1.5 text-left font-mono text-xs font-semibold hover:brightness-125"
+                          onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = vscode.hoverBg)}
+                          onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = "transparent")}
                         >
-                          <ChevronRightIcon className={cn("size-3.5 shrink-0 text-ink-400 transition-transform", isOpen && "rotate-90")} />
-                          <TreeIcon className="size-3.5 shrink-0 text-ink-400" />
+                          <ChevronRightIcon className={cn("size-3.5 shrink-0 transition-transform", isOpen && "rotate-90")} style={{ color: vscode.mutedText }} />
+                          <TreeIcon className="size-3.5 shrink-0" style={{ color: vscode.mutedText }} />
                           {epicKey}
                         </button>
                         {isOpen ? (
-                          <div className="ml-4 border-l border-line pl-2">
+                          <div className="ml-4 pl-2" style={{ borderLeft: `1px solid ${vscode.border}` }}>
                             {!entry || entry.status === "loading" ? (
                               <div className="space-y-1.5 py-2 pl-2">
                                 <Skeleton className="h-3.5 w-32" />
@@ -239,7 +247,7 @@ export function DesignDocsPage() {
                             ) : entry.status === "error" ? (
                               <p className="px-2 py-1.5 text-xs text-danger">{entry.message}</p>
                             ) : entry.files.length === 0 ? (
-                              <p className="px-2 py-1.5 text-xs text-ink-400">No documents yet</p>
+                              <p className="px-2 py-1.5 text-xs" style={{ color: vscode.mutedText }}>No documents yet</p>
                             ) : (
                               <ul>
                                 {entry.files.map((f) => {
@@ -251,13 +259,13 @@ export function DesignDocsPage() {
                                       <button
                                         type="button"
                                         onClick={() => setSelected({ epicKey, path: f.path })}
-                                        className={cn(
-                                          "flex w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-left text-xs hover:bg-ink-100",
-                                          isSelected ? "bg-brand-soft font-medium text-brand hover:bg-brand-soft" : "text-ink-700",
-                                        )}
+                                        style={{ backgroundColor: isSelected ? vscode.selectedBg : "transparent", color: isSelected ? vscode.selectedText : vscode.text }}
+                                        className="flex w-full items-center gap-1.5 rounded px-2 py-1.5 text-left text-xs"
+                                        onMouseEnter={(e) => !isSelected && (e.currentTarget.style.backgroundColor = vscode.hoverBg)}
+                                        onMouseLeave={(e) => !isSelected && (e.currentTarget.style.backgroundColor = "transparent")}
                                         title={f.path}
                                       >
-                                        <Icon className={cn("size-3.5 shrink-0", isSelected ? "text-brand" : "text-ink-400")} />
+                                        <Icon className="size-3.5 shrink-0" style={{ color: isSelected ? vscode.accent : vscode.mutedText }} />
                                         <span className="truncate capitalize">{workspaceFileTitle(f.path)}</span>
                                         <Badge tone={meta.tone} className="ml-auto shrink-0">
                                           {meta.label}
@@ -277,8 +285,9 @@ export function DesignDocsPage() {
               </div>
             </div>
 
-            {/* Editor: the selected document - same pane, no separate card border. */}
-            <div className="flex min-h-0 min-w-0 flex-col">
+            {/* Editor: the selected document - VS Code dark editor chrome, same pane, no
+                separate card border. */}
+            <div className="flex min-h-0 min-w-0 flex-col" style={{ backgroundColor: vscode.editorBg }}>
               {!selected ? (
                 <EmptyState icon={<DocumentIcon className="size-5" />} title="Select a document" description="Pick a file from the explorer to view its contents." className="h-full py-16" />
               ) : fileState.error ? (
@@ -291,10 +300,10 @@ export function DesignDocsPage() {
                 </div>
               ) : fileState.data ? (
                 <>
-                  <div className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-b border-line px-4 py-2.5">
+                  <div className="flex shrink-0 flex-wrap items-center justify-between gap-3 px-4 py-2.5" style={{ backgroundColor: vscode.tabBarBg, borderBottom: `1px solid ${vscode.border}` }}>
                     <div className="min-w-0">
-                      <p className="truncate font-mono text-sm font-semibold text-ink-900">{fileState.data.path}</p>
-                      <p className="text-[11px] text-ink-400">{selected.epicKey}</p>
+                      <p className="truncate font-mono text-sm font-semibold" style={{ color: vscode.text }}>{fileState.data.path}</p>
+                      <p className="text-[11px]" style={{ color: vscode.mutedText }}>{selected.epicKey}</p>
                     </div>
                     <div className="flex shrink-0 items-center gap-2">
                       {editing ? (
@@ -308,18 +317,20 @@ export function DesignDocsPage() {
                         </>
                       ) : (
                         <>
-                          <div className="flex items-center rounded-md border border-line p-0.5 text-xs">
+                          <div className="flex items-center rounded-md p-0.5 text-xs" style={{ border: `1px solid ${vscode.border}` }}>
                             <button
                               type="button"
                               onClick={() => setViewMode("source")}
-                              className={cn("rounded px-2.5 py-1 font-medium transition-colors", viewMode === "source" ? "bg-ink-900 text-white" : "text-ink-600 hover:bg-ink-50")}
+                              style={viewMode === "source" ? { backgroundColor: vscode.selectedBg, color: vscode.selectedText } : { color: vscode.mutedText }}
+                              className="rounded px-2.5 py-1 font-medium transition-colors"
                             >
                               Source
                             </button>
                             <button
                               type="button"
                               onClick={() => setViewMode("preview")}
-                              className={cn("rounded px-2.5 py-1 font-medium transition-colors", viewMode === "preview" ? "bg-ink-900 text-white" : "text-ink-600 hover:bg-ink-50")}
+                              style={viewMode === "preview" ? { backgroundColor: vscode.selectedBg, color: vscode.selectedText } : { color: vscode.mutedText }}
+                              className="rounded px-2.5 py-1 font-medium transition-colors"
                               title="Ctrl+Shift+V"
                             >
                               Preview
@@ -352,8 +363,8 @@ export function DesignDocsPage() {
                   ) : null}
 
                   {feedbackOpen && !editing ? (
-                    <div className="shrink-0 space-y-2 border-b border-line bg-neutral-soft/40 px-4 py-3">
-                      <p className="text-xs font-medium text-ink-700">Send feedback to the Architect - it will revise this design and update the filed Jira Tasks in place.</p>
+                    <div className="shrink-0 space-y-2 px-4 py-3" style={{ backgroundColor: vscode.sidebarBg, borderBottom: `1px solid ${vscode.border}` }}>
+                      <p className="text-xs font-medium" style={{ color: vscode.text }}>Send feedback to the Architect - it will revise this design and update the filed Jira Tasks in place.</p>
                       <Textarea rows={3} value={feedback} onChange={(e) => setFeedback(e.target.value)} placeholder="What should change, and why?" className="text-sm" />
                       {sendError ? <p className="text-xs text-danger">{sendError}</p> : null}
                       <div className="flex justify-end gap-2">
@@ -369,11 +380,14 @@ export function DesignDocsPage() {
 
                   <div className="min-h-0 flex-1 overflow-hidden">
                     {editing ? (
-                      <CodeMirror value={draft} onChange={(value) => setDraft(value)} height="100%" extensions={[markdown()]} basicSetup={{ lineNumbers: true, foldGutter: false }} className="h-full" />
+                      <CodeMirror value={draft} onChange={(value) => setDraft(value)} height="100%" theme={vscodeDark} extensions={[markdown()]} basicSetup={{ lineNumbers: true, foldGutter: false }} className="h-full" />
                     ) : viewMode === "source" ? (
-                      <CodeMirror value={fileState.data.content} editable={false} height="100%" extensions={[markdown()]} basicSetup={{ lineNumbers: true, foldGutter: false }} className="h-full" />
+                      <CodeMirror value={fileState.data.content} editable={false} height="100%" theme={vscodeDark} extensions={[markdown()]} basicSetup={{ lineNumbers: true, foldGutter: false }} className="h-full" />
                     ) : (
-                      <div className="h-full overflow-y-auto px-6 py-4">
+                      <div
+                        className="h-full overflow-y-auto px-6 py-4 [&_code]:bg-white/10 [&_code]:text-[#ce9178] [&_h1]:text-white [&_h2]:text-white [&_h3]:text-white [&_hr]:border-white/10 [&_li]:text-[#cccccc] [&_p]:text-[#cccccc] [&_pre]:border-white/10 [&_pre]:bg-black/30 [&_pre]:text-[#d4d4d4] [&_strong]:text-white"
+                        style={{ backgroundColor: vscode.editorBg }}
+                      >
                         <Markdown source={fileState.data.content} />
                       </div>
                     )}

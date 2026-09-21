@@ -2,7 +2,7 @@ import type { ComponentType, SVGProps } from "react";
 import type { Role } from "../lib/roles.ts";
 import type { Me } from "../../types/api.ts";
 import { paths } from "../../app/paths.ts";
-import { AuditIcon, ChatIcon, ClipboardCheckIcon, DashboardIcon, DocumentIcon, ListIcon, RegistryIcon, SettingsIcon, TicketIcon, UsersIcon } from "../icons/index.tsx";
+import { AuditIcon, ChatIcon, ClipboardCheckIcon, CodeIcon, DashboardIcon, DocumentIcon, ListIcon, RegistryIcon, SettingsIcon, TicketIcon, UsersIcon } from "../icons/index.tsx";
 
 export interface NavItem {
   label: string;
@@ -22,6 +22,8 @@ const isAdmin = (me: Me) => me.role === "admin";
 const decides = (me: Me) => me.grants.approves.length > 0 || hasRunGrant(me);
 // Matches the API's canViewJira: anyone with at least one agent grant, plus admins.
 const hasAnyGrant = (me: Me) => Object.keys(me.grants.agents).length > 0 || isAdmin(me);
+// Matches the API's canViewDevWorkspace: same audience as dev-agent itself.
+const canViewDevFiles = (me: Me) => Boolean(me.grants.agents["dev-agent"]) || isAdmin(me);
 
 // Navigation is derived from the grants the API returns for the signed-in role, not from a
 // hardcoded role switch, so a grant change in the policy tables shows up here without edits.
@@ -37,6 +39,7 @@ export const navigation: NavGroup[] = [
       { label: "Approval Inbox", to: paths.approvals, icon: ClipboardCheckIcon, visible: (me) => decides(me) || isAdmin(me) },
       { label: "Runs", to: paths.runs, icon: ListIcon, visible: (me) => decides(me) || isAdmin(me) },
       { label: "Design Documents", to: paths.designDocs, icon: DocumentIcon, visible: hasAnyGrant },
+      { label: "Scaffolded Files", to: paths.devFiles, icon: CodeIcon, visible: canViewDevFiles },
       { label: "Jira", to: paths.jira, icon: TicketIcon, visible: hasAnyGrant },
     ],
   },

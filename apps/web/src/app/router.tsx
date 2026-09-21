@@ -10,6 +10,7 @@ import {
   AuditPage,
   DashboardPage,
   DesignDocsPage,
+  DevFilesPage,
   InboxPage,
   JiraPage,
   LandingPage,
@@ -58,6 +59,7 @@ export const router = createBrowserRouter([
       { path: "runs/:id", element: page(<RunDetailPage />), handle: { title: "Runs" } },
       { path: "agents", element: page(<RegistryPage />), handle: { title: "Agent Registry" } },
       { path: "design-docs", element: page(<DesignDocsPage />), handle: { title: "Design Documents" } },
+      { path: "dev-files", element: page(<DevFilesPage />), handle: { title: "Scaffolded Project Files" } },
       { path: "jira", element: page(<JiraPage />), handle: { title: "Jira" } },
       {
         path: "profile",

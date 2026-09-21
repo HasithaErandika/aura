@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { useAsync } from "../../shared/hooks/useAsync.ts";
 import { usePolling } from "../../shared/hooks/usePolling.ts";
 import { runsApi } from "./api.ts";
+import { DockerRunsPanel } from "./components/DockerRunsPanel.tsx";
 import { paths } from "../../app/paths.ts";
 import { PageHeader } from "../../shared/ui/PageHeader.tsx";
 import { Card } from "../../shared/ui/Card.tsx";
@@ -34,6 +35,7 @@ export function RunsPage() {
     <>
       <PageHeader title="Runs" description="Every agent turn the Orchestrator has executed, with the agents it involved and where it paused for a human." />
       {state.error ? <Alert tone="danger">{state.error}</Alert> : null}
+      <DockerRunsPanel />
       <Card>
         <div className="px-5 pt-1">
           <Tabs
