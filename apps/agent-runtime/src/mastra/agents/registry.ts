@@ -11,8 +11,13 @@ export const DEV_MODEL_ID = 'groq/qwen/qwen3.8-27b';
 // code across an iterative tool-use loop - the same model tier as BA/Architect, not the
 // lightweight Dev-agent tier.
 export const MASTRA_CODING_MODEL_ID = 'groq/openai/gpt-oss-120b';
+// QA writes real Playwright source, not just prose - same tier as Architect/BA.
+export const QA_MODEL_ID = 'groq/openai/gpt-oss-120b';
+// Tester only interprets an already-real JSON result, closer to Dev's lightweight tier.
+export const TESTER_MODEL_ID = 'groq/qwen/qwen3.8-27b';
+export const DEPLOYER_MODEL_ID = 'groq/openai/gpt-oss-120b';
 
-export type AgentId = 'orchestrator' | 'po-agent' | 'ba-agent' | 'architect-agent' | 'dev-agent' | 'coding-agent';
+export type AgentId = 'orchestrator' | 'po-agent' | 'ba-agent' | 'architect-agent' | 'dev-agent' | 'coding-agent' | 'qa-agent' | 'tester-agent' | 'deployer-agent' | 'git-tool';
 
 export interface AgentManifestEntry {
   modelId: string;
@@ -44,12 +49,32 @@ export const AGENT_MANIFEST: Record<AgentId, AgentManifestEntry> = {
   'dev-agent': {
     modelId: DEV_MODEL_ID,
     delegatesTo: [],
-    note: 'Explains a Task-driven scaffold plan (Frontend only for now) whose command is fixed by code, invoked through delegate_to_dev. Holds no tools: cannot execute anything itself - execute mode runs the fixed command in a sandboxed Docker container from delegate-tools.ts, never from the model.',
+    note: 'Explains a Task-driven scaffold plan (Frontend and Backend/NestJS) whose command is fixed by code, invoked through delegate_to_dev. Holds no tools: cannot execute anything itself - execute mode runs the fixed command in a sandboxed Docker container from delegate-tools.ts, never from the model.',
   },
   'coding-agent': {
-    modelId: `varies by provider (Claude Code/Codex: developer's own connected key; AURA built-in: ${MASTRA_CODING_MODEL_ID})`,
+    modelId: `varies by provider (AURA built-in: ${MASTRA_CODING_MODEL_ID}; Claude Code/Codex: the developer's own CLI login on this machine)`,
     delegatesTo: [],
-    note: 'Implements a Task, invoked through delegate_to_code. draft is always deterministic code, never a model call, for any provider - no Mastra Agent object backs this entry, unlike every other row here (docs/ARCHITECTURE.md section 6.5). execute runs one of three providers per run: Claude Code or Codex (Docker-sandboxed, the developer\'s own key) or AURA\'s own built-in agent (agents/mastra-coding-agent.ts - list_files/read_file/write_file only, no shell tool, contained by path checks rather than a container).',
+    note: 'Implements a Task, invoked through delegate_to_code. draft is always deterministic code, never a model call, for any provider - no Mastra Agent object backs this entry, unlike every other row here (docs/ARCHITECTURE.md section 6.5). execute runs one of three providers per run: AURA\'s own built-in agent (agents/mastra-coding-agent.ts - list_files/read_file/write_file only, no shell tool, contained by path checks rather than a container, the main option) or, if asked for, Claude Code or Codex (Docker-sandboxed, authenticated via the developer\'s own CLI login, not a key).',
+  },
+  'qa-agent': {
+    modelId: QA_MODEL_ID,
+    delegatesTo: [],
+    note: 'Drafts a test plan and real Playwright source per Story, invoked through delegate_to_qa (Gate 6). Holds no tools: reads Stories via delegate-tools.ts, writes nothing itself - file mode writes the QA workspace and comments Jira.',
+  },
+  'tester-agent': {
+    modelId: TESTER_MODEL_ID,
+    delegatesTo: [],
+    note: 'Interprets an already-real Playwright JSON result (delegate_to_test, Gate 7) - never decides pass/fail itself, only summarizes it and flags likely-flaky failures. Holds no tools: the real test run happens in a sandboxed Docker container from delegate-tools.ts, never from the model.',
+  },
+  'deployer-agent': {
+    modelId: DEPLOYER_MODEL_ID,
+    delegatesTo: [],
+    note: 'Drafts release notes, a change plan, and a rollback plan from filed Tasks (delegate_to_deploy, Gate 8) - plan-only, no execute mode exists: there is no real deployment pipeline to run, so this agent never claims a release happened.',
+  },
+  'git-tool': {
+    modelId: 'none - no model call at any step',
+    delegatesTo: [],
+    note: 'git init/branch/commit/status/diff against a Task\'s scaffolded directory, invoked through delegate_to_git. No Mastra Agent object backs this entry (like coding-agent) - the command and, for commit, its message are built entirely by code from the Task\'s own Jira content, never a model. Runs directly on the host, no Docker (node:22-slim has no git installed, and the directory is already host-trusted).',
   },
 };
 

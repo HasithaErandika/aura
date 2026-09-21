@@ -22,17 +22,25 @@ import {
 } from '../contracts/drafts';
 import { devScaffoldFiledComment, renderDevScaffoldPlan, scaffoldDisciplines, type DevScaffoldDraft } from '../contracts/dev-drafts';
 import { codingFiledComment, codingProviderLabel, codingProviders, renderCodingPlan, type CodingProvider, type CodingTaskDraft } from '../contracts/coding-drafts';
+import { qaDraftSchema, qaFiledComment, renderTestPlan, type QaDraft } from '../contracts/qa-drafts';
+import { deployDraftSchema, deployFiledComment, renderDeployPlan, type DeployDraft } from '../contracts/deploy-drafts';
+import { gitOps, gitOpFiledComment, renderGitOpPlan, type GitOpDraft } from '../contracts/git-drafts';
 import { draftStore, type DraftRecord } from '../store/draft-store';
 import { jira, jiraIssueUrl, type JiraIssueSummary } from '../mcp/jira-client';
-import { PO_MODEL_ID, BA_MODEL_ID, ARCHITECT_MODEL_ID, DEV_MODEL_ID } from '../agents/registry';
+import { PO_MODEL_ID, BA_MODEL_ID, ARCHITECT_MODEL_ID, DEV_MODEL_ID, QA_MODEL_ID, TESTER_MODEL_ID, DEPLOYER_MODEL_ID } from '../agents/registry';
 import { generateObject, type MastraLike } from '../lib/generate-object';
 import { architectWorkspace, type WorkspaceRegistry } from '../workspace/architect-workspace';
+import { qaWorkspace, qaWorkspaceRoot } from '../workspace/qa-workspace';
 import { devWorkspaceDir } from '../workspace/dev-workspace';
 import { isDockerAvailable, runInContainer } from '../lib/docker-exec';
 import { createCodingAgent } from '../agents/mastra-coding-agent';
-import { readdir, writeFile, access } from 'node:fs/promises';
+import { readdir, writeFile, readFile, access } from 'node:fs/promises';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
 import path from 'node:path';
 import os from 'node:os';
+
+const execFileAsync = promisify(execFile);
 
 // Centralizes Orchestrator access to PO, BA, Architect, Jira, and Architect workspace actions 
 // while storing drafts by ID to ensure approved content is filed exactly once.
@@ -722,6 +730,8 @@ export const delegateToDevTool = createTool({
               hostDir: record.content.targetDir,
               command: record.content.command,
               timeoutMs: 5 * 60_000,
+              name: `aura-dev-${record.id}`,
+              labels: { 'aura.epic': record.content.epicKey, 'aura.task': record.content.taskKey, 'aura.kind': 'dev-scaffold' },
               onOutput: (chunk) => {
                 void writer?.custom({ type: 'data-dev-output', data: { chunk }, transient: true });
               },
@@ -930,6 +940,8 @@ export const delegateToCodeTool = createTool({
                 command: cli.command,
                 mounts: [{ hostPath: cli.hostCredential, containerPath: cli.containerCredential, readOnly: true }],
                 timeoutMs: 20 * 60_000,
+                name: `aura-code-${record.id}`,
+                labels: { 'aura.epic': record.content.epicKey, 'aura.task': record.content.taskKey, 'aura.kind': 'code' },
                 onOutput: (chunk) => {
                   void writer?.custom({ type: 'data-code-output', data: { chunk }, transient: true });
                 },
@@ -979,6 +991,645 @@ export const delegateToCodeTool = createTool({
       }
     } catch (error) {
       return codeFail(error);
+    }
+  },
+});
+
+// ==================== QA Agent (Gate 6) ====================
+
+interface QaWorkflowStreamOutput {
+  fullStream: AsyncIterable<{ type: string; id?: string; payload?: { status?: string; id?: string } }>;
+  result: Promise<{ status: string; result?: unknown; error?: { message?: string } }>;
+}
+interface QaWorkflowRun {
+  stream: (args: { inputData: { epicKey: string; epicSummary: string; storiesText: string } }) => QaWorkflowStreamOutput;
+}
+interface QaWorkflowLike {
+  createRun: () => Promise<QaWorkflowRun>;
+}
+type QaMastra = (MastraLike & { getWorkflow?: (id: string) => QaWorkflowLike } & Partial<WorkspaceRegistry>) | undefined;
+
+// Runs the QA Workflow, relaying each step's start/result into this tool's own stream, the same
+// pattern as runArchitectWorkflow above.
+async function runQaWorkflow(mastra: QaMastra, input: { epicKey: string; epicSummary: string; storiesText: string }, writer: ToolWriterLike | undefined): Promise<QaDraft> {
+  const workflow = mastra?.getWorkflow?.('qa-workflow');
+  if (!workflow) throw new Error('qa-workflow is not registered');
+  const run = await workflow.createRun();
+  const streamOutput = run.stream({ inputData: input });
+  for await (const chunk of streamOutput.fullStream) {
+    if (chunk.type === 'workflow-step-start' || chunk.type === 'workflow-step-result') {
+      const stepId = chunk.id ?? chunk.payload?.id;
+      await writer?.custom({ type: 'data-qa-step', data: { stepId, phase: chunk.type === 'workflow-step-start' ? 'start' : 'result', status: chunk.payload?.status }, transient: true });
+    }
+  }
+  const result = await streamOutput.result;
+  if (result.status !== 'success') throw new Error(`test plan generation failed (${result.status})${result.error?.message ? `: ${result.error.message}` : ''}`);
+  return result.result as QaDraft;
+}
+
+const qaInputSchema = z
+  .object({
+    mode: z.enum(['draft', 'revise', 'file']),
+    epicKey: z.string().optional().describe('draft: the Epic whose approved Stories to write a test plan for'),
+    draftId: z.string().optional().describe('revise and file: the draftId returned earlier'),
+    feedback: z.string().optional().describe('revise: the human feedback, verbatim'),
+    approved: z.boolean().optional().describe('file: must be true; set only after ask_user returned an approval'),
+  })
+  .strict();
+
+const qaOutputSchema = z.object({
+  ok: z.boolean().describe('false means the step failed; read error, tell the user, and stop.'),
+  draftId: z.string().optional(),
+  markdown: z.string().optional().describe('Human-readable draft. Show it to the user verbatim.'),
+  epicKey: z.string().optional(),
+  scenarioCount: z.number().optional(),
+  error: z.string().optional(),
+});
+
+function qaFail(error: unknown): z.infer<typeof qaOutputSchema> {
+  return { ok: false, error: error instanceof Error ? error.message : String(error) };
+}
+
+export const delegateToQaTool = createTool({
+  id: 'delegate_to_qa',
+  description:
+    "QA Agent (Gate 6). draft: epicKey -> a test plan and real Playwright source generated from the Epic's approved Stories (returns draftId + markdown). revise: draftId + feedback -> new draftId + markdown. file: draftId + approved -> test-plan.md and one .spec.ts file per scenario written to the QA workspace, commented on the Epic (returns scenarioCount). Never file without an explicit human approval. Requires the Epic to already have approved Stories filed (run delegate_to_ba first).",
+  inputSchema: qaInputSchema,
+  outputSchema: qaOutputSchema,
+  execute: async (input, { mastra, agent, writer }) => {
+    const threadId = agent?.threadId ?? null;
+    try {
+      switch (input.mode) {
+        case 'draft': {
+          const epicKey = input.epicKey?.trim().toUpperCase();
+          if (!epicKey) return qaFail('draft needs epicKey');
+          const epic = await jira.getIssue(epicKey);
+          if (epic.issueType && epic.issueType.toLowerCase() !== 'epic') return qaFail(`${epicKey} is a ${epic.issueType}, not an Epic`);
+          const stories = await jira.getEpicStories(epicKey);
+          const storyIssues = stories.filter((s) => s.issueType.toLowerCase() === 'story');
+          if (!storyIssues.length) return qaFail(`${epicKey} has no Stories yet - run delegate_to_ba and file Stories before drafting a test plan`);
+          const storiesText = storyIssues.map((s) => `- ${s.key}: ${s.summary}\n${s.description || '(no description)'}`).join('\n\n');
+          const content = await runQaWorkflow(mastra as QaMastra, { epicKey, epicSummary: epic.summary, storiesText }, writer);
+          const record = await draftStore.create({ kind: 'qa-plan', content, threadId, epicKey });
+          return { ok: true, draftId: record.id, markdown: renderTestPlan(content), epicKey, scenarioCount: content.scenarios.length };
+        }
+        case 'revise': {
+          if (!input.draftId || !input.feedback?.trim()) return qaFail('revise needs draftId and feedback');
+          const previous = await draftStore.get<QaDraft>(input.draftId);
+          if (!previous || previous.kind !== 'qa-plan') return qaFail(`unknown QA draft ${input.draftId}`);
+          const prompt = `Revise this test plan according to the feedback. Return the complete updated plan, including full playwrightSource for every scenario (even unchanged ones). Keep epicKey "${previous.content.epicKey}".\n\nCurrent draft (JSON):\n${JSON.stringify(previous.content)}\n\nFeedback:\n${input.feedback.trim()}`;
+          const content = await generateObject<QaDraft>(mastra as MastraLike, 'qa', prompt, qaDraftSchema);
+          content.epicKey = previous.content.epicKey;
+          const record = await draftStore.create({ kind: 'qa-plan', content, threadId, epicKey: previous.epicKey, parentId: previous.id });
+          return { ok: true, draftId: record.id, markdown: renderTestPlan(content), epicKey: previous.content.epicKey, scenarioCount: content.scenarios.length };
+        }
+        case 'file': {
+          if (!input.draftId) return qaFail('file needs draftId');
+          if (input.approved !== true) return qaFail('file requires approved=true, which is only set after the human approved via ask_user');
+          const record = await draftStore.get<QaDraft>(input.draftId);
+          if (!record || record.kind !== 'qa-plan') return qaFail(`unknown QA draft ${input.draftId}`);
+          const epicKey = record.content.epicKey;
+          const filed = { ...record.filed };
+
+          if (!filed.workspaceWritten) {
+            const workspaceRegistry = mastra as QaMastra;
+            if (!workspaceRegistry?.listWorkspaces || !workspaceRegistry.addWorkspace) throw new Error('Mastra workspace registry is not available');
+            const fs = qaWorkspace(workspaceRegistry as WorkspaceRegistry, epicKey).filesystem;
+            if (!fs) throw new Error('QA workspace filesystem is not available');
+            await fs.writeFile('test-plan.md', renderTestPlan(record.content), { recursive: true, overwrite: true });
+            for (const scenario of record.content.scenarios) {
+              await fs.writeFile(`tests/${scenario.fileName}.spec.ts`, scenario.playwrightSource, { recursive: true, overwrite: true });
+            }
+            filed.workspaceWritten = 'done';
+            await draftStore.markFiled(record.id, filed);
+          }
+
+          if (!filed.comment) {
+            try {
+              const stamp = provenance('QA Agent', QA_MODEL_ID, record, `${epicKey} (Epic)`);
+              const scenarioPaths = record.content.scenarios.map((s) => `tests/${s.fileName}.spec.ts`);
+              await jira.addComment(epicKey, qaFiledComment(record.content, 'test-plan.md', scenarioPaths, stamp));
+              filed.comment = 'done';
+              await draftStore.markFiled(record.id, filed);
+            } catch {
+              // The comment is informational; the workspace files are what matters.
+            }
+          }
+          return { ok: true, draftId: record.id, epicKey, scenarioCount: record.content.scenarios.length };
+        }
+      }
+    } catch (error) {
+      return qaFail(error);
+    }
+  },
+});
+
+// ==================== Tester Agent (Gate 7) ====================
+
+interface TestRunEntry {
+  image: string;
+  port: number;
+  startCommand: string;
+  description: string;
+}
+
+// Fixed per discipline, like SCAFFOLD_COMMANDS - never chosen by a model. Only the two
+// disciplines Gate 4 actually scaffolds reliably (docs/adr/0001-dev-agent-scaffold-and-template-
+// strategy.md) are supported; anything else fails clearly rather than guessing how to start an
+// app it was never taught to run.
+const TEST_COMMANDS: Partial<Record<'Frontend' | 'Backend', TestRunEntry>> = {
+  Frontend: {
+    image: 'mcr.microsoft.com/playwright:v1.48.0-jammy',
+    port: 4173,
+    startCommand: 'npm run dev -- --port 4173 --strictPort',
+    description: 'npm install, start the Vite dev server on port 4173, wait for it to respond, then run the QA-filed Playwright suite against it.',
+  },
+  Backend: {
+    image: 'mcr.microsoft.com/playwright:v1.48.0-jammy',
+    port: 4000,
+    startCommand: 'PORT=4000 npm run start',
+    description: 'npm install, start the NestJS app on port 4000, wait for it to respond, then run the QA-filed Playwright suite against it.',
+  },
+};
+
+const TEST_RESULTS_FILE = 'test-results.json';
+const TEST_SETUP_FAILED_FILE = 'test-setup-failed.txt';
+
+interface PlaywrightJsonResultRoot {
+  stats?: { expected?: number; unexpected?: number; skipped?: number; duration?: number };
+  suites?: unknown[];
+}
+
+// Builds the fixed shell script run inside the container. Setup (install + start + wait for the
+// port) is separated from the test run itself with its own `|| { ...; exit 0 }` branch, so a
+// real test failure (Playwright's own non-zero exit) is never confused with the app failing to
+// start - only the latter writes TEST_SETUP_FAILED_FILE. The whole script always exits 0; the
+// real result lives in TEST_RESULTS_FILE, read back by delegate-tools.ts after the container
+// exits, never in this exit code (principle 5 - a red suite must never look like an infra crash).
+function buildTestCommand(entry: TestRunEntry): string {
+  return [
+    'npm install --silent',
+    `(${entry.startCommand} > /tmp/app.log 2>&1 &)`,
+    `npx --yes wait-on@7 http://localhost:${entry.port} --timeout 30000 || { echo SETUP_FAILED > /workspace/${TEST_SETUP_FAILED_FILE}; cp /tmp/app.log /workspace/app.log 2>/dev/null; exit 0; }`,
+    `APP_BASE_URL=http://localhost:${entry.port} npx --yes playwright test /qa-tests --reporter=json > /workspace/${TEST_RESULTS_FILE} 2>/workspace/test-stderr.log`,
+    'true',
+  ].join('\n');
+}
+
+// Walks Playwright's JSON reporter shape (suites -> specs -> tests -> results) to pull out each
+// failing test's title path and error message. Best-effort: an unrecognized future shape
+// degrades to an empty list, never a crash - the raw file is still attached to the Jira comment.
+function extractFailures(raw: unknown): { name: string; error: string }[] {
+  const failures: { name: string; error: string }[] = [];
+  function walk(node: unknown, titlePath: string[]): void {
+    if (!node || typeof node !== 'object') return;
+    const n = node as Record<string, unknown>;
+    const nextPath = typeof n.title === 'string' ? [...titlePath, n.title] : titlePath;
+    if (Array.isArray(n.suites)) for (const s of n.suites) walk(s, nextPath);
+    if (Array.isArray(n.specs)) for (const s of n.specs) walk(s, nextPath);
+    if (Array.isArray(n.tests)) {
+      for (const t of n.tests as Record<string, unknown>[]) {
+        const results = Array.isArray(t.results) ? (t.results as Record<string, unknown>[]) : [];
+        const failedResult = results.find((r) => r.status === 'failed' || r.status === 'timedOut');
+        if (failedResult) {
+          const error = (failedResult.error as Record<string, unknown> | undefined)?.message;
+          failures.push({ name: nextPath.join(' > '), error: typeof error === 'string' ? error : 'no error message captured' });
+        }
+      }
+    }
+  }
+  walk(raw, []);
+  return failures;
+}
+
+interface TestRunDraft {
+  epicKey: string;
+  taskKey: string;
+  targetDir: string;
+  discipline: 'Frontend' | 'Backend';
+}
+
+const testInputSchema = z
+  .object({
+    mode: z.enum(['draft', 'execute']),
+    epicKey: z.string().optional().describe('draft: the Epic this Task belongs to (must have a filed QA plan)'),
+    taskKey: z.string().optional().describe('draft: the Jira Task key to test (must already be scaffolded via delegate_to_dev)'),
+    draftId: z.string().optional().describe('execute: the draftId returned by draft'),
+    approved: z.boolean().optional().describe('execute: must be true; set only after ask_user returned an approval'),
+  })
+  .strict();
+
+const testOutputSchema = z.object({
+  ok: z.boolean().describe('false means the step failed; read error, tell the user, and stop.'),
+  draftId: z.string().optional(),
+  markdown: z.string().optional().describe('Human-readable plan, or the interpreted real result after execute. Show it to the user verbatim.'),
+  epicKey: z.string().optional(),
+  taskKey: z.string().optional(),
+  passed: z.number().optional(),
+  failed: z.number().optional(),
+  error: z.string().optional(),
+});
+
+function testFail(error: unknown): z.infer<typeof testOutputSchema> {
+  return { ok: false, error: error instanceof Error ? error.message : String(error) };
+}
+
+const testerInterpretationSchema = z.object({
+  summary: z.string().min(10),
+  failureNotes: z.array(z.object({ name: z.string(), verdict: z.enum(['likely-real', 'likely-flaky', 'unsure']), note: z.string() })),
+});
+
+export const delegateToTestTool = createTool({
+  id: 'delegate_to_test',
+  description:
+    "Tester Agent (Gate 7). draft: epicKey + taskKey -> confirms the Task is scaffolded and its Epic has a filed QA plan, returns the fixed test-run plan (returns draftId + markdown). execute: draftId + approved -> actually starts the scaffolded app and runs the QA Agent's real Playwright suite against it inside a sandboxed Docker container, reads back the real JSON result, and has the Tester Agent interpret it - never fakes, assumes, or rounds a result. Comments the Task with the real pass/fail numbers plus the interpretation, kept visibly separate. Only Frontend and Backend/NestJS are supported (the disciplines Gate 4 actually scaffolds reliably) - fails clearly for anything else. Never execute without an explicit human approval.",
+  inputSchema: testInputSchema,
+  outputSchema: testOutputSchema,
+  execute: async (input, { mastra, agent, writer }) => {
+    const threadId = agent?.threadId ?? null;
+    try {
+      switch (input.mode) {
+        case 'draft': {
+          const epicKey = input.epicKey?.trim().toUpperCase();
+          const taskKey = input.taskKey?.trim().toUpperCase();
+          if (!epicKey || !taskKey) return testFail('draft needs epicKey and taskKey');
+          const task = await jira.getIssue(taskKey);
+          if (task.issueType && task.issueType.toLowerCase() !== 'task') return testFail(`${taskKey} is a ${task.issueType}, not a Task`);
+          const discipline = disciplineFromTask(task.description || '');
+          if (!discipline) return testFail(`Could not read a discipline off ${taskKey} - it should carry "**Discipline:** <name>"`);
+          if (discipline !== 'Frontend' && discipline !== 'Backend') return testFail(`Gate 7 only supports Frontend and Backend Tasks (Gate 4's only reliable scaffolds) - ${taskKey} is ${discipline}`);
+          const entry = TEST_COMMANDS[discipline];
+          if (!entry) return testFail(`No test runner is configured for ${discipline} yet`);
+
+          const targetDir = await devWorkspaceDir(epicKey, discipline);
+          let scaffolded = false;
+          try {
+            scaffolded = (await readdir(targetDir)).length > 0;
+          } catch {
+            scaffolded = false;
+          }
+          if (!scaffolded) return testFail(`${taskKey} has not been scaffolded yet - run delegate_to_dev for it first (Gate 4)`);
+
+          const qaRecord = await draftStore.latestByEpic<QaDraft>('qa-plan', epicKey);
+          if (!qaRecord || !qaRecord.filed.workspaceWritten) return testFail(`${epicKey} has no filed QA plan yet - run delegate_to_qa (Gate 6) and file it before testing`);
+
+          const content: TestRunDraft = { epicKey, taskKey, targetDir, discipline };
+          const record = await draftStore.create({ kind: 'test-run', content, threadId, epicKey });
+          const markdown = [
+            `# Test run plan for ${taskKey} (${epicKey})`,
+            '',
+            '*Deterministic - the run command is fixed by AURA, not chosen by a model. Pass/fail comes from the real Playwright result, read back after the container exits.*',
+            '',
+            `**Discipline:** ${discipline}`,
+            `**Target directory:** ${targetDir}`,
+            '',
+            '## What will run',
+            entry.description,
+          ].join('\n');
+          return { ok: true, draftId: record.id, epicKey, taskKey, markdown };
+        }
+        case 'execute': {
+          if (!input.draftId) return testFail('execute needs draftId');
+          if (input.approved !== true) return testFail('execute requires approved=true, which is only set after the human approved via ask_user');
+          const record = await draftStore.get<TestRunDraft>(input.draftId);
+          if (!record || record.kind !== 'test-run') return testFail(`unknown test draft ${input.draftId}`);
+
+          if (record.filed.status === 'done') {
+            return {
+              ok: true,
+              draftId: record.id,
+              epicKey: record.content.epicKey,
+              taskKey: record.content.taskKey,
+              passed: Number(record.filed.passed ?? '0'),
+              failed: Number(record.filed.failed ?? '0'),
+              markdown: 'Already ran. Nothing was run twice.',
+            };
+          }
+
+          const entry = TEST_COMMANDS[record.content.discipline];
+          if (!entry) return testFail(`No test runner is configured for ${record.content.discipline}`);
+          if (!(await isDockerAvailable())) return testFail('Docker is not available - install/start Docker to run tests');
+
+          const qaTestsDir = path.resolve(qaWorkspaceRoot, record.content.epicKey, 'tests');
+          try {
+            await access(qaTestsDir);
+          } catch {
+            return testFail(`No Playwright test files found at ${qaTestsDir} - re-run delegate_to_qa's file step for ${record.content.epicKey}`);
+          }
+
+          try {
+            await runInContainer({
+              image: entry.image,
+              hostDir: record.content.targetDir,
+              command: buildTestCommand(entry),
+              mounts: [{ hostPath: qaTestsDir, containerPath: '/qa-tests', readOnly: true }],
+              timeoutMs: 15 * 60_000,
+              name: `aura-test-${record.id}`,
+              labels: { 'aura.epic': record.content.epicKey, 'aura.task': record.content.taskKey, 'aura.kind': 'test' },
+              onOutput: (chunk) => {
+                void writer?.custom({ type: 'data-test-output', data: { chunk }, transient: true });
+              },
+            });
+          } catch (error) {
+            return testFail(error);
+          }
+
+          const setupFailedPath = path.join(record.content.targetDir, TEST_SETUP_FAILED_FILE);
+          const resultsPath = path.join(record.content.targetDir, TEST_RESULTS_FILE);
+          try {
+            await access(setupFailedPath);
+            const appLog = await readFile(path.join(record.content.targetDir, 'app.log'), 'utf-8').catch(() => '(no app log captured)');
+            return testFail(`The app never started listening on its port within 30s, so no tests ran. Last app output:\n${appLog.slice(-2000)}`);
+          } catch {
+            // No setup-failed marker - proceed to read the real result.
+          }
+
+          let raw: PlaywrightJsonResultRoot;
+          try {
+            raw = JSON.parse(await readFile(resultsPath, 'utf-8')) as PlaywrightJsonResultRoot;
+          } catch (error) {
+            return testFail(`Neither a result nor a setup-failure marker was found after the run - something unexpected happened. ${error instanceof Error ? error.message : String(error)}`);
+          }
+
+          const passed = raw.stats?.expected ?? 0;
+          const failed = raw.stats?.unexpected ?? 0;
+          const skipped = raw.stats?.skipped ?? 0;
+          const failures = extractFailures(raw);
+
+          let interpretation = { summary: `${passed} passed, ${failed} failed, ${skipped} skipped. No failures to interpret.`, failureNotes: [] as z.infer<typeof testerInterpretationSchema>['failureNotes'] };
+          if (failures.length) {
+            const prompt = `Interpret this real Playwright result for Task ${record.content.taskKey} - ${passed} passed, ${failed} failed, ${skipped} skipped.\n\nFailures:\n${failures.map((f) => `- ${f.name}: ${f.error}`).join('\n')}\n\nReturn only the JSON the schema describes.`;
+            interpretation = await generateObject(mastra as MastraLike, 'tester', prompt, testerInterpretationSchema);
+          }
+
+          const markdown = [
+            `# Test result for ${record.content.taskKey} (${record.content.epicKey})`,
+            '',
+            `**Real result:** ${passed} passed, ${failed} failed, ${skipped} skipped.`,
+            '',
+            '## AI interpretation',
+            interpretation.summary,
+            ...(interpretation.failureNotes.length ? ['', ...interpretation.failureNotes.map((f) => `- **${f.name}** (${f.verdict}): ${f.note}`)] : []),
+          ].join('\n');
+
+          await draftStore.markFiled(record.id, { status: 'done', passed: String(passed), failed: String(failed) });
+          const stamp = provenance('Tester Agent', TESTER_MODEL_ID, record, `${record.content.taskKey} (Task)`);
+          try {
+            await jira.addComment(
+              record.content.taskKey,
+              [
+                `AURA Tester Agent ran the Gate 6 Playwright suite: ${passed} passed, ${failed} failed, ${skipped} skipped (machine result).`,
+                '',
+                '**AI interpretation:**',
+                interpretation.summary,
+                ...(interpretation.failureNotes.length ? ['', ...interpretation.failureNotes.map((f) => `- **${f.name}** (${f.verdict}): ${f.note}`)] : []),
+                '',
+                '----',
+                stamp,
+              ].join('\n'),
+            );
+            if (failed === 0) {
+              const transitions = await jira.getTransitions(record.content.taskKey);
+              const ready = transitions.find((t) => t.name.toLowerCase() === 'ready for release');
+              if (ready) await jira.transitionIssue(record.content.taskKey, ready.id);
+            }
+          } catch {
+            // Best-effort; the real result and interpretation are already returned to the human.
+          }
+
+          return { ok: true, draftId: record.id, epicKey: record.content.epicKey, taskKey: record.content.taskKey, passed, failed, markdown };
+        }
+      }
+    } catch (error) {
+      return testFail(error);
+    }
+  },
+});
+
+// ==================== Deployer Agent (Gate 8, plan-only) ====================
+
+const deployInputSchema = z
+  .object({
+    mode: z.enum(['draft', 'revise', 'file']),
+    epicKey: z.string().optional().describe('draft: the Epic whose filed Tasks to release'),
+    draftId: z.string().optional().describe('revise and file: the draftId returned earlier'),
+    feedback: z.string().optional().describe('revise: the human feedback, verbatim'),
+    approved: z.boolean().optional().describe('file: must be true; set only after ask_user returned an approval'),
+  })
+  .strict();
+
+const deployOutputSchema = z.object({
+  ok: z.boolean().describe('false means the step failed; read error, tell the user, and stop.'),
+  draftId: z.string().optional(),
+  markdown: z.string().optional().describe('Human-readable draft. Show it to the user verbatim.'),
+  epicKey: z.string().optional(),
+  error: z.string().optional(),
+});
+
+function deployFail(error: unknown): z.infer<typeof deployOutputSchema> {
+  return { ok: false, error: error instanceof Error ? error.message : String(error) };
+}
+
+export const delegateToDeployTool = createTool({
+  id: 'delegate_to_deploy',
+  description:
+    "Deployer Agent (Gate 8, plan-only). draft: epicKey -> release notes, a change plan, and a rollback plan drafted from the Epic's filed Tasks (returns draftId + markdown). revise: draftId + feedback -> new draftId + markdown. file: draftId + approved -> posted as a Jira comment on the Epic (returns epicKey). There is no execute mode - AURA has no real deployment pipeline, so this agent only prepares a plan for a human to carry out; it never claims a release happened. Never file without an explicit human approval.",
+  inputSchema: deployInputSchema,
+  outputSchema: deployOutputSchema,
+  execute: async (input, { mastra, agent }) => {
+    const threadId = agent?.threadId ?? null;
+    try {
+      switch (input.mode) {
+        case 'draft': {
+          const epicKey = input.epicKey?.trim().toUpperCase();
+          if (!epicKey) return deployFail('draft needs epicKey');
+          const epic = await jira.getIssue(epicKey);
+          if (epic.issueType && epic.issueType.toLowerCase() !== 'epic') return deployFail(`${epicKey} is a ${epic.issueType}, not an Epic`);
+          const items = await jira.getEpicStories(epicKey);
+          const tasks = items.filter((i) => i.issueType.toLowerCase() === 'task');
+          if (!tasks.length) return deployFail(`${epicKey} has no filed Tasks yet - nothing to release`);
+          const tasksText = tasks.map((t) => `- ${t.key}: ${t.summary}\n${t.description || '(no description)'}`).join('\n\n');
+          const prompt = `Draft a release plan for Epic ${epicKey}: ${epic.summary}.\n\nFiled Tasks:\n${tasksText}\n\nReturn only the JSON the schema describes.`;
+          const content = await generateObject<DeployDraft>(mastra as MastraLike, 'deployer', prompt, deployDraftSchema);
+          content.epicKey = epicKey;
+          const record = await draftStore.create({ kind: 'deploy-plan', content, threadId, epicKey });
+          return { ok: true, draftId: record.id, markdown: renderDeployPlan(content), epicKey };
+        }
+        case 'revise': {
+          if (!input.draftId || !input.feedback?.trim()) return deployFail('revise needs draftId and feedback');
+          const previous = await draftStore.get<DeployDraft>(input.draftId);
+          if (!previous || previous.kind !== 'deploy-plan') return deployFail(`unknown deploy draft ${input.draftId}`);
+          const prompt = `Revise this release plan according to the feedback. Return the complete updated plan. Keep epicKey "${previous.content.epicKey}".\n\nCurrent draft (JSON):\n${JSON.stringify(previous.content)}\n\nFeedback:\n${input.feedback.trim()}`;
+          const content = await generateObject<DeployDraft>(mastra as MastraLike, 'deployer', prompt, deployDraftSchema);
+          content.epicKey = previous.content.epicKey;
+          const record = await draftStore.create({ kind: 'deploy-plan', content, threadId, epicKey: previous.epicKey, parentId: previous.id });
+          return { ok: true, draftId: record.id, markdown: renderDeployPlan(content), epicKey: previous.content.epicKey };
+        }
+        case 'file': {
+          if (!input.draftId) return deployFail('file needs draftId');
+          if (input.approved !== true) return deployFail('file requires approved=true, which is only set after the human approved via ask_user');
+          const record = await draftStore.get<DeployDraft>(input.draftId);
+          if (!record || record.kind !== 'deploy-plan') return deployFail(`unknown deploy draft ${input.draftId}`);
+          if (record.filed.comment) return { ok: true, draftId: record.id, epicKey: record.content.epicKey };
+          const stamp = provenance('Deployer Agent', DEPLOYER_MODEL_ID, record, `${record.content.epicKey} (Epic)`);
+          await jira.addComment(record.content.epicKey, deployFiledComment(record.content, stamp));
+          try {
+            const transitions = await jira.getTransitions(record.content.epicKey);
+            const ready = transitions.find((t) => t.name.toLowerCase() === 'ready for release');
+            if (ready) await jira.transitionIssue(record.content.epicKey, ready.id);
+          } catch {
+            // Best-effort; the plan itself is what matters.
+          }
+          await draftStore.markFiled(record.id, { ...record.filed, comment: 'done' });
+          return { ok: true, draftId: record.id, epicKey: record.content.epicKey };
+        }
+      }
+    } catch (error) {
+      return deployFail(error);
+    }
+  },
+});
+
+// ==================== Git workspace tool ====================
+
+const gitInputSchema = z
+  .object({
+    mode: z.enum(['draft', 'execute', 'read']),
+    epicKey: z.string().optional().describe('draft and read: the Epic this Task belongs to'),
+    taskKey: z.string().optional().describe('draft and read: the Jira Task key whose scaffolded directory to operate on'),
+    op: z.enum(['init', 'branch', 'commit', 'status', 'diff']).optional().describe('draft: one of init, branch, commit. read: one of status, diff.'),
+    branchName: z.string().optional().describe('draft with op=branch only: the branch name to create; defaults to task/<taskKey>'),
+    draftId: z.string().optional().describe('execute: the draftId returned by draft'),
+    approved: z.boolean().optional().describe('execute: must be true; set only after ask_user returned an approval'),
+  })
+  .strict();
+
+const gitOutputSchema = z.object({
+  ok: z.boolean().describe('false means the step failed; read error, tell the user, and stop.'),
+  draftId: z.string().optional(),
+  markdown: z.string().optional().describe('Human-readable plan or output. Show it to the user verbatim.'),
+  epicKey: z.string().optional(),
+  taskKey: z.string().optional(),
+  error: z.string().optional(),
+});
+
+function gitFail(error: unknown): z.infer<typeof gitOutputSchema> {
+  const withStderr = error as { stderr?: unknown; message?: unknown } | null;
+  const message = withStderr && typeof withStderr === 'object' && withStderr.stderr ? String(withStderr.stderr) : error instanceof Error ? error.message : String(error);
+  return { ok: false, error: message };
+}
+
+// Resolves a Task's scaffolded directory (same lookup delegate_to_code uses), for git commands
+// to run directly against - no Docker, git runs on the host as the same user that owns the
+// scaffolded files (node:22-slim has no git installed anyway, and this directory is already
+// host-trusted - docs/ARCHITECTURE.md section 6.4).
+async function taskTargetDir(taskKey: string, epicKey: string): Promise<{ targetDir: string; discipline: string } | { error: string }> {
+  const task = await jira.getIssue(taskKey);
+  if (task.issueType && task.issueType.toLowerCase() !== 'task') return { error: `${taskKey} is a ${task.issueType}, not a Task` };
+  const discipline = disciplineFromTask(task.description || '');
+  if (!discipline) return { error: `Could not read a discipline off ${taskKey} - it should carry "**Discipline:** <name>"` };
+  return { targetDir: await devWorkspaceDir(epicKey, discipline), discipline };
+}
+
+export const delegateToGitTool = createTool({
+  id: 'delegate_to_git',
+  description:
+    'Git workspace tool for a scaffolded Task\'s directory. read: epicKey + taskKey + op ("status" or "diff") -> runs immediately, no approval needed (non-mutating). draft: epicKey + taskKey + op ("init", "branch", or "commit") -> a fixed git command (returns draftId + markdown) - the command and, for commit, its message are built deterministically, never chosen by a model. execute: draftId + approved -> runs it directly on the host (no Docker - git runs against the same host-owned directory Gate 4/5 already write to) and comments the Task. Never execute without an explicit human approval.',
+  inputSchema: gitInputSchema,
+  outputSchema: gitOutputSchema,
+  execute: async (input, { agent }) => {
+    const threadId = agent?.threadId ?? null;
+    try {
+      switch (input.mode) {
+        case 'read': {
+          const epicKey = input.epicKey?.trim().toUpperCase();
+          const taskKey = input.taskKey?.trim().toUpperCase();
+          if (!epicKey || !taskKey) return gitFail('read needs epicKey and taskKey');
+          if (input.op !== 'status' && input.op !== 'diff') return gitFail('read needs op "status" or "diff"');
+          const resolved = await taskTargetDir(taskKey, epicKey);
+          if ('error' in resolved) return gitFail(resolved.error);
+          const args = input.op === 'status' ? ['status', '--short'] : ['diff'];
+          try {
+            const r = await execFileAsync('git', args, { cwd: resolved.targetDir });
+            return { ok: true, epicKey, taskKey, markdown: '```\n' + (r.stdout.trim() || '(clean - nothing to show)') + '\n```' };
+          } catch (error) {
+            return gitFail(error);
+          }
+        }
+        case 'draft': {
+          const epicKey = input.epicKey?.trim().toUpperCase();
+          const taskKey = input.taskKey?.trim().toUpperCase();
+          if (!epicKey || !taskKey) return gitFail('draft needs epicKey and taskKey');
+          const op = input.op;
+          if (op !== 'init' && op !== 'branch' && op !== 'commit') return gitFail(`draft needs op: one of ${gitOps.join(', ')}`);
+          const resolved = await taskTargetDir(taskKey, epicKey);
+          if ('error' in resolved) return gitFail(resolved.error);
+          const task = await jira.getIssue(taskKey);
+
+          let args: string[] = [];
+          let description = '';
+          if (op === 'init') {
+            description = 'git init (safe even if this directory is already a repo - git no-ops in that case).';
+          } else if (op === 'branch') {
+            const branchName = input.branchName?.trim() || `task/${taskKey}`;
+            args = [branchName];
+            description = `git checkout -b ${branchName}`;
+          } else {
+            const message = `${taskKey}: ${task.summary} (AURA)`;
+            args = [message];
+            description = `git add -A && git commit -m "${message}"`;
+          }
+
+          const content: GitOpDraft = { epicKey, taskKey, targetDir: resolved.targetDir, op, args, description };
+          const record = await draftStore.create({ kind: 'git-op', content, threadId, epicKey });
+          return { ok: true, draftId: record.id, epicKey, taskKey, markdown: renderGitOpPlan(content) };
+        }
+        case 'execute': {
+          if (!input.draftId) return gitFail('execute needs draftId');
+          if (input.approved !== true) return gitFail('execute requires approved=true, which is only set after the human approved via ask_user');
+          const record = await draftStore.get<GitOpDraft>(input.draftId);
+          if (!record || record.kind !== 'git-op') return gitFail(`unknown git draft ${input.draftId}`);
+          if (record.filed.status === 'done') {
+            return { ok: true, draftId: record.id, epicKey: record.content.epicKey, taskKey: record.content.taskKey, markdown: 'Already ran. Nothing was run twice.' };
+          }
+
+          const { targetDir, op, args } = record.content;
+          let output = '';
+          let exitCode = 0;
+          try {
+            if (op === 'init') {
+              const r = await execFileAsync('git', ['init'], { cwd: targetDir });
+              output = r.stdout + r.stderr;
+            } else if (op === 'branch') {
+              const r = await execFileAsync('git', ['checkout', '-b', ...args], { cwd: targetDir });
+              output = r.stdout + r.stderr;
+            } else {
+              const add = await execFileAsync('git', ['add', '-A'], { cwd: targetDir });
+              const commit = await execFileAsync('git', ['commit', '-m', args[0] ?? 'AURA commit'], { cwd: targetDir });
+              output = add.stdout + add.stderr + commit.stdout + commit.stderr;
+            }
+          } catch (error) {
+            const execError = error as { stdout?: string; stderr?: string; code?: number | null; message: string };
+            exitCode = execError.code ?? 1;
+            output = (execError.stdout ?? '') + (execError.stderr ?? '') || execError.message;
+          }
+
+          await draftStore.markFiled(record.id, { status: 'done', exitCode: String(exitCode) });
+          const stamp = provenance('Git workspace tool', 'deterministic (no model)', record, `${record.content.taskKey} (Task)`);
+          try {
+            await jira.addComment(record.content.taskKey, gitOpFiledComment(record.content, exitCode, output, stamp));
+          } catch {
+            // Informational only; the git operation itself already ran.
+          }
+
+          if (exitCode !== 0) {
+            return { ok: false, draftId: record.id, epicKey: record.content.epicKey, taskKey: record.content.taskKey, error: `git ${op} failed (exit ${exitCode}). Output:\n${output.slice(-2000)}` };
+          }
+          return { ok: true, draftId: record.id, epicKey: record.content.epicKey, taskKey: record.content.taskKey, markdown: `git ${op} finished.\n\n\`\`\`\n${output.trim().slice(-1500) || '(no output)'}\n\`\`\`` };
+        }
+      }
+    } catch (error) {
+      return gitFail(error);
     }
   },
 });

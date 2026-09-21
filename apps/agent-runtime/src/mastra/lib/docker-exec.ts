@@ -40,6 +40,11 @@ export interface RunInContainerInput {
   // delegate-tools.ts's CODING_COMMANDS. Claude Code and Codex use a browser/CLI login, not an
   // API key; there is nothing to inject as an env var).
   mounts?: ContainerMount[];
+  // Names and labels this run so `docker ps --filter label=aura=true` can list it while it's
+  // running (server/docker-runs-routes.ts) - purely observational, never read back by this
+  // function itself. Omit `name` to let Docker assign one (still labeled and listable).
+  name?: string;
+  labels?: Record<string, string>;
   onOutput?: (chunk: string) => void;
 }
 
@@ -63,7 +68,9 @@ function userArgs(): string[] {
 export async function runInContainer(input: RunInContainerInput): Promise<DockerRunResult> {
   const extraEnv = Object.entries(input.env ?? {}).flatMap(([k, v]) => ['-e', `${k}=${v}`]);
   const extraMounts = (input.mounts ?? []).flatMap((m) => ['-v', `${m.hostPath}:${m.containerPath}${m.readOnly === false ? '' : ':ro'}`]);
-  const args = ['run', '--rm', ...RESOURCE_LIMITS, ...userArgs(), ...extraEnv, '-v', `${input.hostDir}:/workspace`, ...extraMounts, '-w', '/workspace', input.image, 'sh', '-c', input.command];
+  const nameArgs = input.name ? ['--name', input.name] : [];
+  const labelArgs = Object.entries({ aura: 'true', ...(input.labels ?? {}) }).flatMap(([k, v]) => ['--label', `${k}=${v}`]);
+  const args = ['run', '--rm', ...RESOURCE_LIMITS, ...nameArgs, ...labelArgs, ...userArgs(), ...extraEnv, '-v', `${input.hostDir}:/workspace`, ...extraMounts, '-w', '/workspace', input.image, 'sh', '-c', input.command];
 
   return new Promise((resolve, reject) => {
     const proc = spawn('docker', args);

@@ -22,6 +22,10 @@ export const AGENT_ALIASES: Record<string, string> = {
   architect: "architect-agent",
   dev: "dev-agent",
   code: "coding-agent",
+  qa: "qa-agent",
+  test: "tester-agent",
+  deploy: "deployer-agent",
+  git: "git-tool",
 };
 
 export function canonicalAgentId(agentId: string): string {
@@ -31,15 +35,43 @@ export function canonicalAgentId(agentId: string): string {
 // Role -> agent -> access. Any agent the runtime exposes that is missing from a role's row is
 // denied for that role (default deny). Admins can read everything and run nothing.
 export const ROLE_AGENT_GRANTS: Record<Role, Record<string, AgentAccess>> = {
-  project_owner: { orchestrator: "run", "po-agent": "run", "ba-agent": "read" },
-  business_analyst: { orchestrator: "run", "ba-agent": "run", "po-agent": "read" },
-  admin: { orchestrator: "read", "po-agent": "read", "ba-agent": "read", "architect-agent": "read", "dev-agent": "read", "coding-agent": "read" },
-  // "Architect (read)" on Dev/Coding output matches the RACI table in docs/ARCHITECTURE.md section 4.2.
-  architect: { orchestrator: "run", "architect-agent": "run", "ba-agent": "read", "dev-agent": "read", "coding-agent": "read" },
-  developer: { orchestrator: "run", "dev-agent": "run", "coding-agent": "run", "architect-agent": "read" },
-  qa_engineer: {},
-  tester: {},
-  deployer: {},
+  project_owner: { orchestrator: "run", "po-agent": "run", "ba-agent": "read", "deployer-agent": "read" },
+  business_analyst: { orchestrator: "run", "ba-agent": "run", "po-agent": "read", "qa-agent": "read" },
+  admin: {
+    orchestrator: "read",
+    "po-agent": "read",
+    "ba-agent": "read",
+    "architect-agent": "read",
+    "dev-agent": "read",
+    "coding-agent": "read",
+    "qa-agent": "read",
+    "tester-agent": "read",
+    "deployer-agent": "read",
+    "git-tool": "read",
+  },
+  // "Architect (read)" on Dev/Coding/QA/Tester/Deployer output matches the RACI table in
+  // docs/ARCHITECTURE.md section 4.2 (Architect has oversight, not ownership, past Gate 3).
+  architect: {
+    orchestrator: "run",
+    "architect-agent": "run",
+    "ba-agent": "read",
+    "dev-agent": "read",
+    "coding-agent": "read",
+    "qa-agent": "read",
+    "tester-agent": "read",
+    "deployer-agent": "read",
+  },
+  developer: { orchestrator: "run", "dev-agent": "run", "coding-agent": "run", "git-tool": "run", "architect-agent": "read" },
+  // "QA Engineer | QA, Tester, Dev (read) | Approves test plans; verifies results" - QA Engineer
+  // can run both QA and Tester agents and is the sole approver of both their gates (6 and 7),
+  // matching the RACI row exactly rather than splitting approval across two roles.
+  qa_engineer: { orchestrator: "run", "qa-agent": "run", "tester-agent": "run", "dev-agent": "read" },
+  // "Tester | Tester | Executes/curates suites" - can run the Tester agent, but does not approve
+  // its gate (that stays qa_engineer, per AGENT_APPROVER_ROLE below).
+  tester: { orchestrator: "run", "tester-agent": "run", "qa-agent": "read" },
+  // "Deployer | Deployer, QA (read) | Approves releases" (four-eyes is enforced at the release
+  // execution step itself, outside this table - see docs/ARCHITECTURE.md section 4.2).
+  deployer: { orchestrator: "run", "deployer-agent": "run", "qa-agent": "read" },
 };
 
 // Which human role signs off on an agent's output when the Orchestrator pauses after
@@ -52,6 +84,13 @@ export const AGENT_APPROVER_ROLE: Record<string, Role> = {
   "architect-agent": "architect",
   "dev-agent": "developer",
   "coding-agent": "developer",
+  // Both test-related gates are approved by QA Engineer ("Approves test plans; verifies
+  // results" - docs/ARCHITECTURE.md section 4.2), even though the Tester role can also run
+  // tester-agent (ROLE_AGENT_GRANTS above).
+  "qa-agent": "qa_engineer",
+  "tester-agent": "qa_engineer",
+  "deployer-agent": "deployer",
+  "git-tool": "developer",
 };
 
 // Human-readable gate metadata keyed by the producing agent. Display only; the runtime
@@ -62,6 +101,9 @@ export const AGENT_GATE_INFO: Record<string, { gate: number; name: string; outco
   "architect-agent": { gate: 3, name: "Architecture approval", outcome: "Jira Tasks filed, status Ready for Development" },
   "dev-agent": { gate: 4, name: "Dev scaffold approval", outcome: "Scaffold executed in a sandboxed container, Task commented with the result" },
   "coding-agent": { gate: 5, name: "Coding agent approval", outcome: "Coding CLI ran in the sandbox, Task commented and moved toward In Review" },
+  "qa-agent": { gate: 6, name: "QA test plan approval", outcome: "Test plan and Playwright source filed to the QA workspace, Epic commented" },
+  "tester-agent": { gate: 7, name: "Test result verification", outcome: "Real Playwright suite executed in a sandbox, Task commented with the real result and AI interpretation" },
+  "deployer-agent": { gate: 8, name: "Release plan approval", outcome: "Release notes, change plan, and rollback plan commented on the Epic - a human executes the release" },
 };
 
 const DELEGATE_TOOL_PREFIX = "delegate_to_";
@@ -117,6 +159,13 @@ export function canEditArchitectWorkspace(role: Role): boolean {
 // Read-only browsing of Jira Epics/Stories/Tasks, fetched directly from Jira - see modules/jira.
 export function canViewJira(role: Role): boolean {
   return canViewEpicArtifacts(role);
+}
+
+// Who may view a Task's scaffolded directory (Gate 4/5 output) and the Docker run visibility
+// panel - the same audience as dev-agent itself: developer (runs it), architect (read, RACI
+// oversight), admin (read-all).
+export function canViewDevWorkspace(role: Role): boolean {
+  return canReadAgent(role, "dev-agent");
 }
 
 export interface ApprovalScope {

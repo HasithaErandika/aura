@@ -46,7 +46,17 @@ async function db(): Promise<Client> {
   return client;
 }
 
-const ID_PREFIX: Record<DraftKind, string> = { epic: 'EPIC', stories: 'STORIES', architecture: 'ARCH', 'dev-scaffold': 'DEV', 'coding-task': 'CODE' };
+const ID_PREFIX: Record<DraftKind, string> = {
+  epic: 'EPIC',
+  stories: 'STORIES',
+  architecture: 'ARCH',
+  'dev-scaffold': 'DEV',
+  'coding-task': 'CODE',
+  'qa-plan': 'QA',
+  'test-run': 'TEST',
+  'deploy-plan': 'DEPLOY',
+  'git-op': 'GIT',
+};
 
 // Generates a short random id prefixed by the draft kind.
 function newId(kind: DraftKind): string {

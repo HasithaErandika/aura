@@ -219,4 +219,21 @@ export const runtimeClient = {
   getArchitectThread(epicKey: string): Promise<{ threadId: string | null }> {
     return request(`/workspace/${encodeURIComponent(epicKey)}/thread`);
   },
+
+  // Custom routes registered in apps/agent-runtime/src/mastra/server/dev-workspace-routes.ts -
+  // read-only viewer for a Task's scaffolded directory (Gate 4/5 output).
+  listDevWorkspaceFiles(epicKey: string, discipline: string): Promise<{ files: { path: string; size: number }[] }> {
+    return request(`/dev-workspace/${encodeURIComponent(epicKey)}/${encodeURIComponent(discipline)}/files`);
+  },
+
+  readDevWorkspaceFile(epicKey: string, discipline: string, path: string): Promise<{ path: string; content: string }> {
+    const params = new URLSearchParams({ path });
+    return request(`/dev-workspace/${encodeURIComponent(epicKey)}/${encodeURIComponent(discipline)}/file?${params.toString()}`);
+  },
+
+  // Custom route registered in apps/agent-runtime/src/mastra/server/docker-runs-routes.ts -
+  // which Gate 4/5/7 containers are currently running or recently ran.
+  listDockerRuns(): Promise<{ runs: Record<string, string>[] }> {
+    return request(`/docker/runs`);
+  },
 };
