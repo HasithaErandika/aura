@@ -4,7 +4,7 @@ import { vscodeDark } from "@uiw/codemirror-theme-vscode";
 import { useAsync } from "../../shared/hooks/useAsync.ts";
 import { devFilesApi, scaffoldDisciplines, type ScaffoldDiscipline } from "./api.ts";
 import { languageExtension } from "./language.ts";
-import { FileTree } from "./FileTree.tsx";
+import { FileTree } from "../../shared/ui/FileTree.tsx";
 import { DockerRunsPanel } from "../runs/components/DockerRunsPanel.tsx";
 import { PageHeader } from "../../shared/ui/PageHeader.tsx";
 import { Card } from "../../shared/ui/Card.tsx";
@@ -104,7 +104,13 @@ export function DevFilesPage() {
                       <Skeleton className="h-3.5 w-28" />
                     </div>
                   ) : (
-                    <FileTree key={`${loaded.epicKey}-${loaded.discipline}`} files={files} selectedPath={selectedPath} onSelect={setSelectedPath} />
+                    <FileTree
+                      key={`${loaded.epicKey}-${loaded.discipline}`}
+                      files={files}
+                      selectedPath={selectedPath}
+                      onSelect={setSelectedPath}
+                      emptyMessage="No files found - has this Task been scaffolded yet?"
+                    />
                   )}
                 </div>
               </div>

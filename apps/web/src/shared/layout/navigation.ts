@@ -24,6 +24,8 @@ const decides = (me: Me) => me.grants.approves.length > 0 || hasRunGrant(me);
 const hasAnyGrant = (me: Me) => Object.keys(me.grants.agents).length > 0 || isAdmin(me);
 // Matches the API's canViewDevWorkspace: same audience as dev-agent itself.
 const canViewDevFiles = (me: Me) => Boolean(me.grants.agents["dev-agent"]) || isAdmin(me);
+// Matches the API's canViewQaWorkspace: same audience as qa-agent itself.
+const canViewQaFiles = (me: Me) => Boolean(me.grants.agents["qa-agent"]) || isAdmin(me);
 
 // Navigation is derived from the grants the API returns for the signed-in role, not from a
 // hardcoded role switch, so a grant change in the policy tables shows up here without edits.
@@ -40,6 +42,7 @@ export const navigation: NavGroup[] = [
       { label: "Runs", to: paths.runs, icon: ListIcon, visible: (me) => decides(me) || isAdmin(me) },
       { label: "Design Documents", to: paths.designDocs, icon: DocumentIcon, visible: hasAnyGrant },
       { label: "Scaffolded Files", to: paths.devFiles, icon: CodeIcon, visible: canViewDevFiles },
+      { label: "QA Files & Test Runs", to: paths.qaFiles, icon: ClipboardCheckIcon, visible: canViewQaFiles },
       { label: "Jira", to: paths.jira, icon: TicketIcon, visible: hasAnyGrant },
     ],
   },

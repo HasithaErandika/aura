@@ -236,4 +236,30 @@ export const runtimeClient = {
   listDockerRuns(): Promise<{ runs: Record<string, string>[] }> {
     return request(`/docker/runs`);
   },
+
+  // Custom routes registered in apps/agent-runtime/src/mastra/server/qa-workspace-routes.ts -
+  // read-only viewer for Gate 6's test plan + Playwright source, same shape as the Architect
+  // workspace routes above.
+  listQaWorkspaceEpics(): Promise<{ epics: string[] }> {
+    return request(`/qa-workspace`);
+  },
+
+  listQaWorkspaceFiles(epicKey: string): Promise<{ files: { path: string; size: number | null }[] }> {
+    return request(`/qa-workspace/${encodeURIComponent(epicKey)}/files`);
+  },
+
+  readQaWorkspaceFile(epicKey: string, path: string): Promise<{ path: string; content: string }> {
+    const params = new URLSearchParams({ path });
+    return request(`/qa-workspace/${encodeURIComponent(epicKey)}/file?${params.toString()}`);
+  },
+
+  // Custom route registered in apps/agent-runtime/src/mastra/server/test-runs-routes.ts -
+  // Gate 7's real test-run history for an Epic (optionally one Task).
+  listTestRuns(
+    epicKey: string,
+    taskKey?: string,
+  ): Promise<{ epicKey: string; runs: { draftId: string; taskKey: string; discipline: string; createdAt: string; passed: number; failed: number; skipped: number; summary: string | null; failureNotes: { name: string; verdict: string; note: string }[] }[] }> {
+    const params = taskKey ? new URLSearchParams({ taskKey }) : null;
+    return request(`/test-runs/${encodeURIComponent(epicKey)}${params ? `?${params.toString()}` : ""}`);
+  },
 };

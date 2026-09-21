@@ -1,3 +1,4 @@
+import { readdir } from 'node:fs/promises';
 import { Workspace, LocalFilesystem } from '@mastra/core/workspace';
 import type { WorkspaceRegistry } from './architect-workspace';
 
@@ -8,6 +9,19 @@ import type { WorkspaceRegistry } from './architect-workspace';
 // the Dev/Coding agents' actual app code (devWorkspaceDir).
 
 export const qaWorkspaceRoot = process.env.AURA_QA_ROOT || '.qa-workspaces';
+
+// Lists every Epic that has a QA workspace on disk - mirrors architect-workspace.ts's
+// listEpicWorkspaces() so the QA Files viewer can offer Epics to browse the same way Design
+// Documents does.
+export async function listQaEpicWorkspaces(): Promise<string[]> {
+  try {
+    const entries = await readdir(qaWorkspaceRoot, { withFileTypes: true });
+    return entries.filter((e) => e.isDirectory()).map((e) => e.name).sort();
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return [];
+    throw error;
+  }
+}
 
 // Gets or creates the per-Epic Workspace, registered on the Mastra instance itself.
 export function qaWorkspace(mastra: WorkspaceRegistry, epicKey: string): Workspace {

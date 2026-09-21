@@ -12,6 +12,7 @@ export const paths = {
   designDocs: "/app/design-docs",
   designDocsEpic: (epicKey: string) => `/app/design-docs?epic=${encodeURIComponent(epicKey)}`,
   devFiles: "/app/dev-files",
+  qaFiles: "/app/qa-files",
   jira: "/app/jira",
   profile: "/app/profile",
   audit: "/app/audit",

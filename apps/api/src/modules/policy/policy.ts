@@ -168,6 +168,13 @@ export function canViewDevWorkspace(role: Role): boolean {
   return canReadAgent(role, "dev-agent");
 }
 
+// Who may view the QA workspace (Gate 6's test plan + Playwright source) and test-run history
+// (Gate 7's real results) - the same audience as qa-agent itself: qa_engineer and tester (both
+// have a grant on it - ROLE_AGENT_GRANTS above), architect (read, RACI oversight), admin.
+export function canViewQaWorkspace(role: Role): boolean {
+  return canReadAgent(role, "qa-agent");
+}
+
 export interface ApprovalScope {
   // The agent whose output is being reviewed, or null for a clarification question.
   producingAgent: string | null;

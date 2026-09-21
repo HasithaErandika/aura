@@ -23,6 +23,8 @@ import { jiraMcp } from './mcp/jira-client';
 import { getArchitectThreadRoute, listEpicsRoute, listWorkspaceFilesRoute, readWorkspaceFileRoute, writeWorkspaceFileRoute } from './server/workspace-routes';
 import { listDevWorkspaceFilesRoute, readDevWorkspaceFileRoute } from './server/dev-workspace-routes';
 import { listDockerRunsRoute } from './server/docker-runs-routes';
+import { listQaEpicsRoute, listQaWorkspaceFilesRoute, readQaWorkspaceFileRoute } from './server/qa-workspace-routes';
+import { listTestRunsRoute } from './server/test-runs-routes';
 
 // Prints each agent's real tool wiring at startup, read live from the agent itself - there is no
 // separate declared list to keep in sync (see agents/registry.ts).
@@ -71,6 +73,10 @@ export const mastra = new Mastra({
       listDevWorkspaceFilesRoute,
       readDevWorkspaceFileRoute,
       listDockerRunsRoute,
+      listQaEpicsRoute,
+      listQaWorkspaceFilesRoute,
+      readQaWorkspaceFileRoute,
+      listTestRunsRoute,
     ],
   },
   mcpServers: {

@@ -146,4 +146,15 @@ export const draftStore = {
     const row = result.rows[0];
     return row ? rowToRecord<T>(row as unknown as Record<string, unknown>) : null;
   },
+
+  // Every draft of this kind for an Epic, most recent first - e.g. a Task's full test-run
+  // history (server/test-runs-routes.ts), where latestByEpic's single row isn't enough.
+  async listByEpic<T>(kind: DraftKind, epicKey: string, limit = 50): Promise<DraftRecord<T>[]> {
+    const c = await db();
+    const result = await c.execute({
+      sql: 'select * from aura_drafts where kind = ? and epic_key = ? order by created_at desc limit ?',
+      args: [kind, epicKey, limit],
+    });
+    return result.rows.map((row) => rowToRecord<T>(row as unknown as Record<string, unknown>));
+  },
 };

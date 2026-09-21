@@ -1,0 +1,220 @@
+import { useCallback, useEffect, useRef, useState } from "react";
+import { useNavigate } from "react-router-dom";
+import CodeMirror from "@uiw/react-codemirror";
+import { markdown } from "@codemirror/lang-markdown";
+import { javascript } from "@codemirror/lang-javascript";
+import { vscodeDark } from "@uiw/codemirror-theme-vscode";
+import { useAsync } from "../../shared/hooks/useAsync.ts";
+import { describeError } from "../../shared/api/errors.ts";
+import { classifyQaFile, qaFilesApi, type QaFile } from "./api.ts";
+import { TestRunHistory } from "./TestRunHistory.tsx";
+import { workspaceApi } from "../workspace/api.ts";
+import { paths } from "../../app/paths.ts";
+import { PageHeader } from "../../shared/ui/PageHeader.tsx";
+import { Card } from "../../shared/ui/Card.tsx";
+import { Alert } from "../../shared/ui/Alert.tsx";
+import { Badge } from "../../shared/ui/Badge.tsx";
+import { Button } from "../../shared/ui/Button.tsx";
+import { Input, Field } from "../../shared/ui/Field.tsx";
+import { EmptyState } from "../../shared/ui/EmptyState.tsx";
+import { Skeleton } from "../../shared/ui/Skeleton.tsx";
+import { FileTree } from "../../shared/ui/FileTree.tsx";
+import { DocumentIcon, RunIcon, TreeIcon } from "../../shared/icons/index.tsx";
+import { vscode } from "../../shared/lib/vscodeTheme.ts";
+
+type EpicFiles = { status: "loading" } | { status: "error"; message: string } | { status: "ready"; files: QaFile[] };
+
+// Read-only viewer for Gate 6's test plan + Playwright source, VS Code dark theme, mirroring
+// Design Documents' tree/editor shape - plus test-run history (Gate 7) and a shortcut into the
+// real "run tests" flow (the Orchestrator chat, not a bypass - see the git history around this
+// page for why a direct-execute CLI was deliberately not built here).
+export function QaFilesPage() {
+  const navigate = useNavigate();
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const [filesByEpic, setFilesByEpic] = useState<Record<string, EpicFiles>>({});
+  const [selected, setSelected] = useState<{ epicKey: string; path: string } | null>(null);
+  const [taskKeyFilter, setTaskKeyFilter] = useState("");
+  const [runTaskKey, setRunTaskKey] = useState("");
+  const autoOpened = useRef(false);
+
+  const epicsState = useAsync(() => qaFilesApi.listEpics(), []);
+  const epics = epicsState.data?.epics ?? [];
+
+  const loadFiles = useCallback(async (epicKey: string) => {
+    setFilesByEpic((prev) => ({ ...prev, [epicKey]: { status: "loading" } }));
+    try {
+      const { files } = await qaFilesApi.list(epicKey);
+      setFilesByEpic((prev) => ({ ...prev, [epicKey]: { status: "ready", files } }));
+    } catch (err) {
+      setFilesByEpic((prev) => ({ ...prev, [epicKey]: { status: "error", message: describeError(err) } }));
+    }
+  }, []);
+
+  function toggleEpic(epicKey: string) {
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(epicKey)) next.delete(epicKey);
+      else next.add(epicKey);
+      return next;
+    });
+    if (!filesByEpic[epicKey]) void loadFiles(epicKey);
+  }
+
+  useEffect(() => {
+    if (autoOpened.current || epics.length === 0) return;
+    autoOpened.current = true;
+    const first = epics[0]!;
+    setExpanded(new Set([first]));
+    void loadFiles(first);
+  }, [epics, loadFiles]);
+
+  const fileState = useAsync(() => (selected ? qaFilesApi.read(selected.epicKey, selected.path) : Promise.resolve(null)), [selected?.epicKey, selected?.path]);
+
+  async function runTests() {
+    const epicKey = selected?.epicKey;
+    const taskKey = runTaskKey.trim().toUpperCase();
+    if (!epicKey || !taskKey) return;
+    const thread = await workspaceApi.createThread("orchestrator");
+    navigate(paths.workspaceThread(thread.id), { state: { initialMessage: `Run the tests for Task ${taskKey} under Epic ${epicKey}.` } });
+  }
+
+  return (
+    <>
+      <PageHeader title="QA Files & Test Runs" description="Gate 6's test plan and Playwright source, and Gate 7's real test-run history." />
+
+      {epicsState.error ? <Alert tone="danger">{epicsState.error}</Alert> : null}
+
+      {epicsState.loading && !epicsState.data ? (
+        <Card>
+          <div className="space-y-2 p-5">
+            <Skeleton className="h-5 w-40" />
+            <Skeleton className="h-4 w-64" />
+          </div>
+        </Card>
+      ) : epics.length === 0 ? (
+        <Card>
+          <EmptyState icon={<TreeIcon className="size-5" />} title="No QA workspaces yet" description="Once QA files an approved test plan (Gate 6), its Epic will show up here automatically." />
+        </Card>
+      ) : (
+        <>
+          <Card className="overflow-hidden p-0">
+            <div className="grid grid-cols-1 lg:grid-cols-[260px_1fr]" style={{ height: "65vh" }}>
+              <div className="flex min-h-0 flex-col" style={{ backgroundColor: vscode.sidebarBg, borderRight: `1px solid ${vscode.border}` }}>
+                <div className="shrink-0 px-3 py-2.5" style={{ borderBottom: `1px solid ${vscode.border}` }}>
+                  <p className="text-[11px] font-semibold tracking-wide uppercase" style={{ color: vscode.mutedText }}>
+                    Explorer
+                  </p>
+                </div>
+                <div className="min-h-0 flex-1 overflow-y-auto p-1.5">
+                  <ul className="text-sm">
+                    {epics.map((epicKey) => {
+                      const isOpen = expanded.has(epicKey);
+                      const entry = filesByEpic[epicKey];
+                      return (
+                        <li key={epicKey}>
+                          <button
+                            type="button"
+                            onClick={() => toggleEpic(epicKey)}
+                            style={{ color: vscode.text }}
+                            className="flex w-full items-center gap-1.5 rounded px-2 py-1.5 text-left font-mono text-xs font-semibold hover:brightness-125"
+                            onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = vscode.hoverBg)}
+                            onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = "transparent")}
+                          >
+                            <TreeIcon className="size-3.5 shrink-0" style={{ color: vscode.mutedText }} />
+                            {epicKey}
+                          </button>
+                          {isOpen ? (
+                            <div className="ml-4 pl-2" style={{ borderLeft: `1px solid ${vscode.border}` }}>
+                              {!entry || entry.status === "loading" ? (
+                                <div className="space-y-1.5 py-2 pl-2">
+                                  <Skeleton className="h-3.5 w-32" />
+                                </div>
+                              ) : entry.status === "error" ? (
+                                <p className="px-2 py-1.5 text-xs text-danger">{entry.message}</p>
+                              ) : (
+                                <FileTree
+                                  files={entry.files}
+                                  selectedPath={selected?.epicKey === epicKey ? selected.path : null}
+                                  onSelect={(path) => setSelected({ epicKey, path })}
+                                  emptyMessage="No test files yet"
+                                />
+                              )}
+                            </div>
+                          ) : null}
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </div>
+              </div>
+
+              <div className="flex min-h-0 min-w-0 flex-col" style={{ backgroundColor: vscode.editorBg }}>
+                {!selected ? (
+                  <EmptyState icon={<DocumentIcon className="size-5" />} title="Select a file" description="Pick a test plan or spec file from the explorer." className="h-full py-16" />
+                ) : fileState.error ? (
+                  <div className="p-5">
+                    <Alert tone="danger">{fileState.error}</Alert>
+                  </div>
+                ) : fileState.loading && !fileState.data ? (
+                  <div className="p-5">
+                    <Skeleton className="h-64 w-full" />
+                  </div>
+                ) : fileState.data ? (
+                  <>
+                    <div className="flex shrink-0 items-center justify-between gap-3 px-4 py-2.5" style={{ backgroundColor: vscode.tabBarBg, borderBottom: `1px solid ${vscode.border}` }}>
+                      <div className="min-w-0">
+                        <p className="truncate font-mono text-sm font-semibold" style={{ color: vscode.text }}>
+                          {fileState.data.path}
+                        </p>
+                        <p className="text-[11px]" style={{ color: vscode.mutedText }}>
+                          {selected.epicKey}
+                        </p>
+                      </div>
+                      <Badge tone={classifyQaFile(selected.path).tone}>{classifyQaFile(selected.path).label}</Badge>
+                    </div>
+                    <div className="min-h-0 flex-1 overflow-hidden">
+                      <CodeMirror
+                        value={fileState.data.content}
+                        editable={false}
+                        height="100%"
+                        theme={vscodeDark}
+                        extensions={selected.path.endsWith(".md") ? [markdown()] : [javascript({ jsx: true, typescript: true })]}
+                        basicSetup={{ lineNumbers: true, foldGutter: true }}
+                        className="h-full"
+                      />
+                    </div>
+                  </>
+                ) : null}
+              </div>
+            </div>
+          </Card>
+
+          {selected ? (
+            <Card>
+              <div className="flex flex-wrap items-end gap-3 p-4">
+                <Field label="Run tests for Task" htmlFor="qa-run-task">
+                  <Input id="qa-run-task" value={runTaskKey} onChange={(e) => setRunTaskKey(e.target.value)} placeholder="KAN-33" className="w-32" />
+                </Field>
+                <Button variant="primary" icon={<RunIcon className="size-3.5" />} onClick={() => void runTests()} disabled={!runTaskKey.trim()}>
+                  Run tests
+                </Button>
+                <p className="text-xs text-ink-500">Opens the Orchestrator chat pre-filled to run Gate 7 for this Task under {selected.epicKey} - same approval gate as always.</p>
+              </div>
+            </Card>
+          ) : null}
+
+          {selected ? (
+            <>
+              <div className="flex flex-wrap items-end gap-3">
+                <Field label="Filter history by Task (optional)" htmlFor="qa-history-filter">
+                  <Input id="qa-history-filter" value={taskKeyFilter} onChange={(e) => setTaskKeyFilter(e.target.value)} placeholder="KAN-33" className="w-32" />
+                </Field>
+              </div>
+              <TestRunHistory epicKey={selected.epicKey} taskKey={taskKeyFilter.trim() || undefined} />
+            </>
+          ) : null}
+        </>
+      )}
+    </>
+  );
+}

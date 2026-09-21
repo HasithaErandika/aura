@@ -601,7 +601,12 @@ const BACKEND_SCAFFOLDS: Partial<Record<'Spring Boot' | 'NestJS', ScaffoldEntry>
 // plain devFail() the same way any other input problem is reported.
 async function resolveScaffold(discipline: (typeof scaffoldDisciplines)[number], epicKey: string): Promise<{ entry: ScaffoldEntry } | { error: string }> {
   if (discipline === 'Backend') {
-    const archDraft = await draftStore.latestByEpic<ArchitectureDraft>('architecture', epicKey);
+    // Must be the latest *filed* architecture draft, not merely the latest created one - an
+    // unapproved draft/revise attempt (rejected, never filed) still gets its own row here, and
+    // would otherwise silently outrank the real, already-filed design that created this Task in
+    // the first place (principle 5: what's actually built wins over what was last proposed).
+    const candidates = await draftStore.listByEpic<ArchitectureDraft>('architecture', epicKey, 20);
+    const archDraft = candidates.find((r) => r.filed.workspaceWritten);
     const backend = archDraft?.content.techStack.backend;
     const entry = backend ? BACKEND_SCAFFOLDS[backend as 'Spring Boot' | 'NestJS'] : undefined;
     if (!entry) return { error: `No scaffold is implemented for Backend/${backend ?? 'unknown'} yet - see docs/adr/0001-dev-agent-scaffold-and-template-strategy.md` };
@@ -1372,7 +1377,14 @@ export const delegateToTestTool = createTool({
             ...(interpretation.failureNotes.length ? ['', ...interpretation.failureNotes.map((f) => `- **${f.name}** (${f.verdict}): ${f.note}`)] : []),
           ].join('\n');
 
-          await draftStore.markFiled(record.id, { status: 'done', passed: String(passed), failed: String(failed) });
+          await draftStore.markFiled(record.id, {
+            status: 'done',
+            passed: String(passed),
+            failed: String(failed),
+            skipped: String(skipped),
+            summary: interpretation.summary,
+            failureNotes: JSON.stringify(interpretation.failureNotes),
+          });
           const stamp = provenance('Tester Agent', TESTER_MODEL_ID, record, `${record.content.taskKey} (Task)`);
           try {
             await jira.addComment(
