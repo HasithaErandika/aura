@@ -1,5 +1,4 @@
 import { useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
 import CodeMirror from "@uiw/react-codemirror";
 import { vscodeDark } from "@uiw/codemirror-theme-vscode";
 import { useAsync } from "../../shared/hooks/useAsync.ts";
@@ -9,11 +8,14 @@ import { devFilesApi, scaffoldDisciplines, type ScaffoldDiscipline } from "./api
 import { languageExtension } from "./language.ts";
 import { FileTree } from "../../shared/ui/FileTree.tsx";
 import { DockerRunsPanel } from "../runs/components/DockerRunsPanel.tsx";
-import { workspaceApi } from "../workspace/api.ts";
-import { paths } from "../../app/paths.ts";
+import { RunCiModal } from "./RunCiModal.tsx";
+import { jiraApi } from "../jira/api.ts";
+import { TaskModal } from "../jira/TaskModal.tsx";
+import { STATUS_TONE } from "../jira/format.ts";
 import { PageHeader } from "../../shared/ui/PageHeader.tsx";
 import { Card } from "../../shared/ui/Card.tsx";
 import { Alert } from "../../shared/ui/Alert.tsx";
+import { Badge } from "../../shared/ui/Badge.tsx";
 import { Button } from "../../shared/ui/Button.tsx";
 import { Input, Select, Field } from "../../shared/ui/Field.tsx";
 import { EmptyState } from "../../shared/ui/EmptyState.tsx";
@@ -29,7 +31,6 @@ import { vscode } from "../../shared/lib/vscodeTheme.ts";
 // per-extension @codemirror/lang-*), rather than a flat file list with unhighlighted text.
 
 export function DevFilesPage() {
-  const navigate = useNavigate();
   const { profile } = useAuth();
   const canEdit = profile?.role === "developer";
 
@@ -37,6 +38,11 @@ export function DevFilesPage() {
   const [discipline, setDiscipline] = useState<ScaffoldDiscipline>("Frontend");
   const [loaded, setLoaded] = useState<{ epicKey: string; discipline: ScaffoldDiscipline } | null>(null);
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
+  const [showCi, setShowCi] = useState(false);
+  const [viewingTask, setViewingTask] = useState<string | null>(null);
+
+  const epicState = useAsync(() => (loaded ? jiraApi.epic(loaded.epicKey) : Promise.resolve(null)), [loaded?.epicKey]);
+  const tasks = epicState.data?.tasks ?? [];
 
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState("");
@@ -87,15 +93,6 @@ export function DevFilesPage() {
     setLoaded({ epicKey: trimmed, discipline });
   }
 
-  // Opens the Orchestrator chat pre-filled to run delegate_to_ci - project-wide (epicKey +
-  // discipline, both already loaded on this page), not per-Task. Same ungated-but-visible
-  // pattern as QaFilesPage's "Run tests" shortcut into Gate 7.
-  async function runCi() {
-    if (!loaded) return;
-    const thread = await workspaceApi.createThread("orchestrator");
-    navigate(paths.workspaceThread(thread.id), { state: { initialMessage: `Run CI for the ${loaded.discipline} project under Epic ${loaded.epicKey}.` } });
-  }
-
   const files = filesState.data?.files ?? [];
 
   return (
@@ -142,15 +139,50 @@ export function DevFilesPage() {
           {loaded.discipline === "Frontend" || loaded.discipline === "Backend" ? (
             <Card>
               <div className="flex flex-wrap items-center gap-3 p-4">
-                <Button variant="primary" icon={<RunIcon className="size-3.5" />} onClick={() => void runCi()}>
+                <Button variant="primary" icon={<RunIcon className="size-3.5" />} onClick={() => setShowCi(true)}>
                   Run CI
                 </Button>
                 <p className="text-xs text-ink-500">
-                  Opens the Orchestrator chat pre-filled to run the whole {loaded.discipline} project's checked-in CI (.github/workflows) locally, in Docker - project-wide, no approval gate, nothing pushed anywhere.
+                  Runs the whole {loaded.discipline} project's checked-in CI (.github/workflows) locally, in Docker, right here - project-wide, no approval gate, nothing pushed anywhere.
                 </p>
               </div>
             </Card>
           ) : null}
+
+          {/* The Tasks this Epic's Jira board actually has, so a developer can see and open the
+              one they're working on without leaving this page or memorizing its key. */}
+          <Card>
+            <div className="p-4">
+              <div className="mb-2 flex items-center gap-2">
+                <h3 className="text-xs font-semibold tracking-wide text-ink-500 uppercase">Tasks in {loaded.epicKey}</h3>
+                <Badge tone="outline">{tasks.length}</Badge>
+              </div>
+              {epicState.error ? (
+                <Alert tone="danger">{epicState.error}</Alert>
+              ) : epicState.loading && !epicState.data ? (
+                <div className="space-y-1.5">
+                  <Skeleton className="h-8 w-full" />
+                  <Skeleton className="h-8 w-full" />
+                </div>
+              ) : tasks.length === 0 ? (
+                <p className="text-xs text-ink-400">No Tasks filed under this Epic yet.</p>
+              ) : (
+                <ul className="divide-y divide-line rounded-lg border border-line">
+                  {tasks.map((t) => (
+                    <li key={t.key}>
+                      <button type="button" onClick={() => setViewingTask(t.key)} className="flex w-full items-center gap-2.5 px-3 py-2 text-left text-sm hover:bg-ink-50">
+                        <span className="shrink-0 font-mono text-xs font-semibold text-ink-500">{t.key}</span>
+                        <span className="min-w-0 flex-1 truncate text-ink-800">{t.summary || "(no summary)"}</span>
+                        <Badge tone={STATUS_TONE[t.statusCategory]} className="shrink-0">
+                          {t.status}
+                        </Badge>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          </Card>
 
           <Card className="overflow-hidden p-0">
             <div className="grid grid-cols-1 lg:grid-cols-[280px_1fr]" style={{ height: "70vh" }}>
@@ -247,6 +279,11 @@ export function DevFilesPage() {
           </Card>
         </>
       )}
+
+      {showCi && loaded && (loaded.discipline === "Frontend" || loaded.discipline === "Backend") ? (
+        <RunCiModal epicKey={loaded.epicKey} discipline={loaded.discipline} onClose={() => setShowCi(false)} />
+      ) : null}
+      {viewingTask ? <TaskModal issueKey={viewingTask} onClose={() => setViewingTask(null)} /> : null}
     </>
   );
 }

@@ -2,11 +2,12 @@ import { useEffect, useState } from "react";
 import { useAsync, type AsyncState } from "../../shared/hooks/useAsync.ts";
 import { describeError } from "../../shared/api/errors.ts";
 import { jiraApi } from "./api.ts";
-import type { JiraComment, JiraEpicDetail, JiraIssueDetail, JiraIssueSummary, JiraStatusCategory, JiraTransition } from "../../types/api.ts";
+import { STATUS_TONE, priorityTone } from "./format.ts";
+import type { JiraComment, JiraEpicDetail, JiraIssueDetail, JiraIssueSummary, JiraTransition } from "../../types/api.ts";
 import { PageHeader } from "../../shared/ui/PageHeader.tsx";
 import { Card } from "../../shared/ui/Card.tsx";
 import { Alert } from "../../shared/ui/Alert.tsx";
-import { Badge, type Tone } from "../../shared/ui/Badge.tsx";
+import { Badge } from "../../shared/ui/Badge.tsx";
 import { Button } from "../../shared/ui/Button.tsx";
 import { Input, Select, Textarea } from "../../shared/ui/Field.tsx";
 import { EmptyState } from "../../shared/ui/EmptyState.tsx";
@@ -15,20 +16,6 @@ import { Spinner } from "../../shared/ui/Spinner.tsx";
 import { AlertIcon, CheckIcon, ChevronRightIcon, ExternalLinkIcon, LayersIcon, PersonIcon, SearchIcon, SendIcon, TicketIcon } from "../../shared/icons/index.tsx";
 import { timeAgo, truncate } from "../../shared/lib/format.ts";
 import { cn } from "../../shared/lib/cn.ts";
-
-const STATUS_TONE: Record<JiraStatusCategory, Tone> = { new: "neutral", indeterminate: "warning", done: "success" };
-
-const PRIORITY_TONE: Record<string, Tone> = {
-  highest: "danger",
-  high: "danger",
-  medium: "warning",
-  low: "neutral",
-  lowest: "neutral",
-};
-
-function priorityTone(priority: string | null): Tone {
-  return priority ? (PRIORITY_TONE[priority.toLowerCase()] ?? "neutral") : "neutral";
-}
 
 // Debounces the search box so every keystroke doesn't fire a Jira query.
 function useDebounced<T>(value: T, delayMs: number): T {

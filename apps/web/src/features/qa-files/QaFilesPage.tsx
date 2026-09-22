@@ -11,12 +11,17 @@ import { classifyQaFile, qaFilesApi, type QaFile } from "./api.ts";
 import { TestRunHistory } from "./TestRunHistory.tsx";
 import { workspaceApi } from "../workspace/api.ts";
 import { paths } from "../../app/paths.ts";
+import { jiraApi } from "../jira/api.ts";
+import { TaskModal } from "../jira/TaskModal.tsx";
+import { STATUS_TONE } from "../jira/format.ts";
+import { RunCiModal } from "../dev-files/RunCiModal.tsx";
+import { scaffoldDisciplines } from "../dev-files/api.ts";
 import { PageHeader } from "../../shared/ui/PageHeader.tsx";
 import { Card } from "../../shared/ui/Card.tsx";
 import { Alert } from "../../shared/ui/Alert.tsx";
 import { Badge } from "../../shared/ui/Badge.tsx";
 import { Button } from "../../shared/ui/Button.tsx";
-import { Input, Field } from "../../shared/ui/Field.tsx";
+import { Input, Select, Field } from "../../shared/ui/Field.tsx";
 import { EmptyState } from "../../shared/ui/EmptyState.tsx";
 import { Skeleton } from "../../shared/ui/Skeleton.tsx";
 import { FileTree } from "../../shared/ui/FileTree.tsx";
@@ -24,20 +29,30 @@ import { DocumentIcon, RunIcon, TreeIcon } from "../../shared/icons/index.tsx";
 import { vscode } from "../../shared/lib/vscodeTheme.ts";
 
 type EpicFiles = { status: "loading" } | { status: "error"; message: string } | { status: "ready"; files: QaFile[] };
+type CiDiscipline = "Frontend" | "Backend";
 
 // Viewer, and (for the QA Engineer role) editor, for Gate 6's test plan + Playwright source, VS
-// Code dark theme, mirroring Design Documents' tree/editor shape - plus test-run history (Gate 7)
-// and a shortcut into the real "run tests" flow (the Orchestrator chat, not a bypass - see the
-// git history around this page for why a direct-execute CLI was deliberately not built here).
+// Code dark theme, mirroring Design Documents' tree/editor shape - plus test-run history (Gate 7),
+// an inline "run CI" check (delegate_to_ci - ungated, available to QA Engineer and Tester alike,
+// not just the Developer role on Scaffolded Project Files), and a visible Task list per Epic
+// (TaskModal) instead of requiring either role to already know a Task key by heart.
+// Role-tailored on one shared route (both qa_engineer and tester use it): QA Engineer gets the
+// hand-edit controls (Gate 6 is theirs to author); both get the same Run tests/Run CI actions,
+// since qa_engineer approves Gate 7 while tester can request it - the Orchestrator chat's own
+// gate UI already explains whose approval a pending run is waiting on.
 export function QaFilesPage() {
   const navigate = useNavigate();
   const { profile } = useAuth();
+  const isTester = profile?.role === "tester";
   const canEdit = profile?.role === "qa_engineer";
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [filesByEpic, setFilesByEpic] = useState<Record<string, EpicFiles>>({});
   const [selected, setSelected] = useState<{ epicKey: string; path: string } | null>(null);
   const [taskKeyFilter, setTaskKeyFilter] = useState("");
   const [runTaskKey, setRunTaskKey] = useState("");
+  const [viewingTask, setViewingTask] = useState<string | null>(null);
+  const [ciDiscipline, setCiDiscipline] = useState<CiDiscipline>("Frontend");
+  const [showCi, setShowCi] = useState(false);
   const autoOpened = useRef(false);
 
   const [editing, setEditing] = useState(false);
@@ -113,6 +128,9 @@ export function QaFilesPage() {
     const thread = await workspaceApi.createThread("orchestrator");
     navigate(paths.workspaceThread(thread.id), { state: { initialMessage: `Run the tests for Task ${taskKey} under Epic ${epicKey}.` } });
   }
+
+  const epicTasksState = useAsync(() => (selected ? jiraApi.epic(selected.epicKey) : Promise.resolve(null)), [selected?.epicKey]);
+  const epicTasks = epicTasksState.data?.tasks ?? [];
 
   return (
     <>
@@ -263,6 +281,41 @@ export function QaFilesPage() {
 
           {selected ? (
             <Card>
+              <div className="p-4">
+                <div className="mb-2 flex items-center gap-2">
+                  <h3 className="text-xs font-semibold tracking-wide text-ink-500 uppercase">Tasks in {selected.epicKey}</h3>
+                  <Badge tone="outline">{epicTasks.length}</Badge>
+                </div>
+                {epicTasksState.error ? (
+                  <Alert tone="danger">{epicTasksState.error}</Alert>
+                ) : epicTasksState.loading && !epicTasksState.data ? (
+                  <Skeleton className="h-8 w-full" />
+                ) : epicTasks.length === 0 ? (
+                  <p className="text-xs text-ink-400">No Tasks filed under this Epic yet.</p>
+                ) : (
+                  <ul className="divide-y divide-line rounded-lg border border-line">
+                    {epicTasks.map((t) => (
+                      <li key={t.key} className="flex items-center gap-2.5 px-3 py-2 text-sm">
+                        <button type="button" onClick={() => setViewingTask(t.key)} className="flex min-w-0 flex-1 items-center gap-2.5 text-left hover:text-ink-950">
+                          <span className="shrink-0 font-mono text-xs font-semibold text-ink-500">{t.key}</span>
+                          <span className="min-w-0 flex-1 truncate text-ink-800">{t.summary || "(no summary)"}</span>
+                          <Badge tone={STATUS_TONE[t.statusCategory]} className="shrink-0">
+                            {t.status}
+                          </Badge>
+                        </button>
+                        <Button size="sm" variant="ghost" onClick={() => setRunTaskKey(t.key)}>
+                          Select
+                        </Button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            </Card>
+          ) : null}
+
+          {selected ? (
+            <Card>
               <div className="flex flex-wrap items-end gap-3 p-4">
                 <Field label="Run tests for Task" htmlFor="qa-run-task">
                   <Input id="qa-run-task" value={runTaskKey} onChange={(e) => setRunTaskKey(e.target.value)} placeholder="KAN-33" className="w-32" />
@@ -270,7 +323,34 @@ export function QaFilesPage() {
                 <Button variant="primary" icon={<RunIcon className="size-3.5" />} onClick={() => void runTests()} disabled={!runTaskKey.trim()}>
                   Run tests
                 </Button>
-                <p className="text-xs text-ink-500">Opens the Orchestrator chat pre-filled to run Gate 7 for this Task under {selected.epicKey} - same approval gate as always.</p>
+                <p className="text-xs text-ink-500">
+                  Opens the Orchestrator chat pre-filled to run Gate 7 for this Task under {selected.epicKey}.{" "}
+                  {isTester ? "A QA Engineer will need to approve it before it runs." : "You can approve it yourself."}
+                </p>
+              </div>
+            </Card>
+          ) : null}
+
+          {selected ? (
+            <Card>
+              <div className="flex flex-wrap items-end gap-3 p-4">
+                <Field label="Run CI for project" htmlFor="qa-ci-discipline">
+                  <Select id="qa-ci-discipline" value={ciDiscipline} onChange={(e) => setCiDiscipline(e.target.value as CiDiscipline)} className="w-32">
+                    {scaffoldDisciplines
+                      .filter((d): d is CiDiscipline => d === "Frontend" || d === "Backend")
+                      .map((d) => (
+                        <option key={d} value={d}>
+                          {d}
+                        </option>
+                      ))}
+                  </Select>
+                </Field>
+                <Button variant="secondary" icon={<RunIcon className="size-3.5" />} onClick={() => setShowCi(true)}>
+                  Run CI
+                </Button>
+                <p className="text-xs text-ink-500">
+                  Runs the whole {ciDiscipline} project's checked-in CI locally, in Docker, right here - a fast, project-wide check that doesn't need Gate 7's approval, useful while a real test run is pending.
+                </p>
               </div>
             </Card>
           ) : null}
@@ -287,6 +367,9 @@ export function QaFilesPage() {
           ) : null}
         </>
       )}
+
+      {showCi && selected ? <RunCiModal epicKey={selected.epicKey} discipline={ciDiscipline} onClose={() => setShowCi(false)} /> : null}
+      {viewingTask ? <TaskModal issueKey={viewingTask} onClose={() => setViewingTask(null)} /> : null}
     </>
   );
 }

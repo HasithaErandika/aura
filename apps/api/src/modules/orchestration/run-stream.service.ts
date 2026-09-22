@@ -222,16 +222,20 @@ export async function pipeRuntimeStream(context: StreamContext, stream: AsyncGen
           break;
         }
 
-        // The Dev agent's Docker run and the Coding agent's CLI run relay their live
-        // stdout/stderr the same way (writer.custom(), delegate-tools.ts) - each chunk is
-        // `{ chunk: string }`. Mirrored into run_steps and the live stream exactly like
-        // architect-step progress above, so a human watching Gate 4/5 execute sees real
-        // output instead of silence for however many minutes the container runs.
+        // The Dev agent's Docker run, the Coding agent's CLI run, Gate 7's real test run, and
+        // delegate_to_ci's local CI run all relay their live stdout/stderr the same way
+        // (writer.custom(), delegate-tools/*.ts) - each chunk is `{ chunk: string }`. Mirrored
+        // into run_steps and the live stream exactly like architect-step progress above, so a
+        // human watching any of these execute sees real output instead of silence for however
+        // many minutes the container runs.
         case "data-dev-output":
-        case "data-code-output": {
+        case "data-code-output":
+        case "data-test-output":
+        case "data-ci-output": {
+          const source = chunk.type === "data-dev-output" ? "dev" : chunk.type === "data-code-output" ? "code" : chunk.type === "data-test-output" ? "test" : "ci";
           const data = (chunk as unknown as { data?: Record<string, unknown> }).data ?? {};
-          await step("progress", { payload: { source: chunk.type === "data-dev-output" ? "dev" : "code", ...data } });
-          writer.send("progress", { source: chunk.type === "data-dev-output" ? "dev" : "code", ...data });
+          await step("progress", { payload: { source, ...data } });
+          writer.send("progress", { source, ...data });
           break;
         }
 

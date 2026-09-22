@@ -26,7 +26,10 @@ export const CI_STEPS: Record<'Frontend' | 'Backend', { name: string; run: strin
     { name: 'Install dependencies', run: 'npm ci' },
     { name: 'Build', run: 'npm run build' },
     { name: 'Install Playwright browsers', run: 'npx --yes playwright install --with-deps chromium' },
-    { name: 'Run Playwright tests', run: 'npx --yes playwright test tests' },
+    {
+      name: 'Start the app and run Playwright tests',
+      run: ['(npm run preview -- --port 4173 --strictPort > /tmp/app.log 2>&1 &)', 'npx --yes wait-on@7 http://localhost:4173 --timeout 30000', 'npx --yes playwright test tests'].join('\n'),
+    },
   ],
   Backend: [
     { name: 'Install dependencies', run: 'npm ci' },
