@@ -9,10 +9,12 @@ import { Badge } from "../../../shared/ui/Badge.tsx";
 // silently renders nothing on error (e.g. a role without dev-agent access, or Docker itself not
 // running) rather than showing an alarming error box on a page most roles can see.
 export function DockerRunsPanel({ epicKey, title, description }: { epicKey?: string; title?: string; description?: string }) {
-  const state = useAsync(() => dockerRunsApi.list(), []);
-  usePolling(state.reload, 5_000, true);
+  const state = useAsync(() => dockerRunsApi.list(epicKey), [epicKey]);
+  // Container state doesn't change fast enough to need 5s resolution, and this is the
+  // most expensive poll in the app (shells out to `docker ps` on the agent-runtime server).
+  usePolling(state.reload, 20_000, true);
 
-  const runs = (state.data ?? []).filter((r) => !epicKey || r.epic === epicKey);
+  const runs = state.data ?? [];
 
   if (state.error || (!state.loading && runs.length === 0)) return null;
 

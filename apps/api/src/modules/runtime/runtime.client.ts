@@ -3,9 +3,6 @@ import { runtimeUnavailable, upstreamError } from "../../lib/http/errors.js";
 import { errorMessage } from "../../lib/logger.js";
 import type { RuntimeAgentSummary, RuntimeChunk, RuntimeThread, RuntimeThreadList, SuspendedRunsResponse } from "./runtime.types.js";
 
-// HTTP client for the Mastra server in apps/agent-runtime. This is the single place the API
-// knows the runtime's routes; nothing else imports fetch against it.
-
 interface StreamBody {
   messages: Array<{ role: "user"; content: string }>;
   memory: { thread: string; resource: string };
@@ -109,17 +106,43 @@ async function openStream(path: string, body: unknown, signal?: AbortSignal): Pr
   return parseSse(res.body);
 }
 
+// Short-TTL cache for low-churn read-only listings, avoiding repeated runtime round trips.
+function createCache<T>(ttlMs: number) {
+  const store = new Map<string, { value: T; expiresAt: number }>();
+  return {
+    async get(key: string, fn: () => Promise<T>): Promise<T> {
+      const hit = store.get(key);
+      if (hit && hit.expiresAt > Date.now()) return hit.value;
+      const value = await fn();
+      store.set(key, { value, expiresAt: Date.now() + ttlMs });
+      return value;
+    },
+    invalidate(key: string) {
+      store.delete(key);
+    },
+  };
+}
+
 // The agent catalogue changes only when the runtime restarts; cache it briefly so the
 // registry, workspace, and health probe do not each hit the runtime.
-const AGENTS_TTL_MS = 15_000;
-let agentsCache: { value: Record<string, RuntimeAgentSummary>; expiresAt: number } | null = null;
+const agentsCache = createCache<Record<string, RuntimeAgentSummary>>(15_000);
 
 async function listAgentsCached(timeoutMs?: number): Promise<Record<string, RuntimeAgentSummary>> {
-  if (agentsCache && agentsCache.expiresAt > Date.now()) return agentsCache.value;
-  const value = await request<Record<string, RuntimeAgentSummary>>("/api/agents", { timeoutMs });
-  agentsCache = { value, expiresAt: Date.now() + AGENTS_TTL_MS };
-  return value;
+  return agentsCache.get("all", () => request("/api/agents", { timeoutMs }));
 }
+
+// Design docs, QA workspace files, and test-run history change only when a Gate runs;
+// container state changes faster (hence the shorter TTL), but is still cheap to dedupe
+// across near-simultaneous pollers.
+const workspaceEpicsCache = createCache<{ epics: string[] }>(15_000);
+const workspaceFilesCache = createCache<{ files: { path: string; size: number | null }[] }>(15_000);
+const qaWorkspaceEpicsCache = createCache<{ epics: string[] }>(15_000);
+const qaWorkspaceFilesCache = createCache<{ files: { path: string; size: number | null }[] }>(15_000);
+const dockerRunsCache = createCache<{ runs: Record<string, string>[] }>(4_000);
+const testRunsCache = createCache<{
+  epicKey: string;
+  runs: { draftId: string; taskKey: string; discipline: string; createdAt: string; passed: number; failed: number; skipped: number; summary: string | null; failureNotes: { name: string; verdict: string; note: string }[] }[];
+}>(15_000);
 
 export const runtimeClient = {
   async health(): Promise<{ ok: boolean; agents: string[]; message?: string }> {
@@ -127,7 +150,7 @@ export const runtimeClient = {
       const agents = await listAgentsCached(4000);
       return { ok: true, agents: Object.keys(agents) };
     } catch (error) {
-      agentsCache = null;
+      agentsCache.invalidate("all");
       return { ok: false, agents: [], message: errorMessage(error) };
     }
   },
@@ -194,11 +217,11 @@ export const runtimeClient = {
   // Custom routes registered in apps/agent-runtime/src/mastra/server/workspace-routes.ts -
   // access to the Architect's per-Epic workspace (docs/ARCHITECTURE.md section 6.3).
   listWorkspaceEpics(): Promise<{ epics: string[] }> {
-    return request(`/workspace`);
+    return workspaceEpicsCache.get("all", () => request(`/workspace`));
   },
 
   listWorkspaceFiles(epicKey: string): Promise<{ files: { path: string; size: number | null }[] }> {
-    return request(`/workspace/${encodeURIComponent(epicKey)}/files`);
+    return workspaceFilesCache.get(epicKey, () => request(`/workspace/${encodeURIComponent(epicKey)}/files`));
   },
 
   readWorkspaceFile(epicKey: string, path: string): Promise<{ path: string; content: string }> {
@@ -232,20 +255,24 @@ export const runtimeClient = {
   },
 
   // Custom route registered in apps/agent-runtime/src/mastra/server/docker-runs-routes.ts -
-  // which Gate 4/5/7 containers are currently running or recently ran.
-  listDockerRuns(): Promise<{ runs: Record<string, string>[] }> {
-    return request(`/docker/runs`);
+  // which Gate 4/5/7 containers are currently running or recently ran. `epicKey` is forwarded
+  // as `?epic=` so callers scoped to one Epic (e.g. DevFilesPage) don't fetch every container.
+  listDockerRuns(epicKey?: string): Promise<{ runs: Record<string, string>[] }> {
+    return dockerRunsCache.get(epicKey ?? "all", () => {
+      const params = epicKey ? `?${new URLSearchParams({ epic: epicKey }).toString()}` : "";
+      return request(`/docker/runs${params}`);
+    });
   },
 
   // Custom routes registered in apps/agent-runtime/src/mastra/server/qa-workspace-routes.ts -
   // read-only viewer for Gate 6's test plan + Playwright source, same shape as the Architect
   // workspace routes above.
   listQaWorkspaceEpics(): Promise<{ epics: string[] }> {
-    return request(`/qa-workspace`);
+    return qaWorkspaceEpicsCache.get("all", () => request(`/qa-workspace`));
   },
 
   listQaWorkspaceFiles(epicKey: string): Promise<{ files: { path: string; size: number | null }[] }> {
-    return request(`/qa-workspace/${encodeURIComponent(epicKey)}/files`);
+    return qaWorkspaceFilesCache.get(epicKey, () => request(`/qa-workspace/${encodeURIComponent(epicKey)}/files`));
   },
 
   readQaWorkspaceFile(epicKey: string, path: string): Promise<{ path: string; content: string }> {
@@ -259,7 +286,9 @@ export const runtimeClient = {
     epicKey: string,
     taskKey?: string,
   ): Promise<{ epicKey: string; runs: { draftId: string; taskKey: string; discipline: string; createdAt: string; passed: number; failed: number; skipped: number; summary: string | null; failureNotes: { name: string; verdict: string; note: string }[] }[] }> {
-    const params = taskKey ? new URLSearchParams({ taskKey }) : null;
-    return request(`/test-runs/${encodeURIComponent(epicKey)}${params ? `?${params.toString()}` : ""}`);
+    return testRunsCache.get(`${epicKey}:${taskKey ?? ""}`, () => {
+      const params = taskKey ? new URLSearchParams({ taskKey }) : null;
+      return request(`/test-runs/${encodeURIComponent(epicKey)}${params ? `?${params.toString()}` : ""}`);
+    });
   },
 };

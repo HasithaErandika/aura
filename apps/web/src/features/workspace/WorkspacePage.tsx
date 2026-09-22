@@ -62,11 +62,15 @@ export function WorkspacePage() {
     [threadsState.data, threadId],
   );
 
-  // Keep the thread list fresh after a turn
+  // Keep the thread list's title/timestamp fresh after a turn - patch just the active
+  // thread's row from the history load useConversation already does, instead of a full
+  // GET /threads refetch.
   useEffect(() => {
-    if (!conversation.busy) void threadsState.reload();
+    const thread = conversation.thread;
+    if (!thread) return;
+    threadsState.setData((prev) => (prev ? prev.map((t) => (t.id === thread.id ? thread : t)) : prev));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [conversation.busy, conversation.runStatus]);
+  }, [conversation.thread]);
 
   async function newThread(initialMessage?: string) {
     if (!agent) return;

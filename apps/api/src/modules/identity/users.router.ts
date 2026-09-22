@@ -1,5 +1,6 @@
 import { randomBytes } from "node:crypto";
 import { Router } from "express";
+import type { User } from "@supabase/supabase-js";
 import { z } from "zod";
 import { supabaseAdmin } from "../../lib/supabase.js";
 import { asyncHandler } from "../../lib/http/async-handler.js";
@@ -20,18 +21,41 @@ interface ProfileRow {
   created_at: string;
 }
 
+// Supabase/PostgREST responses cap at 1000 rows; paginate both to fetch all users/rows.
+const LIST_PAGE_SIZE = 1000;
+
+async function listAllAuthUsers(): Promise<User[]> {
+  const users: User[] = [];
+  for (let page = 1; ; page += 1) {
+    const { data, error } = await supabaseAdmin.auth.admin.listUsers({ page, perPage: LIST_PAGE_SIZE });
+    if (error) throw upstreamError(error.message);
+    users.push(...data.users);
+    if (data.users.length < LIST_PAGE_SIZE) return users;
+  }
+}
+
+async function listAllProfiles(): Promise<ProfileRow[]> {
+  const profiles: ProfileRow[] = [];
+  for (let from = 0; ; from += LIST_PAGE_SIZE) {
+    const { data, error } = await supabaseAdmin
+      .from("profiles")
+      .select("id, full_name, role, created_at")
+      .range(from, from + LIST_PAGE_SIZE - 1);
+    if (error) throw upstreamError(error.message);
+    const rows = (data ?? []) as ProfileRow[];
+    profiles.push(...rows);
+    if (rows.length < LIST_PAGE_SIZE) return profiles;
+  }
+}
+
 // GET /users. Identity comes from Supabase Auth; role from `profiles`. Admin only (FR-REG-1).
 usersRouter.get(
   "/",
   asyncHandler(async (_req, res) => {
-    const [{ data: authUsers, error: authError }, { data: profiles, error: profileError }] = await Promise.all([
-      supabaseAdmin.auth.admin.listUsers({ perPage: 1000 }),
-      supabaseAdmin.from("profiles").select("id, full_name, role, created_at"),
-    ]);
-    if (authError || profileError) throw upstreamError((authError ?? profileError)?.message ?? "user listing failed");
+    const [authUsers, profiles] = await Promise.all([listAllAuthUsers(), listAllProfiles()]);
 
-    const profileById = new Map((profiles as ProfileRow[]).map((p) => [p.id, p]));
-    const users = authUsers.users.map((u) => {
+    const profileById = new Map(profiles.map((p) => [p.id, p]));
+    const users = authUsers.map((u) => {
       const profile = profileById.get(u.id);
       return {
         id: u.id,

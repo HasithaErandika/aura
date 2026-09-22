@@ -1,4 +1,5 @@
 import { supabaseAdmin } from "../../lib/supabase.js";
+import { assertSafeOrValue } from "../../lib/postgrest.js";
 import type { Role } from "../identity/roles.js";
 import type { RunRow, RunStatus, RunStepKind, RunStepRow } from "./runs.types.js";
 
@@ -90,8 +91,11 @@ export const runsRepository = {
   // Runs visible to a non-admin: their own, plus runs currently waiting on an agent whose
   // output their role approves.
   async listVisibleTo(userId: string, approverOfAgents: string[], limit: number): Promise<RunRow[]> {
-    const clauses = [`requested_by.eq.${userId}`];
-    if (approverOfAgents.length) clauses.push(`current_agent.in.(${approverOfAgents.join(",")})`);
+    const clauses = [`requested_by.eq.${assertSafeOrValue(userId, "userId")}`];
+    if (approverOfAgents.length) {
+      const agents = approverOfAgents.map((id) => assertSafeOrValue(id, "agentId"));
+      clauses.push(`current_agent.in.(${agents.join(",")})`);
+    }
     const { data, error } = await supabaseAdmin
       .from("workflow_runs")
       .select(RUN_COLUMNS)
@@ -105,16 +109,18 @@ export const runsRepository = {
   // Server-side counts per status group; nothing is transferred but the numbers.
   async countByStatus(filter: { requestedBy?: string }): Promise<Record<RunStatus, number>> {
     const statuses: RunStatus[] = ["PENDING", "RUNNING", "SUSPENDED_FOR_APPROVAL", "SUCCEEDED", "FAILED", "REJECTED", "EXPIRED", "HALTED_LOOP_GUARD"];
-    const results = await Promise.all(
-      statuses.map(async (status) => {
-        let builder = supabaseAdmin.from("workflow_runs").select("id", { count: "exact", head: true }).eq("status", status);
-        if (filter.requestedBy) builder = builder.eq("requested_by", filter.requestedBy);
-        const { count, error } = await builder;
-        if (error) throw dbError("count runs", error);
-        return [status, count ?? 0] as const;
-      }),
-    );
-    return Object.fromEntries(results) as Record<RunStatus, number>;
+    const counts = Object.fromEntries(statuses.map((status) => [status, 0])) as Record<RunStatus, number>;
+
+    let builder = supabaseAdmin.from("workflow_runs").select("status");
+    if (filter.requestedBy) builder = builder.eq("requested_by", filter.requestedBy);
+    const { data, error } = await builder;
+    if (error) throw dbError("count runs", error);
+
+    for (const row of data ?? []) {
+      const status = row.status as RunStatus;
+      counts[status] = (counts[status] ?? 0) + 1;
+    }
+    return counts;
   },
 
   async addStep(input: {

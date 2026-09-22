@@ -1,4 +1,5 @@
 import { supabaseAdmin } from "../../lib/supabase.js";
+import { assertSafeOrValue } from "../../lib/postgrest.js";
 import type { Role } from "../identity/roles.js";
 import type { AskUserOption } from "../runtime/runtime.types.js";
 import type { ApprovalRow, ApprovalStatus, Decision, DecisionRow } from "./approvals.types.js";
@@ -93,7 +94,7 @@ export const approvalsRepository = {
     let builder = supabaseAdmin
       .from("approval_requests")
       .select(APPROVAL_COLUMNS)
-      .or(`required_role.eq.${role},requested_by.eq.${userId}`)
+      .or(`required_role.eq.${assertSafeOrValue(role, "role")},requested_by.eq.${assertSafeOrValue(userId, "userId")}`)
       .order("requested_at", { ascending: false })
       .limit(limit);
     if (status?.length) builder = builder.in("status", status);
@@ -172,17 +173,13 @@ export const approvalsRepository = {
     return count ?? 0;
   },
 
-  // Counts pending approvals this exact user can decide right now - mirrors canDecide()'s own
-  // rule (policy.ts): a gate requiring their role, or a clarification question (no required
-  // role) on a run they started. listForUser() is broader than this (it also returns gates on
-  // the user's own runs that need a *different* role, for context) - this is the narrower,
-  // "needs your decision" count that belongs on a headline stat.
+// Counts approvals this user can decide now, matching canDecide() (required role or their own run's clarification).
   async countPendingForUser(userId: string, role: Role): Promise<number> {
     const { count, error } = await supabaseAdmin
       .from("approval_requests")
       .select("id", { count: "exact", head: true })
       .eq("status", "PENDING")
-      .or(`required_role.eq.${role},and(required_role.is.null,requested_by.eq.${userId})`);
+      .or(`required_role.eq.${assertSafeOrValue(role, "role")},and(required_role.is.null,requested_by.eq.${assertSafeOrValue(userId, "userId")})`);
     if (error) throw dbError("count approvals for user", error);
     return count ?? 0;
   },

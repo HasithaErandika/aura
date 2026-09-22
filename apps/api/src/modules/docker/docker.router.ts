@@ -7,15 +7,14 @@ import { runtimeClient } from "../runtime/runtime.client.js";
 
 export const dockerRouter = Router();
 
-// GET /docker/runs - which Gate 4/5/7 Docker containers are currently running or recently ran.
-// Purely observational (docs/ARCHITECTURE.md section 6.4/6.5) - never used to decide anything,
-// same audience as the dev workspace viewer.
+// GET /docker/runs - Lists Gate 4/5/7 Docker containers that are running or recently ran; observational only.
 dockerRouter.get(
   "/runs",
   asyncHandler(async (req, res) => {
     const user = currentUser(req);
     if (user.role !== "admin" && !canViewDevWorkspace(user.role)) throw forbidden("Your role cannot view Docker run activity");
-    const { runs } = await runtimeClient.listDockerRuns();
+    const epicKey = typeof req.query.epic === "string" ? req.query.epic : undefined;
+    const { runs } = await runtimeClient.listDockerRuns(epicKey);
     res.json({ runs });
   }),
 );

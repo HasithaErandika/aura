@@ -14,17 +14,12 @@ import { qaWorkspaceRouter } from "../modules/qa-workspace/qa-workspace.router.j
 import { testRunsRouter } from "../modules/test-runs/test-runs.router.js";
 import { dockerRouter } from "../modules/docker/docker.router.js";
 import { jiraRouter } from "../modules/jira/jira.router.js";
-import { credentialsRouter } from "../modules/credentials/credentials.router.js";
-import { internalCredentialsRouter } from "../modules/credentials/internal.router.js";
 import { requireAuth } from "../middleware/auth.js";
 import { perUserLimit } from "../middleware/limits.js";
 
 export const apiRouter = Router();
 
 apiRouter.use("/health", healthRouter);
-// Server-to-server only (apps/agent-runtime), its own bearer-token check - not the browser's
-// Supabase session auth below. See internal.router.ts.
-apiRouter.use("/internal/credentials", internalCredentialsRouter);
 // Everything below is authenticated, then rate limited per user.
 apiRouter.use(requireAuth, perUserLimit);
 apiRouter.use("/me", meRouter);
@@ -41,4 +36,3 @@ apiRouter.use("/qa-workspace", qaWorkspaceRouter);
 apiRouter.use("/test-runs", testRunsRouter);
 apiRouter.use("/docker", dockerRouter);
 apiRouter.use("/jira", jiraRouter);
-apiRouter.use("/credentials", credentialsRouter);

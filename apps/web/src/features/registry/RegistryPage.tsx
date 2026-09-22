@@ -11,6 +11,7 @@ import { EmptyState } from "../../shared/ui/EmptyState.tsx";
 import { Skeleton } from "../../shared/ui/Skeleton.tsx";
 import { KeyValueList } from "../../shared/ui/KeyValue.tsx";
 import { ExternalLinkIcon, RegistryIcon } from "../../shared/icons/index.tsx";
+import { AgentIcon } from "../../shared/icons/agentIcons.tsx";
 import { roleLabel } from "../../shared/lib/roles.ts";
 
 export function RegistryPage() {
@@ -54,9 +55,14 @@ export function RegistryPage() {
             <Card key={agent.id}>
               <CardHeader
                 title={
-                  <span className="flex items-center gap-2">
-                    {agent.name}
-                    <span className="font-mono text-xs font-normal text-ink-400">{agent.id}</span>
+                  <span className="flex items-center gap-4">
+                    <span className="flex size-15 shrink-0 items-center justify-center rounded-2xl border border-line bg-neutral-soft">
+                      <AgentIcon agentId={agent.id} className="size-15" />
+                    </span>
+                    <span className="flex items-center gap-2">
+                      {agent.name}
+                      <span className="font-mono text-xs font-normal text-ink-400">{agent.id}</span>
+                    </span>
                   </span>
                 }
                 description={agent.description ?? undefined}

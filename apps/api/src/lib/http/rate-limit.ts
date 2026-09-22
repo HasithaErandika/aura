@@ -1,9 +1,6 @@
 import type { NextFunction, Request, Response } from "express";
 import { HttpError } from "./errors.js";
 
-// Fixed-window counter per key, in memory. Enough for one API process in front of a
-// single-tenant deployment; swap the store for Redis when the API is scaled horizontally.
-
 interface Bucket {
   count: number;
   resetAt: number;

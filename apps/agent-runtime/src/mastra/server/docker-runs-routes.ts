@@ -16,9 +16,11 @@ interface DockerPsRow {
   Labels: string;
 }
 
-function runDockerPs(): Promise<DockerPsRow[]> {
+function runDockerPs(epic?: string): Promise<DockerPsRow[]> {
   return new Promise((resolve, reject) => {
-    const proc = spawn('docker', ['ps', '-a', '--filter', 'label=aura=true', '--no-trunc', '--format', '{{json .}}', '--last', '20']);
+    const filters = ['--filter', 'label=aura=true'];
+    if (epic) filters.push('--filter', `label=aura.epic=${epic}`);
+    const proc = spawn('docker', ['ps', '-a', ...filters, '--no-trunc', '--format', '{{json .}}', '--last', '20']);
     let out = '';
     let err = '';
     proc.stdout.on('data', (d) => (out += d.toString()));
@@ -50,7 +52,8 @@ export const listDockerRunsRoute = registerApiRoute('/docker/runs', {
   method: 'GET',
   handler: async (c) => {
     try {
-      const rows = await runDockerPs();
+      const epic = c.req.query('epic')?.trim().toUpperCase() || undefined;
+      const rows = await runDockerPs(epic);
       const runs = rows.map((row) => ({
         id: row.ID,
         name: row.Names,

@@ -21,5 +21,8 @@ export interface DockerRun {
 // Which Gate 4/5/7 Docker containers are currently running or recently ran
 // (apps/agent-runtime/src/mastra/server/docker-runs-routes.ts) - purely observational.
 export const dockerRunsApi = {
-  list: () => api.get<{ runs: DockerRun[] }>("/docker/runs").then((r) => r.runs),
+  list: (epicKey?: string) => {
+    const qs = epicKey ? `?${new URLSearchParams({ epic: epicKey }).toString()}` : "";
+    return api.get<{ runs: DockerRun[] }>(`/docker/runs${qs}`).then((r) => r.runs);
+  },
 };

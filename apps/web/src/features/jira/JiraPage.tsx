@@ -50,7 +50,10 @@ export function JiraPage() {
   const [selectedEpic, setSelectedEpic] = useState<string | null>(null);
 
   const statusState = useAsync(() => jiraApi.status(), []);
-  const epicsState = useAsync(() => (statusState.data?.configured ? jiraApi.epics(debouncedQuery) : Promise.resolve([])), [statusState.data?.configured, debouncedQuery]);
+  // Fires alongside statusState rather than waiting on it - the epics call only needs the
+  // `configured` flag to know whether to *display* its result, not to start. Its error is
+  // never shown when Jira isn't configured, since EpicList only renders once configured is true.
+  const epicsState = useAsync(() => jiraApi.epics(debouncedQuery), [debouncedQuery]);
   const epics = epicsState.data ?? [];
 
   useEffect(() => {

@@ -24,8 +24,22 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return (await res.json()) as T;
 }
 
+// Dedupes concurrent identical GETs (e.g. two components mounting the same hook on one page)
+// so they share one round trip instead of each firing their own. Keyed by path, and only
+// holds the promise while it's in flight - not a response cache, so a later independent call
+// (a reload(), a poll tick) always goes to the network fresh.
+const inFlightGets = new Map<string, Promise<unknown>>();
+
+function getDeduped<T>(path: string): Promise<T> {
+  const existing = inFlightGets.get(path) as Promise<T> | undefined;
+  if (existing) return existing;
+  const promise = request<T>(path).finally(() => inFlightGets.delete(path));
+  inFlightGets.set(path, promise);
+  return promise;
+}
+
 export const api = {
-  get: <T>(path: string) => request<T>(path),
+  get: <T>(path: string) => getDeduped<T>(path),
   post: <T>(path: string, body?: unknown) => request<T>(path, { method: "POST", body: body === undefined ? undefined : JSON.stringify(body) }),
   put: <T>(path: string, body?: unknown) => request<T>(path, { method: "PUT", body: body === undefined ? undefined : JSON.stringify(body) }),
   patch: <T>(path: string, body?: unknown) => request<T>(path, { method: "PATCH", body: body === undefined ? undefined : JSON.stringify(body) }),

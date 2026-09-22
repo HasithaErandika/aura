@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { describeError } from "../../../shared/api/errors.ts";
 import { usePolling } from "../../../shared/hooks/usePolling.ts";
-import type { Approval, ChatMessage, ChatToolActivity, Decision, Run, RunStatus, StreamEvent } from "../../../types/api.ts";
+import type { Approval, ChatMessage, ChatToolActivity, Decision, Run, RunStatus, StreamEvent, Thread } from "../../../types/api.ts";
 import { workspaceApi } from "../api.ts";
 
 export interface PendingGate {
@@ -25,6 +25,9 @@ export interface ConversationState {
   pendingGate: PendingGate | null;
   run: Run | null;
   runStatus: RunStatus | null;
+  // The thread row (title/updatedAt) as of the last history load - lets a caller patch its
+  // own thread-list cache instead of refetching the whole list after every turn.
+  thread: Thread | null;
   busy: boolean;
   loading: boolean;
   error: string | null;
@@ -60,6 +63,7 @@ export function useConversation(agentId: string, threadId: string | null) {
     pendingGate: null,
     run: null,
     runStatus: null,
+    thread: null,
     busy: false,
     loading: Boolean(threadId),
     error: null,
@@ -90,7 +94,7 @@ export function useConversation(agentId: string, threadId: string | null) {
   const load = useCallback(
     async (silent = false) => {
       if (!threadId) {
-        setState((s) => ({ ...s, messages: [], streaming: null, pendingGate: null, run: null, runStatus: null, loading: false, error: null }));
+        setState((s) => ({ ...s, messages: [], streaming: null, pendingGate: null, run: null, runStatus: null, thread: null, loading: false, error: null }));
         return;
       }
       if (!silent) setState((s) => ({ ...s, loading: true, error: null }));
@@ -103,6 +107,7 @@ export function useConversation(agentId: string, threadId: string | null) {
           pendingGate: history.pendingApproval ? gateFromApproval(history.pendingApproval) : null,
           run: history.latestRun,
           runStatus: history.latestRun?.status ?? null,
+          thread: history.thread,
           loading: false,
           error: null,
         }));
