@@ -4,7 +4,8 @@ import { asyncHandler } from "../../lib/http/async-handler.js";
 import { forbidden, notFound } from "../../lib/http/errors.js";
 import { idParam, parseOrThrow } from "../../lib/http/validate.js";
 import { currentUser } from "../../middleware/auth.js";
-import { canViewQaWorkspace } from "../policy/policy.js";
+import { canEditQaWorkspace, canViewQaWorkspace } from "../policy/policy.js";
+import { writeAudit } from "../audit/audit.service.js";
 import { runtimeClient } from "../runtime/runtime.client.js";
 
 export const qaWorkspaceRouter = Router();
@@ -50,6 +51,28 @@ qaWorkspaceRouter.get(
     const path = parseOrThrow(filePathSchema, req.query.path);
     try {
       const file = await runtimeClient.readQaWorkspaceFile(epicKey, path);
+      res.json({ epicKey, ...file });
+    } catch {
+      throw notFound("QA workspace file");
+    }
+  }),
+);
+
+// Content limit matches workspace.router.ts's writeFileBodySchema.
+const writeFileBodySchema = z.object({ path: filePathSchema, content: z.string().max(100_000) }).strict();
+
+// PUT /qa-workspace/:epicKey/file - overwrites one existing test-plan/spec file with
+// human-edited content. QA Engineer-role only (the content's own author); every save is audited.
+qaWorkspaceRouter.put(
+  "/:epicKey/file",
+  asyncHandler(async (req, res) => {
+    const user = currentUser(req);
+    if (!canEditQaWorkspace(user.role)) throw forbidden("Your role cannot edit the QA workspace");
+    const epicKey = idParam(req.params.epicKey, "Epic");
+    const { path, content } = parseOrThrow(writeFileBodySchema, req.body);
+    try {
+      const file = await runtimeClient.writeQaWorkspaceFile(epicKey, path, content);
+      await writeAudit({ actorId: user.id, actorRole: user.role, action: "workspace.file.edit", entityType: "qa_workspace_file", entityId: `${epicKey}/${path}`, metadata: { epicKey, path, length: content.length } });
       res.json({ epicKey, ...file });
     } catch {
       throw notFound("QA workspace file");

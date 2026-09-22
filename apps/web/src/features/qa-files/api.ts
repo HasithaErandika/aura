@@ -29,6 +29,10 @@ export const qaFilesApi = {
   listEpics: () => api.get<{ epics: string[] }>(`/qa-workspace`),
   list: (epicKey: string) => api.get<{ epicKey: string; files: QaFile[] }>(`/qa-workspace/${encodeURIComponent(epicKey)}/files`),
   read: (epicKey: string, path: string) => api.get<{ epicKey: string; path: string; content: string }>(`/qa-workspace/${encodeURIComponent(epicKey)}/file?path=${encodeURIComponent(path)}`),
+  // QA Engineer-role only (enforced server-side); overwrites one existing test-plan/spec file. No
+  // version history - a later delegate_to_qa revise+file for the same Epic overwrites it again.
+  write: (epicKey: string, path: string, content: string) =>
+    api.put<{ epicKey: string; path: string; content: string }>(`/qa-workspace/${encodeURIComponent(epicKey)}/file`, { path, content }),
   testRuns: (epicKey: string, taskKey?: string) =>
     api
       .get<{ epicKey: string; runs: TestRun[] }>(`/test-runs/${encodeURIComponent(epicKey)}${taskKey ? `?taskKey=${encodeURIComponent(taskKey)}` : ""}`)

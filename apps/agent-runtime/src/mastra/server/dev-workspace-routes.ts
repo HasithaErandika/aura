@@ -1,13 +1,16 @@
 import { registerApiRoute } from '@mastra/core/server';
-import { readdir, readFile, stat } from 'node:fs/promises';
+import { readdir, readFile, writeFile, stat, access } from 'node:fs/promises';
 import path from 'node:path';
 import { devWorkspaceRoot } from '../workspace/dev-workspace';
 
-// Read-only file viewer for a Task's scaffolded directory (devWorkspaceDir), the "companion
-// viewer" docs/ARCHITECTURE.md section 6.5 flags as an open gap. devWorkspaceDir is a plain host
-// path, not a Mastra Workspace/LocalFilesystem (workspace/dev-workspace.ts's own comment - Docker
-// bind-mounts it directly), so containment is checked by hand here the same way
+// Read/write file viewer for a Task's scaffolded directory (devWorkspaceDir). devWorkspaceDir is
+// a plain host path, not a Mastra Workspace/LocalFilesystem (workspace/dev-workspace.ts's own
+// comment - Docker bind-mounts it directly), so containment is checked by hand here the same way
 // workspace-routes.ts's writeWorkspaceFileRoute guards against escaping the Epic's own workspace.
+// The write route (writeDevWorkspaceFileRoute) is deliberately narrow, same shape as the
+// Architect's: it can only overwrite a file Gate 4/5 already created, never create a new one or
+// escape the Task's own directory. apps/api gates who may call it (developer role only) and
+// audits every call; this route trusts that gate the same way the read routes already do.
 
 function segmentParam(raw: string | undefined, label: string): string {
   const value = raw?.trim();
@@ -78,6 +81,36 @@ export const readDevWorkspaceFileRoute = registerApiRoute('/dev-workspace/:epicK
       return c.json({ path: relPath, content });
     } catch (error) {
       return c.json({ error: error instanceof Error ? error.message : String(error) }, 404);
+    }
+  },
+});
+
+// Overwrites one existing scaffolded file with human-edited content (the Developer hand-fixing
+// or hand-tweaking Gate 4/5 output). Only a file that already exists on disk can be overwritten -
+// this cannot create a new file or, via safeJoin, write outside the Task's own directory. There
+// is no version history for a manual edit; a later delegate_to_code execute against the same
+// Task can overwrite it again.
+export const writeDevWorkspaceFileRoute = registerApiRoute('/dev-workspace/:epicKey/:discipline/file', {
+  method: 'PUT',
+  handler: async (c) => {
+    try {
+      const epicKey = segmentParam(c.req.param('epicKey'), 'epicKey').toUpperCase();
+      const discipline = segmentParam(c.req.param('discipline'), 'discipline');
+      const body = await c.req.json<{ path?: string; content?: string }>();
+      const relPath = body.path?.trim();
+      if (!relPath) return c.json({ error: 'path is required' }, 400);
+      if (typeof body.content !== 'string') return c.json({ error: 'content is required' }, 400);
+      const dir = taskDir(epicKey, discipline);
+      const filePath = safeJoin(dir, relPath);
+      try {
+        await access(filePath);
+      } catch {
+        return c.json({ error: 'file does not exist' }, 404);
+      }
+      await writeFile(filePath, body.content, 'utf-8');
+      return c.json({ path: relPath, content: body.content });
+    } catch (error) {
+      return c.json({ error: error instanceof Error ? error.message : String(error) }, 400);
     }
   },
 });

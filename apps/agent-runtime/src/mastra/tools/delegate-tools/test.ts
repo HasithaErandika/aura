@@ -97,22 +97,23 @@ interface TestRunDraft {
 
 const testInputSchema = z
   .object({
-    mode: z.enum(['draft', 'execute']),
+    mode: z.enum(['draft', 'execute', 'file-defect']),
     epicKey: z.string().optional().describe('draft: the Epic this Task belongs to (must have a filed QA plan)'),
     taskKey: z.string().optional().describe('draft: the Jira Task key to test (must already be scaffolded via delegate_to_dev)'),
-    draftId: z.string().optional().describe('execute: the draftId returned by draft'),
-    approved: z.boolean().optional().describe('execute: must be true; set only after ask_user returned an approval'),
+    draftId: z.string().optional().describe('execute and file-defect: the draftId returned by draft'),
+    approved: z.boolean().optional().describe('execute and file-defect: must be true; set only after ask_user returned an approval'),
   })
   .strict();
 
 const testOutputSchema = z.object({
   ok: z.boolean().describe('false means the step failed; read error, tell the user, and stop.'),
   draftId: z.string().optional(),
-  markdown: z.string().optional().describe('Human-readable plan, or the interpreted real result after execute. Show it to the user verbatim.'),
+  markdown: z.string().optional().describe('Human-readable plan, interpreted real result after execute, or defect confirmation after file-defect. Show it to the user verbatim.'),
   epicKey: z.string().optional(),
   taskKey: z.string().optional(),
   passed: z.number().optional(),
   failed: z.number().optional(),
+  defectKey: z.string().optional().describe('file-defect: the Jira Bug key created for the developer to pick up.'),
   error: z.string().optional(),
 });
 
@@ -128,7 +129,7 @@ const testerInterpretationSchema = z.object({
 export const delegateToTestTool = createTool({
   id: 'delegate_to_test',
   description:
-    "Tester Agent (Gate 7). draft: epicKey + taskKey -> confirms the Task is scaffolded and its Epic has a filed QA plan, returns the fixed test-run plan (returns draftId + markdown). execute: draftId + approved -> actually starts the scaffolded app and runs the QA Agent's real Playwright suite against it inside a sandboxed Docker container, reads back the real JSON result, and has the Tester Agent interpret it - never fakes, assumes, or rounds a result. Comments the Task with the real pass/fail numbers plus the interpretation, kept visibly separate. Only Frontend and Backend/NestJS are supported (the disciplines Gate 4 actually scaffolds reliably) - fails clearly for anything else. Never execute without an explicit human approval.",
+    "Tester Agent (Gate 7). draft: epicKey + taskKey -> confirms the Task is scaffolded and its Epic has a filed QA plan, returns the fixed test-run plan (returns draftId + markdown). execute: draftId + approved -> actually starts the scaffolded app and runs the QA Agent's real Playwright suite against it inside a sandboxed Docker container, reads back the real JSON result, and has the Tester Agent interpret it - never fakes, assumes, or rounds a result. Comments the Task with the real pass/fail numbers plus the interpretation, kept visibly separate. Only Frontend and Backend/NestJS are supported (the disciplines Gate 4 actually scaffolds reliably) - fails clearly for anything else. Never execute without an explicit human approval. file-defect: draftId + approved, only after execute produced failed > 0 -> files a real Jira Bug against the Task with the real failure details, comments the Task pointing to it, and moves the Task back for rework - completes the developer<->tester back-and-forth (fix, then re-run Gate 7 to retest) instead of leaving a failure as a comment nobody is assigned to act on. Never file a defect without an explicit human approval, and never for a run with zero failures.",
   inputSchema: testInputSchema,
   outputSchema: testOutputSchema,
   execute: async (input, { mastra, agent, writer }) => {
@@ -291,6 +292,70 @@ export const delegateToTestTool = createTool({
           }
 
           return { ok: true, draftId: record.id, epicKey: record.content.epicKey, taskKey: record.content.taskKey, passed, failed, markdown };
+        }
+        case 'file-defect': {
+          if (!input.draftId) return testFail('file-defect needs draftId');
+          if (input.approved !== true) return testFail('file-defect requires approved=true, which is only set after the human approved via ask_user');
+          const record = await draftStore.get<TestRunDraft>(input.draftId);
+          if (!record || record.kind !== 'test-run') return testFail(`unknown test draft ${input.draftId}`);
+          if (record.filed.status !== 'done') return testFail('execute has not produced a real result for this draft yet - run execute before filing a defect');
+          const failed = Number(record.filed.failed ?? '0');
+          if (failed === 0) return testFail('The real result had 0 failures - there is nothing to file a defect for');
+          if (record.filed.defectFiled === 'done') {
+            return { ok: true, draftId: record.id, epicKey: record.content.epicKey, taskKey: record.content.taskKey, defectKey: record.filed.defectKey, markdown: `Already filed as ${record.filed.defectKey}. Nothing was filed twice.` };
+          }
+
+          const failureNotes = JSON.parse(record.filed.failureNotes || '[]') as { name: string; verdict: string; note: string }[];
+          const stamp = provenance('Tester Agent', TESTER_MODEL_ID, record, `${record.content.taskKey} (Task)`);
+          const description = [
+            `Real Playwright failure(s) found testing ${record.content.taskKey} (${record.content.epicKey}), Gate 7.`,
+            '',
+            `**Machine result:** ${record.filed.passed} passed, ${record.filed.failed} failed, ${record.filed.skipped} skipped.`,
+            '',
+            '**AI interpretation:**',
+            record.filed.summary || '(no summary captured)',
+            ...(failureNotes.length ? ['', ...failureNotes.map((f) => `- **${f.name}** (${f.verdict}): ${f.note}`)] : []),
+            '',
+            `Fix, then ask AURA to re-run the test suite for ${record.content.taskKey} to retest.`,
+            '',
+            '----',
+            stamp,
+          ].join('\n');
+
+          let created: { key: string; url: string | null };
+          try {
+            created = await jira.createIssue({
+              summary: `Test failure: ${record.content.taskKey} - ${failed} Playwright test(s) failing`,
+              issueType: 'Bug',
+              description,
+              parentKey: record.content.epicKey,
+            });
+          } catch (error) {
+            return testFail(error);
+          }
+
+          try {
+            await jira.addComment(
+              record.content.taskKey,
+              `AURA Tester Agent filed a defect for the ${failed} failing Playwright test(s): ${created.key}${created.url ? ` (${created.url})` : ''}. Fix the failure(s) described there, then ask to re-run Gate 7 to retest.`,
+            );
+            const transitions = await jira.getTransitions(record.content.taskKey);
+            const back = transitions.find((t) => /in progress|to do|reopen/i.test(t.name));
+            if (back) await jira.transitionIssue(record.content.taskKey, back.id);
+          } catch {
+            // Best-effort, same as execute's own Jira comment/transition - the defect itself is
+            // already created and returned to the human regardless of whether this follow-up lands.
+          }
+
+          await draftStore.markFiled(record.id, { ...record.filed, defectFiled: 'done', defectKey: created.key });
+          return {
+            ok: true,
+            draftId: record.id,
+            epicKey: record.content.epicKey,
+            taskKey: record.content.taskKey,
+            defectKey: created.key,
+            markdown: `Filed defect ${created.key}${created.url ? ` (${created.url})` : ''} for the ${failed} failing test(s), and commented on ${record.content.taskKey} linking to it. Once fixed, ask to re-run Gate 7 to retest.`,
+          };
         }
       }
     } catch (error) {

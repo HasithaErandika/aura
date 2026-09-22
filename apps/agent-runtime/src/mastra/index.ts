@@ -21,9 +21,9 @@ import { qaWorkflow } from './workflows/qa-workflow';
 import { printManifest, type AgentId } from './agents/registry';
 import { jiraMcp } from './mcp/jira-client';
 import { getArchitectThreadRoute, listEpicsRoute, listWorkspaceFilesRoute, readWorkspaceFileRoute, writeWorkspaceFileRoute } from './server/workspace-routes';
-import { listDevWorkspaceFilesRoute, readDevWorkspaceFileRoute } from './server/dev-workspace-routes';
+import { listDevWorkspaceFilesRoute, readDevWorkspaceFileRoute, writeDevWorkspaceFileRoute } from './server/dev-workspace-routes';
 import { listDockerRunsRoute } from './server/docker-runs-routes';
-import { listQaEpicsRoute, listQaWorkspaceFilesRoute, readQaWorkspaceFileRoute } from './server/qa-workspace-routes';
+import { listQaEpicsRoute, listQaWorkspaceFilesRoute, readQaWorkspaceFileRoute, writeQaWorkspaceFileRoute } from './server/qa-workspace-routes';
 import { listTestRunsRoute } from './server/test-runs-routes';
 
 // Prints each agent's real tool wiring at startup, read live from the agent itself - there is no
@@ -72,10 +72,12 @@ export const mastra = new Mastra({
       getArchitectThreadRoute,
       listDevWorkspaceFilesRoute,
       readDevWorkspaceFileRoute,
+      writeDevWorkspaceFileRoute,
       listDockerRunsRoute,
       listQaEpicsRoute,
       listQaWorkspaceFilesRoute,
       readQaWorkspaceFileRoute,
+      writeQaWorkspaceFileRoute,
       listTestRunsRoute,
     ],
   },

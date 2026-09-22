@@ -186,8 +186,11 @@ export const jira = {
     return issues.map((item) => pickIssue(item as Record<string, unknown>)).filter((issue) => issue.key);
   },
 
-  // Creates a Jira issue (Epic/Story/Task), optionally under a parent Epic.
-  async createIssue(input: { summary: string; issueType: 'Epic' | 'Story' | 'Task'; description: string; priority?: string; parentKey?: string }): Promise<{ key: string; url: string | null }> {
+  // Creates a Jira issue (Epic/Story/Task/Bug), optionally under a parent Epic. Bug is used by
+  // delegate_to_test's file-defect mode (Gate 7) - if the connected project's scheme has no Bug
+  // issue type, Jira rejects the create and this throws with Jira's own error, same as any other
+  // unsupported-shape failure here (never silently falls back to a different type).
+  async createIssue(input: { summary: string; issueType: 'Epic' | 'Story' | 'Task' | 'Bug'; description: string; priority?: string; parentKey?: string }): Promise<{ key: string; url: string | null }> {
     if (!jiraProjectKey) throw new Error('JIRA_PROJECT_KEY is not set');
     const execute = findTool('_create_issue');
     const additional: Record<string, unknown> = {};

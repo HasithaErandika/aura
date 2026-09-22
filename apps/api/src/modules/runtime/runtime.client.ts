@@ -254,6 +254,13 @@ export const runtimeClient = {
     return request(`/dev-workspace/${encodeURIComponent(epicKey)}/${encodeURIComponent(discipline)}/file?${params.toString()}`);
   },
 
+  // Overwrites one existing scaffolded file with human-edited content - the caller
+  // (dev-workspace.router.ts) gates this to the developer role and audits every call, same
+  // pattern as writeWorkspaceFile above.
+  writeDevWorkspaceFile(epicKey: string, discipline: string, path: string, content: string): Promise<{ path: string; content: string }> {
+    return request(`/dev-workspace/${encodeURIComponent(epicKey)}/${encodeURIComponent(discipline)}/file`, { method: "PUT", body: JSON.stringify({ path, content }) });
+  },
+
   // Custom route registered in apps/agent-runtime/src/mastra/server/docker-runs-routes.ts -
   // which Gate 4/5/7 containers are currently running or recently ran. `epicKey` is forwarded
   // as `?epic=` so callers scoped to one Epic (e.g. DevFilesPage) don't fetch every container.
@@ -278,6 +285,13 @@ export const runtimeClient = {
   readQaWorkspaceFile(epicKey: string, path: string): Promise<{ path: string; content: string }> {
     const params = new URLSearchParams({ path });
     return request(`/qa-workspace/${encodeURIComponent(epicKey)}/file?${params.toString()}`);
+  },
+
+  // Overwrites one existing test-plan/spec file with human-edited content - the caller
+  // (qa-workspace.router.ts) gates this to the qa_engineer role and audits every call, same
+  // pattern as writeWorkspaceFile above.
+  writeQaWorkspaceFile(epicKey: string, path: string, content: string): Promise<{ path: string; content: string }> {
+    return request(`/qa-workspace/${encodeURIComponent(epicKey)}/file`, { method: "PUT", body: JSON.stringify({ path, content }) });
   },
 
   // Custom route registered in apps/agent-runtime/src/mastra/server/test-runs-routes.ts -

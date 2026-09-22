@@ -1,7 +1,9 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import CodeMirror from "@uiw/react-codemirror";
 import { vscodeDark } from "@uiw/codemirror-theme-vscode";
 import { useAsync } from "../../shared/hooks/useAsync.ts";
+import { useAuth } from "../../shared/auth/useAuth.ts";
+import { describeError } from "../../shared/api/errors.ts";
 import { devFilesApi, scaffoldDisciplines, type ScaffoldDiscipline } from "./api.ts";
 import { languageExtension } from "./language.ts";
 import { FileTree } from "../../shared/ui/FileTree.tsx";
@@ -16,19 +18,26 @@ import { Skeleton } from "../../shared/ui/Skeleton.tsx";
 import { DocumentIcon, TreeIcon } from "../../shared/icons/index.tsx";
 import { vscode } from "../../shared/lib/vscodeTheme.ts";
 
-// Read-only viewer for a Task's scaffolded directory (Gate 4/5 output) - the "companion
-// read-only viewer" docs/ARCHITECTURE.md section 6.5 flags as an open gap. Requires the human
-// to already know the Epic + discipline (no "list all scaffolded Epics" endpoint exists, unlike
-// the Architect workspace) since a Task's directory is keyed by both. Renders a VS Code-style
-// Explorer tree (FileTree.tsx) and highlights code with the same theme/language set VS Code's
-// own default dark theme uses (@uiw/codemirror-theme-vscode + per-extension @codemirror/lang-*),
-// rather than a flat file list with unhighlighted text.
+// Viewer, and (for the Developer role) editor, for a Task's scaffolded directory (Gate 4/5
+// output). Requires the human to already know the Epic + discipline (no "list all scaffolded
+// Epics" endpoint exists, unlike the Architect workspace) since a Task's directory is keyed by
+// both. Renders a VS Code-style Explorer tree (FileTree.tsx) and highlights code with the same
+// theme/language set VS Code's own default dark theme uses (@uiw/codemirror-theme-vscode +
+// per-extension @codemirror/lang-*), rather than a flat file list with unhighlighted text.
 
 export function DevFilesPage() {
+  const { profile } = useAuth();
+  const canEdit = profile?.role === "developer";
+
   const [epicKey, setEpicKey] = useState("");
   const [discipline, setDiscipline] = useState<ScaffoldDiscipline>("Frontend");
   const [loaded, setLoaded] = useState<{ epicKey: string; discipline: ScaffoldDiscipline } | null>(null);
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
+
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   const filesState = useAsync(
     () => (loaded ? devFilesApi.list(loaded.epicKey, loaded.discipline) : Promise.resolve(null)),
@@ -38,6 +47,34 @@ export function DevFilesPage() {
     () => (loaded && selectedPath ? devFilesApi.read(loaded.epicKey, loaded.discipline, selectedPath) : Promise.resolve(null)),
     [loaded?.epicKey, loaded?.discipline, selectedPath],
   );
+
+  // Switching files drops any in-progress edit rather than carrying it to a different file.
+  useEffect(() => {
+    setEditing(false);
+    setSaveError(null);
+  }, [loaded?.epicKey, loaded?.discipline, selectedPath]);
+
+  function startEditing() {
+    if (!fileState.data) return;
+    setDraft(fileState.data.content);
+    setSaveError(null);
+    setEditing(true);
+  }
+
+  async function saveEdit() {
+    if (!loaded || !selectedPath) return;
+    setSaving(true);
+    setSaveError(null);
+    try {
+      await devFilesApi.write(loaded.epicKey, loaded.discipline, selectedPath, draft);
+      setEditing(false);
+      await fileState.reload();
+    } catch (err) {
+      setSaveError(describeError(err));
+    } finally {
+      setSaving(false);
+    }
+  }
 
   function load() {
     const trimmed = epicKey.trim().toUpperCase();
@@ -50,7 +87,14 @@ export function DevFilesPage() {
 
   return (
     <>
-      <PageHeader title="Scaffolded Project Files" description="Read-only view of a Task's scaffolded directory (Gate 4 output, as edited by Gate 5's coding agent)." />
+      <PageHeader
+        title="Scaffolded Project Files"
+        description={
+          canEdit
+            ? "A Task's scaffolded directory (Gate 4 output, as edited by Gate 5's coding agent) - you can hand-edit a file directly."
+            : "Read-only view of a Task's scaffolded directory (Gate 4 output, as edited by Gate 5's coding agent)."
+        }
+      />
 
       <Card>
         <div className="flex flex-wrap items-end gap-3 p-4">
@@ -129,13 +173,40 @@ export function DevFilesPage() {
                   </div>
                 ) : fileState.data ? (
                   <>
-                    <div className="shrink-0 px-4 py-2.5" style={{ backgroundColor: vscode.tabBarBg, borderBottom: `1px solid ${vscode.border}` }}>
+                    <div className="flex shrink-0 items-center justify-between gap-3 px-4 py-2.5" style={{ backgroundColor: vscode.tabBarBg, borderBottom: `1px solid ${vscode.border}` }}>
                       <p className="truncate font-mono text-sm font-semibold" style={{ color: vscode.text }}>{fileState.data.path}</p>
+                      {canEdit ? (
+                        editing ? (
+                          <div className="flex shrink-0 items-center gap-2">
+                            <Button size="sm" variant="secondary" onClick={() => setEditing(false)} disabled={saving}>
+                              Cancel
+                            </Button>
+                            <Button size="sm" variant="primary" onClick={() => void saveEdit()} loading={saving}>
+                              Save
+                            </Button>
+                          </div>
+                        ) : (
+                          <Button size="sm" variant="secondary" onClick={startEditing}>
+                            Edit
+                          </Button>
+                        )
+                      ) : null}
                     </div>
+                    {editing ? (
+                      <div className="shrink-0 border-b border-line bg-warning-soft px-4 py-2 text-xs text-warning">
+                        Manual edits aren't versioned - if the Coding Agent (Gate 5) runs against this Task again, this file is overwritten from that run.
+                      </div>
+                    ) : null}
+                    {saveError ? (
+                      <div className="shrink-0 px-4 pt-2">
+                        <Alert tone="danger">{saveError}</Alert>
+                      </div>
+                    ) : null}
                     <div className="min-h-0 flex-1 overflow-hidden">
                       <CodeMirror
-                        value={fileState.data.content}
-                        editable={false}
+                        value={editing ? draft : fileState.data.content}
+                        onChange={editing ? (value) => setDraft(value) : undefined}
+                        editable={editing}
                         height="100%"
                         theme={vscodeDark}
                         extensions={languageExtension(selectedPath)}

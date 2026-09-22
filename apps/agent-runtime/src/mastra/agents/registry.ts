@@ -1,21 +1,27 @@
 // Defines a central registry for each agent’s drafting model and sub-agents, while keeping tool wiring in each agent’s own file.
 // Startup output shows the actual tool wiring, preventing the registry from becoming inconsistent or outdated.
-
-export const ORCHESTRATOR_MODEL_ID = 'groq/qwen/qwen3.8-27b';
-export const PO_MODEL_ID = 'groq/qwen/qwen3.8-27b';
-export const BA_MODEL_ID = 'groq/openai/gpt-oss-120b';
-export const ARCHITECT_MODEL_ID = 'groq/openai/gpt-oss-120b';
-// Lightweight: the Dev agent only explains an already-fixed plan, it doesn't author content.
-export const DEV_MODEL_ID = 'groq/qwen/qwen3.8-27b';
-// The built-in Coding Agent (contracts/coding-drafts.ts provider "mastra") actually writes
-// code across an iterative tool-use loop - the same model tier as BA/Architect, not the
-// lightweight Dev-agent tier.
-export const MASTRA_CODING_MODEL_ID = 'groq/openai/gpt-oss-120b';
-// QA writes real Playwright source, not just prose - same tier as Architect/BA.
-export const QA_MODEL_ID = 'groq/openai/gpt-oss-120b';
-// Tester only interprets an already-real JSON result, closer to Dev's lightweight tier.
-export const TESTER_MODEL_ID = 'groq/qwen/qwen3.8-27b';
-export const DEPLOYER_MODEL_ID = 'groq/openai/gpt-oss-120b';
+//
+// Model tiers on Groq (see withGeminiFallback, config/models.ts, for the Gemini fallback every
+// entry below shares): "heavy" is groq/openai/gpt-oss-120b, "light" is groq/qwen/qwen3.8-27b.
+// Heavy is used for every agent that either calls tools directly or authors quality-sensitive,
+// low-volume content a human reviews (Epic/Stories/Architecture/QA/Deployer/Coding Agent). Light
+// is used only for high-frequency or purely interpretive work with no tool schema attached
+// (Dev's fixed-plan explanation, Tester's result summary). This split is load-bearing, not
+// stylistic: qwen3.8-27b reliably fails Groq's native tool-calling (it emits the tool call as
+// literal text instead of a structured call, and Groq's API rejects it) whenever a tool schema is
+// present, but is fully reliable for plain structured-JSON output with no tools attached - so it
+// must never be assigned to an agent that holds tools (the Orchestrator, the Coding Agent) or
+// receives one via a delegate tool's own model call. Verified directly against Groq's API; see
+// docs/logs/qa-tester-run-KAN-36.md for the run that surfaced it.
+export const ORCHESTRATOR_MODEL_ID = 'groq/openai/gpt-oss-120b'; // heavy - holds tools
+export const PO_MODEL_ID = 'groq/openai/gpt-oss-120b'; // heavy - low-volume, gates every later stage
+export const BA_MODEL_ID = 'groq/openai/gpt-oss-120b'; // heavy
+export const ARCHITECT_MODEL_ID = 'groq/openai/gpt-oss-120b'; // heavy
+export const DEV_MODEL_ID = 'groq/qwen/qwen3.8-27b'; // light - explains an already-fixed plan, no tools
+export const MASTRA_CODING_MODEL_ID = 'groq/openai/gpt-oss-120b'; // heavy - holds tools (file-tools.ts)
+export const QA_MODEL_ID = 'groq/openai/gpt-oss-120b'; // heavy - writes real Playwright source
+export const TESTER_MODEL_ID = 'groq/qwen/qwen3.8-27b'; // light - interprets an already-real result, no tools
+export const DEPLOYER_MODEL_ID = 'groq/openai/gpt-oss-120b'; // heavy
 
 export type AgentId = 'orchestrator' | 'po-agent' | 'ba-agent' | 'architect-agent' | 'dev-agent' | 'coding-agent' | 'qa-agent' | 'tester-agent' | 'deployer-agent' | 'git-tool';
 

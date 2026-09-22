@@ -5,6 +5,7 @@ import { markdown } from "@codemirror/lang-markdown";
 import { javascript } from "@codemirror/lang-javascript";
 import { vscodeDark } from "@uiw/codemirror-theme-vscode";
 import { useAsync } from "../../shared/hooks/useAsync.ts";
+import { useAuth } from "../../shared/auth/useAuth.ts";
 import { describeError } from "../../shared/api/errors.ts";
 import { classifyQaFile, qaFilesApi, type QaFile } from "./api.ts";
 import { TestRunHistory } from "./TestRunHistory.tsx";
@@ -24,18 +25,25 @@ import { vscode } from "../../shared/lib/vscodeTheme.ts";
 
 type EpicFiles = { status: "loading" } | { status: "error"; message: string } | { status: "ready"; files: QaFile[] };
 
-// Read-only viewer for Gate 6's test plan + Playwright source, VS Code dark theme, mirroring
-// Design Documents' tree/editor shape - plus test-run history (Gate 7) and a shortcut into the
-// real "run tests" flow (the Orchestrator chat, not a bypass - see the git history around this
-// page for why a direct-execute CLI was deliberately not built here).
+// Viewer, and (for the QA Engineer role) editor, for Gate 6's test plan + Playwright source, VS
+// Code dark theme, mirroring Design Documents' tree/editor shape - plus test-run history (Gate 7)
+// and a shortcut into the real "run tests" flow (the Orchestrator chat, not a bypass - see the
+// git history around this page for why a direct-execute CLI was deliberately not built here).
 export function QaFilesPage() {
   const navigate = useNavigate();
+  const { profile } = useAuth();
+  const canEdit = profile?.role === "qa_engineer";
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [filesByEpic, setFilesByEpic] = useState<Record<string, EpicFiles>>({});
   const [selected, setSelected] = useState<{ epicKey: string; path: string } | null>(null);
   const [taskKeyFilter, setTaskKeyFilter] = useState("");
   const [runTaskKey, setRunTaskKey] = useState("");
   const autoOpened = useRef(false);
+
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   const epicsState = useAsync(() => qaFilesApi.listEpics(), []);
   const epics = epicsState.data?.epics ?? [];
@@ -70,6 +78,34 @@ export function QaFilesPage() {
 
   const fileState = useAsync(() => (selected ? qaFilesApi.read(selected.epicKey, selected.path) : Promise.resolve(null)), [selected?.epicKey, selected?.path]);
 
+  // Switching files drops any in-progress edit rather than carrying it to a different file.
+  useEffect(() => {
+    setEditing(false);
+    setSaveError(null);
+  }, [selected?.epicKey, selected?.path]);
+
+  function startEditing() {
+    if (!fileState.data) return;
+    setDraft(fileState.data.content);
+    setSaveError(null);
+    setEditing(true);
+  }
+
+  async function saveEdit() {
+    if (!selected) return;
+    setSaving(true);
+    setSaveError(null);
+    try {
+      await qaFilesApi.write(selected.epicKey, selected.path, draft);
+      setEditing(false);
+      await fileState.reload();
+    } catch (err) {
+      setSaveError(describeError(err));
+    } finally {
+      setSaving(false);
+    }
+  }
+
   async function runTests() {
     const epicKey = selected?.epicKey;
     const taskKey = runTaskKey.trim().toUpperCase();
@@ -80,7 +116,14 @@ export function QaFilesPage() {
 
   return (
     <>
-      <PageHeader title="QA Files & Test Runs" description="Gate 6's test plan and Playwright source, and Gate 7's real test-run history." />
+      <PageHeader
+        title="QA Files & Test Runs"
+        description={
+          canEdit
+            ? "Gate 6's test plan and Playwright source, and Gate 7's real test-run history - you can hand-edit a file directly."
+            : "Gate 6's test plan and Playwright source, and Gate 7's real test-run history."
+        }
+      />
 
       {epicsState.error ? <Alert tone="danger">{epicsState.error}</Alert> : null}
 
@@ -170,12 +213,41 @@ export function QaFilesPage() {
                           {selected.epicKey}
                         </p>
                       </div>
-                      <Badge tone={classifyQaFile(selected.path).tone}>{classifyQaFile(selected.path).label}</Badge>
+                      <div className="flex shrink-0 items-center gap-2">
+                        <Badge tone={classifyQaFile(selected.path).tone}>{classifyQaFile(selected.path).label}</Badge>
+                        {canEdit ? (
+                          editing ? (
+                            <>
+                              <Button size="sm" variant="secondary" onClick={() => setEditing(false)} disabled={saving}>
+                                Cancel
+                              </Button>
+                              <Button size="sm" variant="primary" onClick={() => void saveEdit()} loading={saving}>
+                                Save
+                              </Button>
+                            </>
+                          ) : (
+                            <Button size="sm" variant="secondary" onClick={startEditing}>
+                              Edit
+                            </Button>
+                          )
+                        ) : null}
+                      </div>
                     </div>
+                    {editing ? (
+                      <div className="shrink-0 border-b border-line bg-warning-soft px-4 py-2 text-xs text-warning">
+                        Manual edits aren't versioned - if the QA Agent (Gate 6) revises this Epic's test plan again, this file is overwritten from that new draft.
+                      </div>
+                    ) : null}
+                    {saveError ? (
+                      <div className="shrink-0 px-4 pt-2">
+                        <Alert tone="danger">{saveError}</Alert>
+                      </div>
+                    ) : null}
                     <div className="min-h-0 flex-1 overflow-hidden">
                       <CodeMirror
-                        value={fileState.data.content}
-                        editable={false}
+                        value={editing ? draft : fileState.data.content}
+                        onChange={editing ? (value) => setDraft(value) : undefined}
+                        editable={editing}
                         height="100%"
                         theme={vscodeDark}
                         extensions={selected.path.endsWith(".md") ? [markdown()] : [javascript({ jsx: true, typescript: true })]}

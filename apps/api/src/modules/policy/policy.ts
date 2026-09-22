@@ -168,11 +168,27 @@ export function canViewDevWorkspace(role: Role): boolean {
   return canReadAgent(role, "dev-agent");
 }
 
+// Who may hand-edit a Task's scaffolded code. Narrower than viewing it: only the human
+// Developer (the one role with a "run" grant on dev-agent, i.e. the one actually producing and
+// owning that code) - not admins or the read-only Architect, same reasoning as
+// canEditArchitectWorkspace above.
+export function canEditDevWorkspace(role: Role): boolean {
+  return canRunAgent(role, "dev-agent");
+}
+
 // Who may view the QA workspace (Gate 6's test plan + Playwright source) and test-run history
 // (Gate 7's real results) - the same audience as qa-agent itself: qa_engineer and tester (both
 // have a grant on it - ROLE_AGENT_GRANTS above), architect (read, RACI oversight), admin.
 export function canViewQaWorkspace(role: Role): boolean {
   return canReadAgent(role, "qa-agent");
+}
+
+// Who may hand-edit the QA workspace's test plan or Playwright source. Narrower than viewing it:
+// only the human QA Engineer (the one role with a "run" grant on qa-agent, i.e. the one actually
+// producing and owning that content) - not the Tester role, which can run tester-agent and read
+// qa-agent but does not author it, same reasoning as canEditArchitectWorkspace above.
+export function canEditQaWorkspace(role: Role): boolean {
+  return canRunAgent(role, "qa-agent");
 }
 
 export interface ApprovalScope {

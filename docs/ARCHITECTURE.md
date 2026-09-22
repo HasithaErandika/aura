@@ -2,7 +2,7 @@
 
 > **Status:** Draft v0.2, reconciled with the Phase 1/2 implementation
 > **Owner:** Platform Architecture
-> **Last updated:** 2026-09-18
+> **Last updated:** 2026-09-21
 
 ---
 
@@ -654,7 +654,8 @@ Rules:
 - The real result (`passed`/`failed`/`skipped`, from Playwright's own JSON reporter) is read back from disk by code and stored in the draft record (`filed.summary`/`filed.failureNotes`) - the Tester Agent never invents these numbers, only comments on them.
 - The Tester Agent's output is labelled as interpretation and shown separately from the machine result everywhere it appears (Jira comment, `TestRunHistory` panel in the QA Files & Test Runs page).
 - Only Frontend and Backend/NestJS are supported (the disciplines Gate 4 actually scaffolds) - other disciplines fail clearly at Gate 7's `draft` step rather than being silently skipped.
-- No defect-ticket creation, no test-management integration (Xray/Zephyr) - a failure is a Jira comment on the Task itself, not a new issue.
+- **Developer/Tester back-and-forth (2026-09-22):** if the real result has `failed > 0`, the Orchestrator offers `delegate_to_test` `file-defect` - files a real Jira Bug under the Task's Epic with the real failure details, comments the Task pointing to it, and moves the Task back for rework. The developer fixes it (Gate 5, or a manual edit - see below) and the human asks to run Gate 7 again to retest; nothing re-runs automatically. No test-management integration (Xray/Zephyr) - the defect is a plain Jira Bug, not a synced external record.
+- **Manual edit (2026-09-22):** both the Dev workspace (`PUT /dev-workspace/:epicKey/:discipline/file`, developer role only) and the QA workspace (`PUT /qa-workspace/:epicKey/file`, qa_engineer role only) now support the same narrow hand-edit pattern as the Architect's design docs (section 6.3) - overwrite an existing file only, no version history, audited (`workspace.file.edit`). `apps/web`'s Scaffolded Project Files and QA Files & Test Runs pages expose it to the Developer/QA Engineer respectively.
 
 ---
 
@@ -816,7 +817,7 @@ See `docs/logs/` for day-by-day detail.
 6. Vector store: pgvector (recommended for residency simplicity) vs external.
 7. Orchestrator as an agent with deterministic tools, replacing the v0.1 lookup-table workflow. Decided in practice on 2026-09-17, ADR pending.
 8. Draft store: runtime-owned libSQL file (current) vs a Supabase table. The current choice keeps the runtime self-contained. Revisit when the API needs to read drafts directly.
-9. **Coding agent for actual feature implementation.** **Resolved and built** (2026-09-18, section 6.5): integrate existing coding CLIs (Claude Code, Codex) pointed at the scaffolded directory rather than a bespoke agent with its own file-edit tools. Gate 5 (`delegate_to_code`) is built, authenticating Claude Code/Codex via the developer's own CLI login on the host (corrected 2026-09-21, section 6.5 - not the per-user API key design built and then removed the same day); actual CLI execution is not yet verified end-to-end. Still open: a companion read-only viewer for the scaffolded project's files (a separable, smaller piece), a Docker-run visibility dashboard, a per-Task git workspace tool (branch/diff/commit), and Cursor remains explicitly out of scope (poor fit for headless invocation).
+9. **Coding agent for actual feature implementation.** **Resolved and built** (2026-09-18, section 6.5): integrate existing coding CLIs (Claude Code, Codex) pointed at the scaffolded directory rather than a bespoke agent with its own file-edit tools. Gate 5 (`delegate_to_code`) is built, authenticating Claude Code/Codex via the developer's own CLI login on the host (corrected 2026-09-21, section 6.5 - not the per-user API key design built and then removed the same day); actual CLI execution is not yet verified end-to-end. A companion viewer for the scaffolded project's files, now with a developer-role manual edit (2026-09-22, section 8), and a Docker-run visibility dashboard are built. Still open: a per-Task git workspace tool (branch/diff/commit); Cursor remains explicitly out of scope (poor fit for headless invocation).
 
 ---
 
