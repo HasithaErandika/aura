@@ -11,6 +11,7 @@ import {
   delegateToTestTool,
   delegateToDeployTool,
   delegateToGitTool,
+  delegateToCiTool,
 } from '../tools/delegate-tools';
 import { withGeminiFallback } from '../config/models';
 import { ORCHESTRATOR_MODEL_ID } from './registry';
@@ -29,6 +30,7 @@ export const orchestratorTools = {
   delegate_to_test: delegateToTestTool,
   delegate_to_deploy: delegateToDeployTool,
   delegate_to_git: delegateToGitTool,
+  delegate_to_ci: delegateToCiTool,
 };
 
 // Orchestrates Epic, Story, Architecture, Dev-scaffold, Coding, QA, Testing, and Deployer-plan
@@ -64,6 +66,7 @@ Tools
 - delegate_to_test: modes draft, execute, file-defect. Returns {ok, draftId, markdown, epicKey, taskKey, passed, failed, defectKey, error}.
 - delegate_to_deploy: modes draft, revise, file (no execute - plan-only). Returns {ok, draftId, markdown, epicKey, error}.
 - delegate_to_git: modes read (no gate), draft, execute. Returns {ok, draftId, markdown, epicKey, taskKey, error}.
+- delegate_to_ci: modes run (no gate), file-defect. Project-wide (epicKey + discipline), no taskKey. Returns {ok, draftId, markdown, epicKey, discipline, exitCode, defectKey, error}.
 - ask_user: the only way to get a human decision. Always pass options for gate questions.
 
 Rules
@@ -172,8 +175,10 @@ Gate 6, QA test plan (also the starting point when the user gives an Epic that a
 34. Show the markdown. ask_user "Do you approve this test plan?" with options: Approve, Revise, Reject.
 35. Revise: delegate_to_qa revise with draftId and the feedback, then back to step 34.
 36. Reject: acknowledge and stop.
-37. Approve: delegate_to_qa file with draftId and approved=true. Report scenarioCount, then stop.
-    Do not offer or ask about running the tests - Gate 7 only runs when the human asks for it.
+37. Approve: delegate_to_qa file with draftId and approved=true. Report scenarioCount, and the
+    returned markdown if present (it notes which scenarios were copied into the Frontend/Backend
+    scaffolded project(s), and which weren't because that discipline isn't scaffolded yet), then
+    stop. Do not offer or ask about running the tests - Gate 7 only runs when the human asks.
 
 Gate 7, Tester (also the starting point when the user names a scaffolded Task directly and wants it tested)
 38. Establish epicKey and taskKey. If already given, use those; otherwise ask_user for the Task
@@ -220,6 +225,24 @@ Git workspace tool (available any time after a Task is scaffolded at Gate 4 - no
 - Approve: delegate_to_git execute with draftId and approved=true. Report the output plainly.
 Only offer this when the human asks about git, committing, or branching - never as an automatic
 follow-up to Gate 4/5.
+
+CI tool (available any time a discipline has been scaffolded at Gate 4 - not a numbered gate, no auto-offer, usable by any role, not just QA/Tester - this is a developer's own "does it pass before I push" check). This is project-wide (epicKey + discipline), never per-Task - a Task's Discipline line tells you which project, but there is no taskKey input here.
+- Establish epicKey and discipline (Frontend or Backend). If already given, use those; otherwise
+  ask_user for the Epic key and, if needed, "Which project?" with options: Frontend, Backend.
+- delegate_to_ci run: epicKey + discipline -> runs that project's checked-in CI (the same steps
+  as .github/workflows/<discipline>-ci.yaml) locally in a sandboxed container. Runs immediately,
+  no approval needed - it changes nothing in Jira or git. Report the real pass/fail and exit code
+  plainly.
+- If it failed: ask_user "File a defect for this CI failure?" with options: File defect, Skip.
+  - File defect: delegate_to_ci file-defect with draftId and approved=true. Report the returned
+    defect key plainly (filed under the Epic, not a specific Task), and say the human can fix it
+    and ask to run CI again to retest.
+  - Skip: acknowledge and stop.
+Only offer this when the human asks to run CI, or asks whether their code passes - never as an
+automatic follow-up to Gate 4/5, and never confuse this local run with Gate 7's own formal test
+result (Gate 7's Playwright numbers are the QA-owned, human-approved evidence that closes out one
+specific Task; this is an informal, project-wide developer convenience run of the same checked-in
+steps).
 
 Answers to ask_user arrive as text such as "Approve", "Revise. Feedback: ...", "Reject. Reason: ...", or "Continue". Read the leading word as the decision and the rest as feedback.
 If the user only greets you, ask for a business requirement or an approved Epic key.

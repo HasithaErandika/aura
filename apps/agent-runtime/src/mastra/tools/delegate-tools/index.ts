@@ -10,3 +10,4 @@ export { delegateToQaTool } from './qa';
 export { delegateToTestTool } from './test';
 export { delegateToDeployTool } from './deploy';
 export { delegateToGitTool } from './git';
+export { delegateToCiTool } from './ci';

@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import CodeMirror from "@uiw/react-codemirror";
 import { vscodeDark } from "@uiw/codemirror-theme-vscode";
 import { useAsync } from "../../shared/hooks/useAsync.ts";
@@ -8,6 +9,8 @@ import { devFilesApi, scaffoldDisciplines, type ScaffoldDiscipline } from "./api
 import { languageExtension } from "./language.ts";
 import { FileTree } from "../../shared/ui/FileTree.tsx";
 import { DockerRunsPanel } from "../runs/components/DockerRunsPanel.tsx";
+import { workspaceApi } from "../workspace/api.ts";
+import { paths } from "../../app/paths.ts";
 import { PageHeader } from "../../shared/ui/PageHeader.tsx";
 import { Card } from "../../shared/ui/Card.tsx";
 import { Alert } from "../../shared/ui/Alert.tsx";
@@ -15,7 +18,7 @@ import { Button } from "../../shared/ui/Button.tsx";
 import { Input, Select, Field } from "../../shared/ui/Field.tsx";
 import { EmptyState } from "../../shared/ui/EmptyState.tsx";
 import { Skeleton } from "../../shared/ui/Skeleton.tsx";
-import { DocumentIcon, TreeIcon } from "../../shared/icons/index.tsx";
+import { DocumentIcon, RunIcon, TreeIcon } from "../../shared/icons/index.tsx";
 import { vscode } from "../../shared/lib/vscodeTheme.ts";
 
 // Viewer, and (for the Developer role) editor, for a Task's scaffolded directory (Gate 4/5
@@ -26,6 +29,7 @@ import { vscode } from "../../shared/lib/vscodeTheme.ts";
 // per-extension @codemirror/lang-*), rather than a flat file list with unhighlighted text.
 
 export function DevFilesPage() {
+  const navigate = useNavigate();
   const { profile } = useAuth();
   const canEdit = profile?.role === "developer";
 
@@ -83,6 +87,15 @@ export function DevFilesPage() {
     setLoaded({ epicKey: trimmed, discipline });
   }
 
+  // Opens the Orchestrator chat pre-filled to run delegate_to_ci - project-wide (epicKey +
+  // discipline, both already loaded on this page), not per-Task. Same ungated-but-visible
+  // pattern as QaFilesPage's "Run tests" shortcut into Gate 7.
+  async function runCi() {
+    if (!loaded) return;
+    const thread = await workspaceApi.createThread("orchestrator");
+    navigate(paths.workspaceThread(thread.id), { state: { initialMessage: `Run CI for the ${loaded.discipline} project under Epic ${loaded.epicKey}.` } });
+  }
+
   const files = filesState.data?.files ?? [];
 
   return (
@@ -125,6 +138,19 @@ export function DevFilesPage() {
           {/* Which Gate 4/5/7 containers touched this Epic, right where its files are being
               browsed - the "place to see running Docker components" this page was missing. */}
           <DockerRunsPanel epicKey={loaded.epicKey} title="Docker runs for this Epic" description="Scaffold, coding, and test containers labeled with this Epic." />
+
+          {loaded.discipline === "Frontend" || loaded.discipline === "Backend" ? (
+            <Card>
+              <div className="flex flex-wrap items-center gap-3 p-4">
+                <Button variant="primary" icon={<RunIcon className="size-3.5" />} onClick={() => void runCi()}>
+                  Run CI
+                </Button>
+                <p className="text-xs text-ink-500">
+                  Opens the Orchestrator chat pre-filled to run the whole {loaded.discipline} project's checked-in CI (.github/workflows) locally, in Docker - project-wide, no approval gate, nothing pushed anywhere.
+                </p>
+              </div>
+            </Card>
+          ) : null}
 
           <Card className="overflow-hidden p-0">
             <div className="grid grid-cols-1 lg:grid-cols-[280px_1fr]" style={{ height: "70vh" }}>

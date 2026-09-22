@@ -9,6 +9,105 @@ import { generateObject, type MastraLike } from '../../lib/generate-object';
 import { devWorkspaceDir } from '../../workspace/dev-workspace';
 import { isDockerAvailable, runInContainer } from '../../lib/docker-exec';
 import { provenance, disciplineFromTask } from './shared';
+import { mkdir, writeFile, access } from 'node:fs/promises';
+import path from 'node:path';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
+
+const execFileAsync = promisify(execFile);
+
+// One CI step list per discipline - the single source of truth both `.github/workflows/*.yaml`
+// (written below, at scaffold time) and delegate_to_ci (ci.ts, run on demand) build from, so a
+// local "run CI" can never drift from what the checked-in workflow file actually declares.
+// Playwright specs land at these fixed paths by delegate_to_qa's file step (Gate 6) - `tests/`
+// for Frontend (UI scenarios), `test/e2e/` for Backend (API scenarios).
+export const CI_STEPS: Record<'Frontend' | 'Backend', { name: string; run: string }[]> = {
+  Frontend: [
+    { name: 'Install dependencies', run: 'npm ci' },
+    { name: 'Build', run: 'npm run build' },
+    { name: 'Install Playwright browsers', run: 'npx --yes playwright install --with-deps chromium' },
+    { name: 'Run Playwright tests', run: 'npx --yes playwright test tests' },
+  ],
+  Backend: [
+    { name: 'Install dependencies', run: 'npm ci' },
+    { name: 'Build', run: 'npm run build' },
+    { name: 'Install Playwright browsers', run: 'npx --yes playwright install --with-deps chromium' },
+    {
+      name: 'Start the app and run Playwright tests',
+      run: ['(npm run start > /tmp/app.log 2>&1 &)', 'npx --yes wait-on@7 http://localhost:4000 --timeout 30000', 'npx --yes playwright test test/e2e'].join('\n'),
+    },
+  ],
+};
+
+// Joins a discipline's CI_STEPS into one shell script for delegate_to_ci to run locally in a
+// single container - `set -e` makes any failing step abort the script (matching a normal CI
+// job's own "any step fails -> job fails" semantics) so the container's own exit code is
+// meaningful.
+export function ciStepsToShellScript(discipline: 'Frontend' | 'Backend'): string {
+  return ['set -e', ...CI_STEPS[discipline].map((s) => s.run)].join('\n');
+}
+
+function renderCiWorkflow(discipline: 'Frontend' | 'Backend'): string {
+  const lines: string[] = [
+    `name: ${discipline} CI`,
+    'on:',
+    '  push:',
+    '  pull_request:',
+    'jobs:',
+    '  build-and-test:',
+    '    runs-on: ubuntu-latest',
+    '    steps:',
+    '      - uses: actions/checkout@v4',
+    '      - uses: actions/setup-node@v4',
+    '        with:',
+    "          node-version: '22'",
+  ];
+  for (const step of CI_STEPS[discipline]) {
+    lines.push(`      - name: ${step.name}`);
+    const runLines = step.run.split('\n');
+    if (runLines.length > 1) {
+      lines.push('        run: |');
+      for (const l of runLines) lines.push(`          ${l}`);
+    } else {
+      lines.push(`        run: ${step.run}`);
+    }
+  }
+  return lines.join('\n') + '\n';
+}
+
+const DEFAULT_GITIGNORE = ['node_modules/', 'dist/', 'build/', '.env', 'test-results/', 'playwright-report/', ''].join('\n');
+
+// Best-effort, non-blocking finishing touches after a real scaffold succeeds: the CI workflow
+// file (so `.github/workflows/<discipline>-ci.yaml` exists from the start, not bolted on later),
+// a `.gitignore` if the scaffold tool didn't already write one (NestJS's `--skip-git` skips it
+// too), and `git init` (safe/idempotent - see delegate_to_git's own `init` op; the human still
+// owns the first real commit via that same gated tool). None of this touches Jira, and none of
+// it can fail the scaffold itself - a problem here is swallowed, never surfacing as a Gate 4
+// failure, since the scaffold on disk is what actually matters.
+async function finishScaffold(targetDir: string, discipline: 'Frontend' | 'Backend'): Promise<void> {
+  try {
+    const workflowsDir = path.join(targetDir, '.github', 'workflows');
+    await mkdir(workflowsDir, { recursive: true });
+    const fileName = discipline === 'Backend' ? 'backend-ci.yaml' : 'frontend-ci.yaml';
+    await writeFile(path.join(workflowsDir, fileName), renderCiWorkflow(discipline), 'utf8');
+  } catch {
+    // Informational convenience only.
+  }
+  try {
+    await access(path.join(targetDir, '.gitignore'));
+  } catch {
+    try {
+      await writeFile(path.join(targetDir, '.gitignore'), DEFAULT_GITIGNORE, 'utf8');
+    } catch {
+      // Informational convenience only.
+    }
+  }
+  try {
+    await execFileAsync('git', ['init'], { cwd: targetDir });
+  } catch {
+    // Best-effort - see delegate_to_git's own "init is safe/idempotent" comment.
+  }
+}
 
 interface ScaffoldEntry {
   image: string;
@@ -209,6 +308,11 @@ export const delegateToDevTool = createTool({
               error: `Scaffold failed (exit code ${result.exitCode}). Last output:\n${result.output.slice(-2000)}`,
             };
           }
+
+          if (record.content.discipline === 'Frontend' || record.content.discipline === 'Backend') {
+            await finishScaffold(record.content.targetDir, record.content.discipline);
+          }
+
           return {
             ok: true,
             draftId: record.id,
@@ -216,7 +320,7 @@ export const delegateToDevTool = createTool({
             taskKey: record.content.taskKey,
             targetDir: record.content.targetDir,
             exitCode: result.exitCode,
-            markdown: `Scaffold complete at ${record.content.targetDir}.`,
+            markdown: `Scaffold complete at ${record.content.targetDir}. A CI workflow (.github/workflows/${record.content.discipline === 'Backend' ? 'backend' : 'frontend'}-ci.yaml) and a local git repo (git init) were also set up - no remote, no push; that stays yours to do by hand.`,
           };
         }
       }

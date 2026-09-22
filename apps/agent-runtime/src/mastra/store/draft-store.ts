@@ -56,6 +56,7 @@ const ID_PREFIX: Record<DraftKind, string> = {
   'test-run': 'TEST',
   'deploy-plan': 'DEPLOY',
   'git-op': 'GIT',
+  'ci-run': 'CI',
 };
 
 // Generates a short random id prefixed by the draft kind.
