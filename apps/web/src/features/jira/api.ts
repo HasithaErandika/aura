@@ -1,7 +1,7 @@
 import { api } from "../../shared/api/client.ts";
-import type { JiraEpicDetail, JiraIssueDetail, JiraIssueSummary, JiraTransition } from "../../types/api.ts";
+import type { JiraComment, JiraEpicDetail, JiraIssueDetail, JiraIssueSummary, JiraTransition } from "../../types/api.ts";
 
-// Reads Jira Epics/Stories/Tasks through apps/api's /jira routes, which fetch Jira directly -
+// Reads Jira Epics/Stories/Tasks/Bugs through apps/api's /jira routes, which fetch Jira directly -
 // never through the agent runtime, so browsing Jira never runs an agent (PO or BA included).
 export const jiraApi = {
   status: () => api.get<{ configured: boolean }>("/jira/status"),
@@ -11,4 +11,6 @@ export const jiraApi = {
   transitions: (key: string) => api.get<{ transitions: JiraTransition[] }>(`/jira/issues/${encodeURIComponent(key)}/transitions`).then((r) => r.transitions),
   transition: (key: string, transitionId: string) =>
     api.post<{ issue: JiraIssueDetail }>(`/jira/issues/${encodeURIComponent(key)}/transitions`, { transitionId }).then((r) => r.issue),
+  comments: (key: string) => api.get<{ comments: JiraComment[] }>(`/jira/issues/${encodeURIComponent(key)}/comments`).then((r) => r.comments),
+  comment: (key: string, body: string) => api.post<{ comment: JiraComment }>(`/jira/issues/${encodeURIComponent(key)}/comments`, { body }).then((r) => r.comment),
 };

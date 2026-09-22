@@ -12,6 +12,7 @@ export const jiraRouter = Router();
 
 const querySchema = z.object({ q: z.string().trim().max(200).optional() });
 const transitionBodySchema = z.object({ transitionId: z.string().trim().min(1) }).strict();
+const commentBodySchema = z.object({ body: z.string().trim().min(1).max(4000) }).strict();
 
 function assertCanView(role: Parameters<typeof canViewJira>[0]) {
   if (!canViewJira(role)) throw forbidden("Your role cannot browse Jira");
@@ -92,5 +93,32 @@ jiraRouter.post(
     const issue = await jira.getIssue(key);
     await writeAudit({ actorId: user.id, actorRole: user.role, action: "jira.issue.transition", entityType: "jira_issue", entityId: key, metadata: { transitionId, toStatus: issue.status } });
     res.json({ issue });
+  }),
+);
+
+// GET /jira/issues/:key/comments - the full comment thread, oldest first.
+jiraRouter.get(
+  "/issues/:key/comments",
+  asyncHandler(async (req, res) => {
+    const user = currentUser(req);
+    assertCanView(user.role);
+    const key = idParam(req.params.key, "Issue");
+    const comments = await jira.getComments(key);
+    res.json({ comments });
+  }),
+);
+
+// POST /jira/issues/:key/comments - posts a comment. A direct human action, same reasoning as
+// the transition POST above - no approval gate, audited.
+jiraRouter.post(
+  "/issues/:key/comments",
+  asyncHandler(async (req, res) => {
+    const user = currentUser(req);
+    assertCanView(user.role);
+    const key = idParam(req.params.key, "Issue");
+    const { body } = parseOrThrow(commentBodySchema, req.body);
+    const comment = await jira.addComment(key, body);
+    await writeAudit({ actorId: user.id, actorRole: user.role, action: "jira.issue.comment", entityType: "jira_issue", entityId: key, metadata: { commentId: comment.id } });
+    res.json({ comment });
   }),
 );

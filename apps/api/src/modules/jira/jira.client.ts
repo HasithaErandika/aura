@@ -1,7 +1,7 @@
 import { env } from "../../config/env.js";
 import { jiraUnavailable, notFound, upstreamError } from "../../lib/http/errors.js";
 import { errorMessage } from "../../lib/logger.js";
-import type { JiraIssueDetail, JiraIssueSummary, JiraStatusCategory, JiraTransition } from "./jira.types.js";
+import type { JiraComment, JiraIssueDetail, JiraIssueSummary, JiraStatusCategory, JiraTransition } from "./jira.types.js";
 
 // Direct, read-only client for Jira Cloud's REST API (v3). This is deliberately separate from
 // apps/agent-runtime's Jira MCP client: that one is for writes, gated behind human approval and
@@ -78,6 +78,18 @@ function adfToText(node: AdfNode | null | undefined): string {
   return out.trim();
 }
 
+// The reverse of adfToText, minimal: plain text -> one ADF paragraph per line, joined by
+// hardBreak - Jira Cloud v3's comment endpoint requires ADF, it does not accept plain text.
+function textToAdf(text: string): { type: "doc"; version: 1; content: AdfNode[] } {
+  const lines = text.split("\n");
+  const content: AdfNode[] = [];
+  lines.forEach((line, i) => {
+    if (i > 0) content.push({ type: "hardBreak" });
+    if (line) content.push({ type: "text", text: line });
+  });
+  return { type: "doc", version: 1, content: [{ type: "paragraph", content }] };
+}
+
 interface RawJiraIssue {
   key: string;
   fields: {
@@ -90,6 +102,24 @@ interface RawJiraIssue {
     updated?: string;
     created?: string;
     description?: AdfNode | null;
+  };
+}
+
+interface RawJiraComment {
+  id: string;
+  author?: { displayName?: string } | null;
+  body?: AdfNode | null;
+  created: string;
+  updated?: string;
+}
+
+function toComment(raw: RawJiraComment): JiraComment {
+  return {
+    id: raw.id,
+    author: raw.author?.displayName ?? null,
+    body: adfToText(raw.body),
+    created: raw.created,
+    updated: raw.updated ?? null,
   };
 }
 
@@ -158,15 +188,17 @@ export const jira = {
     return toDetail(raw);
   },
 
-  // Stories and Tasks the Architect/BA workflow files under an Epic are parented directly to
-  // it (delegate-tools.ts `parentKey: epicKey`), so one JQL query covers both.
-  async getEpicChildren(epicKey: string): Promise<{ stories: JiraIssueSummary[]; tasks: JiraIssueSummary[] }> {
+  // Stories, Tasks, and Bugs are all parented directly to their Epic (delegate-tools.ts
+  // `parentKey: epicKey` for Stories/Tasks; the Tester Agent's Gate 7 file-defect mode for
+  // Bugs), so one JQL query covers all three.
+  async getEpicChildren(epicKey: string): Promise<{ stories: JiraIssueSummary[]; tasks: JiraIssueSummary[]; bugs: JiraIssueSummary[] }> {
     const jql = `parent = ${jqlString(epicKey)} ORDER BY created ASC`;
     const issues = await search(jql, SUMMARY_FIELDS, 200);
     const summaries = issues.map(toSummary);
     return {
       stories: summaries.filter((i) => i.issueType === "Story"),
       tasks: summaries.filter((i) => i.issueType === "Task"),
+      bugs: summaries.filter((i) => i.issueType === "Bug"),
     };
   },
 
@@ -191,5 +223,25 @@ export const jira = {
       method: "POST",
       body: { transition: { id: transitionId } },
     });
+  },
+
+  // An issue's comment thread, oldest first - includes both human comments and any AURA-agent
+  // provenance-stamped comments (Gate 3/4/5/6/7's own `jira.addComment` calls), so this is the
+  // one place both show up together.
+  async getComments(key: string): Promise<JiraComment[]> {
+    const { comments } = await jiraFetch<{ comments: RawJiraComment[] }>(
+      `/rest/api/3/issue/${encodeURIComponent(key)}/comment?orderBy=created`,
+    );
+    return (comments ?? []).map(toComment);
+  },
+
+  // Posts a plain-text comment - a direct human action, not an agent write; no gate needed
+  // (matches transitionIssue's own reasoning).
+  async addComment(key: string, body: string): Promise<JiraComment> {
+    const raw = await jiraFetch<RawJiraComment>(`/rest/api/3/issue/${encodeURIComponent(key)}/comment`, {
+      method: "POST",
+      body: { body: textToAdf(body) },
+    });
+    return toComment(raw);
   },
 };

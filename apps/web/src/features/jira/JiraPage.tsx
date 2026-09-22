@@ -1,22 +1,18 @@
 import { useEffect, useState } from "react";
-import { Link } from "react-router-dom";
 import { useAsync, type AsyncState } from "../../shared/hooks/useAsync.ts";
 import { describeError } from "../../shared/api/errors.ts";
 import { jiraApi } from "./api.ts";
-import { classifyWorkspaceFile, designDocsApi, sortedWorkspaceFiles, workspaceFileTitle } from "../design-docs/api.ts";
-import type { JiraEpicDetail, JiraIssueDetail, JiraIssueSummary, JiraStatusCategory, JiraTransition } from "../../types/api.ts";
-import { paths } from "../../app/paths.ts";
+import type { JiraComment, JiraEpicDetail, JiraIssueDetail, JiraIssueSummary, JiraStatusCategory, JiraTransition } from "../../types/api.ts";
 import { PageHeader } from "../../shared/ui/PageHeader.tsx";
 import { Card } from "../../shared/ui/Card.tsx";
 import { Alert } from "../../shared/ui/Alert.tsx";
 import { Badge, type Tone } from "../../shared/ui/Badge.tsx";
 import { Button } from "../../shared/ui/Button.tsx";
-import { Input, Select } from "../../shared/ui/Field.tsx";
+import { Input, Select, Textarea } from "../../shared/ui/Field.tsx";
 import { EmptyState } from "../../shared/ui/EmptyState.tsx";
 import { Skeleton } from "../../shared/ui/Skeleton.tsx";
 import { Spinner } from "../../shared/ui/Spinner.tsx";
-import { Markdown } from "../../shared/ui/Markdown.tsx";
-import { CheckIcon, ChevronRightIcon, DocumentIcon, ExternalLinkIcon, LayersIcon, PersonIcon, SearchIcon, TicketIcon } from "../../shared/icons/index.tsx";
+import { AlertIcon, CheckIcon, ChevronRightIcon, ExternalLinkIcon, LayersIcon, PersonIcon, SearchIcon, SendIcon, TicketIcon } from "../../shared/icons/index.tsx";
 import { timeAgo, truncate } from "../../shared/lib/format.ts";
 import { cn } from "../../shared/lib/cn.ts";
 
@@ -203,7 +199,7 @@ function EpicDetail({ state }: { state: AsyncState<JiraEpicDetail | null> }) {
     return <EmptyState icon={<LayersIcon className="size-5" />} title="Select an Epic" description="Pick an Epic from the list to see its Stories and Tasks." className="h-full py-16" />;
   }
 
-  const { epic, stories, tasks } = state.data;
+  const { epic, stories, tasks, bugs } = state.data;
 
   return (
     <div className="scroll-quiet min-h-0 flex-1 overflow-y-auto">
@@ -235,87 +231,82 @@ function EpicDetail({ state }: { state: AsyncState<JiraEpicDetail | null> }) {
 
       <IssueSection title="Stories" issues={stories} emptyHint="No Stories filed under this Epic yet." icon={TicketIcon} onChanged={() => void state.reload()} />
       <IssueSection title="Tasks" issues={tasks} emptyHint="No Tasks filed under this Epic yet." icon={CheckIcon} onChanged={() => void state.reload()} />
-      <DocumentsSection epicKey={epic.key} />
+      <IssueSection title="Bugs" issues={bugs} emptyHint="No Bugs filed under this Epic yet." icon={AlertIcon} onChanged={() => void state.reload()} />
+      <div className="px-5 py-4">
+        <CommentsSection issueKey={epic.key} />
+      </div>
     </div>
   );
 }
 
-// The Architect's per-Epic design workspace (architecture.md, plan.md, ADRs, requirements),
-// embedded here so Jira status and the design it produced live in one screen - no separate
-// trip to the Design Documents page for the everyday "what does this Epic look like" glance.
-// That page (source view, CodeMirror) is still one click away for a deeper read.
-function DocumentsSection({ epicKey }: { epicKey: string }) {
-  const [expandedPath, setExpandedPath] = useState<string | null>(null);
-  const [content, setContent] = useState<Record<string, { status: "loading" } | { status: "error"; message: string } | { status: "ready"; content: string }>>({});
+// A real Jira comment thread - fetched live, oldest first, with a composer to post a new one -
+// the same population of comments a human would see opening this issue in Jira itself, kept in
+// one place instead of a separate trip there.
+function CommentsSection({ issueKey }: { issueKey: string }) {
+  const commentsState = useAsync(() => jiraApi.comments(issueKey), [issueKey]);
+  const [comments, setComments] = useState<JiraComment[] | null>(null);
+  const [draft, setDraft] = useState("");
+  const [sending, setSending] = useState(false);
+  const [sendError, setSendError] = useState<string | null>(null);
 
-  const filesState = useAsync(() => designDocsApi.list(epicKey), [epicKey]);
-  const files = filesState.data ? sortedWorkspaceFiles(filesState.data.files) : [];
+  useEffect(() => {
+    setComments(commentsState.data ?? null);
+  }, [commentsState.data]);
 
-  async function toggle(path: string) {
-    const next = expandedPath === path ? null : path;
-    setExpandedPath(next);
-    if (next && !content[path]) {
-      setContent((prev) => ({ ...prev, [path]: { status: "loading" } }));
-      try {
-        const { content: text } = await designDocsApi.read(epicKey, path);
-        setContent((prev) => ({ ...prev, [path]: { status: "ready", content: text } }));
-      } catch (err) {
-        setContent((prev) => ({ ...prev, [path]: { status: "error", message: describeError(err) } }));
-      }
+  async function send() {
+    if (!draft.trim()) return;
+    setSending(true);
+    setSendError(null);
+    try {
+      const comment = await jiraApi.comment(issueKey, draft.trim());
+      setComments((prev) => [...(prev ?? []), comment]);
+      setDraft("");
+    } catch (err) {
+      setSendError(describeError(err));
+    } finally {
+      setSending(false);
     }
   }
 
   return (
-    <div className="border-b border-line px-5 py-4 last:border-b-0">
+    <div>
       <div className="mb-2 flex items-center gap-2">
-        <h3 className="text-xs font-semibold tracking-wide text-ink-500 uppercase">Documents</h3>
-        <Badge tone="outline">{files.length}</Badge>
-        <Link to={paths.designDocsEpic(epicKey)} className="ml-auto inline-flex items-center gap-1 text-xs font-medium text-ink-600 hover:text-ink-900">
-          Open in Design Documents <ExternalLinkIcon className="size-3.5" />
-        </Link>
+        <h3 className="text-xs font-semibold tracking-wide text-ink-500 uppercase">Comments</h3>
+        <Badge tone="outline">{comments?.length ?? 0}</Badge>
       </div>
-      {filesState.error ? (
-        <Alert tone="danger">{filesState.error}</Alert>
-      ) : filesState.loading && !filesState.data ? (
+      {commentsState.error ? (
+        <Alert tone="danger">{commentsState.error}</Alert>
+      ) : commentsState.loading && comments === null ? (
         <div className="space-y-2">
-          <Skeleton className="h-9 w-full" />
-          <Skeleton className="h-9 w-full" />
+          <Skeleton className="h-10 w-full" />
         </div>
-      ) : files.length === 0 ? (
-        <p className="text-xs text-ink-400">No design documents yet - the Architect hasn't filed a design for this Epic (Gate 3).</p>
       ) : (
-        <ul className="divide-y divide-line rounded-lg border border-line">
-          {files.map((f) => {
-            const meta = classifyWorkspaceFile(f.path);
-            const isOpen = expandedPath === f.path;
-            const entry = content[f.path];
-            return (
-              <li key={f.path}>
-                <button type="button" onClick={() => void toggle(f.path)} className="flex w-full items-center gap-2.5 px-3 py-2.5 text-left text-sm hover:bg-ink-50">
-                  <DocumentIcon className="size-3.5 shrink-0 text-ink-400" />
-                  <span className="min-w-0 flex-1 truncate text-ink-800 capitalize">{workspaceFileTitle(f.path)}</span>
-                  <Badge tone={meta.tone} className="shrink-0">
-                    {meta.label}
-                  </Badge>
-                  <ChevronRightIcon className={cn("size-3.5 shrink-0 text-ink-400 transition-transform", isOpen && "rotate-90")} />
-                </button>
-                {isOpen ? (
-                  <div className="border-t border-line bg-ink-50/60 px-3 py-3 text-xs">
-                    {!entry || entry.status === "loading" ? (
-                      <Spinner size="sm" label="Loading" />
-                    ) : entry.status === "error" ? (
-                      <p className="text-danger">{entry.message}</p>
-                    ) : (
-                      <div className="scroll-quiet max-h-80 overflow-y-auto">
-                        <Markdown source={entry.content} />
-                      </div>
-                    )}
+        <div className="space-y-2.5">
+          {comments && comments.length > 0 ? (
+            <ul className="space-y-2.5">
+              {comments.map((c) => (
+                <li key={c.id} className="rounded-lg border border-line bg-ink-50/60 px-3 py-2.5 text-xs">
+                  <div className="flex items-center gap-2 text-ink-500">
+                    <span className="font-medium text-ink-700">{c.author ?? "Unknown"}</span>
+                    <span>{timeAgo(c.created)}</span>
                   </div>
-                ) : null}
-              </li>
-            );
-          })}
-        </ul>
+                  <p className="mt-1 whitespace-pre-wrap leading-relaxed text-ink-700">{c.body}</p>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="text-xs text-ink-400">No comments yet.</p>
+          )}
+          <div className="space-y-1.5">
+            <Textarea rows={2} value={draft} onChange={(e) => setDraft(e.target.value)} placeholder="Write a comment..." className="text-sm" />
+            {sendError ? <p className="text-xs text-danger">{sendError}</p> : null}
+            <div className="flex justify-end">
+              <Button size="sm" variant="primary" icon={<SendIcon className="size-3.5" />} onClick={() => void send()} loading={sending} disabled={!draft.trim()}>
+                Comment
+              </Button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
@@ -464,6 +455,9 @@ function IssueRow({ issue, icon: Icon, onChanged }: { issue: JiraIssueSummary; i
                 )}
               </div>
               {moveError ? <p className="text-danger">{moveError}</p> : null}
+              <div className="border-t border-line pt-2.5">
+                <CommentsSection issueKey={issue.key} />
+              </div>
             </div>
           ) : null}
         </div>

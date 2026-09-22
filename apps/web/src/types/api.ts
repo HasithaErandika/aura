@@ -194,12 +194,21 @@ export interface JiraEpicDetail {
   epic: JiraIssueDetail;
   stories: JiraIssueSummary[];
   tasks: JiraIssueSummary[];
+  bugs: JiraIssueSummary[];
 }
 
 export interface JiraTransition {
   id: string;
   name: string;
   toStatus: string;
+}
+
+export interface JiraComment {
+  id: string;
+  author: string | null;
+  body: string;
+  created: string;
+  updated: string | null;
 }
 
 export interface RuntimeHealth {
