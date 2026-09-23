@@ -5,7 +5,7 @@ import { jira } from '../../mcp/jira-client';
 import { devWorkspaceDir } from '../../workspace/dev-workspace';
 import { isDockerAvailable, runInContainer } from '../../lib/docker-exec';
 import { draftStore } from '../../store/draft-store';
-import { provenance } from './shared';
+import { provenance, buildProvenance, type ProvenanceStamp } from './shared';
 import { ciStepsToShellScript } from './dev';
 
 // Runs an Epic's whole scaffolded project (Frontend or Backend - the checked-in CI is
@@ -49,6 +49,7 @@ const ciOutputSchema = z.object({
   defectKey: z.string().optional().describe('file-defect: the Jira Bug key created for the developer to pick up.'),
   markdown: z.string().optional().describe('The CI run output, or the defect confirmation. Show it to the user verbatim.'),
   error: z.string().optional(),
+  provenance: z.custom<ProvenanceStamp>().optional(),
 });
 
 function ciFail(error: unknown): z.infer<typeof ciOutputSchema> {
@@ -122,7 +123,7 @@ export const delegateToCiTool = createTool({
             return { ok: true, draftId: record.id, epicKey: record.content.epicKey, discipline: record.content.discipline, defectKey: record.filed.defectKey, markdown: `Already filed as ${record.filed.defectKey}. Nothing was filed twice.` };
           }
 
-          const stamp = provenance('CI (delegate_to_ci, local run)', 'deterministic (no model) - see .github/workflows', record, `${record.content.epicKey} (Epic, ${record.content.discipline} project)`);
+          const stamp = provenance('ci-tool', 'deterministic (no model) - see .github/workflows', record, `${record.content.epicKey} (Epic, ${record.content.discipline} project)`);
           const description = [
             `Local CI failed (exit code ${exitCode}) for the ${record.content.discipline} project under Epic ${record.content.epicKey}.`,
             '',
@@ -167,6 +168,7 @@ export const delegateToCiTool = createTool({
             discipline: record.content.discipline,
             defectKey: created.key,
             markdown: `Filed defect ${created.key}${created.url ? ` (${created.url})` : ''} for the CI failure, and commented on ${record.content.epicKey} linking to it. Once fixed, ask to run CI again to retest.`,
+            provenance: buildProvenance('ci-tool', 'deterministic (no model) - see .github/workflows', record, `${record.content.epicKey} (Epic, ${record.content.discipline} project)`),
           };
         }
       }

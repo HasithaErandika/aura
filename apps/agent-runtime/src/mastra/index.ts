@@ -51,8 +51,10 @@ printManifest({
   // entry. It holds no tools of its own either way (Claude Code/Codex/file-tools aren't
   // Orchestrator-visible tools, the same way dev-agent's Docker command isn't).
   'coding-agent': [],
-  // Same reasoning as coding-agent - delegate_to_git is entirely deterministic, no model call.
+  // Same reasoning as coding-agent - delegate_to_git and delegate_to_ci are entirely
+  // deterministic, no model call.
   'git-tool': [],
+  'ci-tool': [],
 } satisfies Record<AgentId, readonly string[]>);
 
 export const mastra = new Mastra({

@@ -6,7 +6,7 @@ import { jira } from '../../mcp/jira-client';
 import { devWorkspaceDir } from '../../workspace/dev-workspace';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { disciplineFromTask, provenance } from './shared';
+import { disciplineFromTask, provenance, buildProvenance, type ProvenanceStamp } from './shared';
 
 const execFileAsync = promisify(execFile);
 
@@ -31,6 +31,7 @@ const gitOutputSchema = z.object({
   epicKey: z.string().optional(),
   taskKey: z.string().optional(),
   error: z.string().optional(),
+  provenance: z.custom<ProvenanceStamp>().optional(),
 });
 
 function gitFail(error: unknown): z.infer<typeof gitOutputSchema> {
@@ -135,7 +136,7 @@ export const delegateToGitTool = createTool({
           }
 
           await draftStore.markFiled(record.id, { status: 'done', exitCode: String(exitCode) });
-          const stamp = provenance('Git workspace tool', 'deterministic (no model)', record, `${record.content.taskKey} (Task)`);
+          const stamp = provenance('git-tool', 'deterministic (no model)', record, `${record.content.taskKey} (Task)`);
           try {
             await jira.addComment(record.content.taskKey, gitOpFiledComment(record.content, exitCode, output, stamp));
           } catch {
@@ -145,7 +146,14 @@ export const delegateToGitTool = createTool({
           if (exitCode !== 0) {
             return { ok: false, draftId: record.id, epicKey: record.content.epicKey, taskKey: record.content.taskKey, error: `git ${op} failed (exit ${exitCode}). Output:\n${output.slice(-2000)}` };
           }
-          return { ok: true, draftId: record.id, epicKey: record.content.epicKey, taskKey: record.content.taskKey, markdown: `git ${op} finished.\n\n\`\`\`\n${output.trim().slice(-1500) || '(no output)'}\n\`\`\`` };
+          return {
+            ok: true,
+            draftId: record.id,
+            epicKey: record.content.epicKey,
+            taskKey: record.content.taskKey,
+            markdown: `git ${op} finished.\n\n\`\`\`\n${output.trim().slice(-1500) || '(no output)'}\n\`\`\``,
+            provenance: buildProvenance('git-tool', 'deterministic (no model)', record, `${record.content.taskKey} (Task)`),
+          };
         }
       }
     } catch (error) {

@@ -8,7 +8,7 @@ import { generateObject, type MastraLike } from '../../lib/generate-object';
 import { qaWorkspace } from '../../workspace/qa-workspace';
 import { devWorkspaceDir } from '../../workspace/dev-workspace';
 import type { WorkspaceRegistry } from '../../workspace/architect-workspace';
-import { provenance, type ToolWriterLike } from './shared';
+import { provenance, buildProvenance, type ProvenanceStamp, type ToolWriterLike } from './shared';
 import { mkdir, writeFile, access } from 'node:fs/promises';
 import path from 'node:path';
 
@@ -59,6 +59,7 @@ const qaOutputSchema = z.object({
   epicKey: z.string().optional(),
   scenarioCount: z.number().optional(),
   error: z.string().optional(),
+  provenance: z.custom<ProvenanceStamp>().optional(),
 });
 
 function qaFail(error: unknown): z.infer<typeof qaOutputSchema> {
@@ -158,7 +159,7 @@ export const delegateToQaTool = createTool({
 
           if (!filed.comment) {
             try {
-              const stamp = provenance('QA Agent', QA_MODEL_ID, record, `${epicKey} (Epic)`);
+              const stamp = provenance('qa-agent', QA_MODEL_ID, record, `${epicKey} (Epic)`);
               const scenarioPaths = record.content.scenarios.map((s) => `tests/${s.fileName}.spec.ts`);
               await jira.addComment(epicKey, qaFiledComment(record.content, 'test-plan.md', scenarioPaths, stamp));
               filed.comment = 'done';
@@ -167,7 +168,14 @@ export const delegateToQaTool = createTool({
               // The comment is informational; the workspace files are what matters.
             }
           }
-          return { ok: true, draftId: record.id, epicKey, scenarioCount: record.content.scenarios.length, markdown: filed.scaffoldCopy || undefined };
+          return {
+            ok: true,
+            draftId: record.id,
+            epicKey,
+            scenarioCount: record.content.scenarios.length,
+            markdown: filed.scaffoldCopy || undefined,
+            provenance: buildProvenance('qa-agent', QA_MODEL_ID, record, `${epicKey} (Epic)`),
+          };
         }
       }
     } catch (error) {

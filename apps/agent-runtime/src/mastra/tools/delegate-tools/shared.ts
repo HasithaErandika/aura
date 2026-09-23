@@ -1,9 +1,32 @@
 import { z } from 'zod';
 import type { DraftRecord } from '../../store/draft-store';
 import { scaffoldDisciplines } from '../../contracts/dev-drafts';
+import { AGENT_MANIFEST, type AgentId } from '../../agents/registry';
 
 // Helpers shared across every delegate_to_* tool (one file per gate in this directory - see
 // index.ts). Nothing here is gate-specific; a helper only lives here if at least two gates use it.
+
+// Structured form of the provenance stamp below (docs/ARCHITECTURE.md section 5.3: "Full
+// provenance stamp (agent version, prompt version, model + version, run/trace ID) on every
+// artifact"). Every delegate tool that files or revises a Jira artifact attaches one of these
+// to its `provenance` output field, so it survives in run_steps (apps/api mirrors every tool
+// result verbatim - orchestration/run-stream.service.ts) independently of the human-readable
+// text baked into the Jira description/comment. threadId doubles as the run/trace ID: Mastra
+// does not surface its own runId inside a tool's execute context, but threadId is the same
+// value apps/api's workflow_runs.thread_id and audit_logs carry, so it is enough to correlate
+// an artifact back to the exact run and its approval/audit trail.
+export interface ProvenanceStamp {
+  agentId: AgentId;
+  agentLabel: string;
+  agentVersion: string;
+  promptVersion: string;
+  modelId: string;
+  draftId: string;
+  draftVersion: number;
+  threadId: string | null;
+  source: string;
+  filedAt: string;
+}
 
 // Generic draft/revise/file output shape used by po/ba/architect (dev/code/qa/test/deploy/git
 // each define their own narrower schema in their own file, since they return extra fields like
@@ -17,6 +40,7 @@ export const outputSchema = z.object({
   storyKeys: z.array(z.string()).optional(),
   taskKeys: z.array(z.string()).optional(),
   error: z.string().optional(),
+  provenance: z.custom<ProvenanceStamp>().optional(),
 });
 export type DelegateOutput = z.infer<typeof outputSchema>;
 
@@ -35,12 +59,36 @@ export function slugify(title: string): string {
     .slice(0, 60);
 }
 
-// Builds the "Created by / Source / Filed" provenance stamp appended to filed Jira content.
-export function provenance(agentLabel: string, modelId: string, draft: DraftRecord, source: string): string {
+// Builds the structured provenance record for a filed/revised artifact. modelId is passed
+// separately from the manifest's default (rather than always read from AGENT_MANIFEST) because
+// a couple of callers report the *actual* model/provider used for this specific run - e.g.
+// coding-agent's provider varies per Task (code.ts's codingProviderLabel) even though its
+// manifest entry can only describe "varies by provider" in general.
+export function buildProvenance(agentId: AgentId, modelId: string, draft: DraftRecord, source: string): ProvenanceStamp {
+  const manifest = AGENT_MANIFEST[agentId];
+  return {
+    agentId,
+    agentLabel: manifest.label,
+    agentVersion: manifest.agentVersion,
+    promptVersion: manifest.promptVersion,
+    modelId,
+    draftId: draft.id,
+    draftVersion: draft.version,
+    threadId: draft.threadId,
+    source,
+    filedAt: new Date().toISOString(),
+  };
+}
+
+// Renders the "Created by / Source / Trace / Filed" provenance stamp appended to filed Jira
+// content - the human-readable form of buildProvenance's structured record.
+export function provenance(agentId: AgentId, modelId: string, draft: DraftRecord, source: string): string {
+  const stamp = buildProvenance(agentId, modelId, draft, source);
   return [
-    `Created by: AURA · ${agentLabel} · ${modelId} · draft ${draft.id} v${draft.version}`,
+    `Created by: AURA · ${stamp.agentLabel} v${stamp.agentVersion} (prompt v${stamp.promptVersion}) · ${stamp.modelId} · draft ${stamp.draftId} v${stamp.draftVersion}`,
     `Source: ${source}`,
-    `Filed: ${new Date().toISOString()} (human-approved via the AURA Orchestrator)`,
+    `Trace: thread ${stamp.threadId ?? 'n/a'}`,
+    `Filed: ${stamp.filedAt} (human-approved via the AURA Orchestrator)`,
   ].join('\n');
 }
 

@@ -8,7 +8,7 @@ import { DEV_MODEL_ID } from '../../agents/registry';
 import { generateObject, type MastraLike } from '../../lib/generate-object';
 import { devWorkspaceDir } from '../../workspace/dev-workspace';
 import { isDockerAvailable, runInContainer } from '../../lib/docker-exec';
-import { provenance, disciplineFromTask } from './shared';
+import { provenance, buildProvenance, disciplineFromTask, type ProvenanceStamp } from './shared';
 import { mkdir, writeFile, access } from 'node:fs/promises';
 import path from 'node:path';
 import { execFile } from 'node:child_process';
@@ -193,6 +193,7 @@ const devOutputSchema = z.object({
   targetDir: z.string().optional(),
   exitCode: z.number().optional(),
   error: z.string().optional(),
+  provenance: z.custom<ProvenanceStamp>().optional(),
 });
 
 function devFail(error: unknown): z.infer<typeof devOutputSchema> {
@@ -294,7 +295,7 @@ export const delegateToDevTool = createTool({
           }
 
           await draftStore.markFiled(record.id, { status: 'done', exitCode: String(result.exitCode) });
-          const stamp = provenance('Dev Agent', DEV_MODEL_ID, record, `${record.content.taskKey} (Task)`);
+          const stamp = provenance('dev-agent', DEV_MODEL_ID, record, `${record.content.taskKey} (Task)`);
           try {
             await jira.addComment(record.content.taskKey, devScaffoldFiledComment(record.content, result.exitCode, result.output, stamp));
           } catch {
@@ -324,6 +325,7 @@ export const delegateToDevTool = createTool({
             targetDir: record.content.targetDir,
             exitCode: result.exitCode,
             markdown: `Scaffold complete at ${record.content.targetDir}. A CI workflow (.github/workflows/${record.content.discipline === 'Backend' ? 'backend' : 'frontend'}-ci.yaml) and a local git repo (git init) were also set up - no remote, no push; that stays yours to do by hand.`,
+            provenance: buildProvenance('dev-agent', DEV_MODEL_ID, record, `${record.content.taskKey} (Task)`),
           };
         }
       }

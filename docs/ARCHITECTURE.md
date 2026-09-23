@@ -2,7 +2,7 @@
 
 > **Status:** v0.3 — rewritten to separate what is built from what is planned
 > **Owner:** Platform Architecture
-> **Last updated:** 2026-09-22
+> **Last updated:** 2026-09-23
 
 This document describes the **built system** first, then lists everything
 planned but not implemented in one place: [Section 5 — Pending (Future)](#5-pending-future).
@@ -251,7 +251,30 @@ Owned by the runtime, not Supabase:
 Project scope (who can see/run what) is enforced entirely in
 `policy.ts` — there is no per-row database enforcement yet.
 
-### 2.7 Monorepo layout
+### 2.7 Provenance and audit evidence
+
+Every filed/revised Jira artifact (Epic, Story, architecture Task, dev
+scaffold, coding-agent change, QA plan, test result, defect, release plan,
+git op, CI run) carries a full provenance stamp: producing agent id, agent
+version, prompt version, model (or provider) id, draft id/version, and the
+thread id it was produced in (the run/trace correlator — the same value
+`workflow_runs.thread_id` carries, so an artifact can be traced back to its
+exact run and approval history). `apps/agent-runtime/src/mastra/agents/registry.ts`
+is the source of truth for agent/prompt versions, bumped by hand alongside
+the agent's tool/prompt file; `tools/delegate-tools/shared.ts` renders the
+stamp into Jira content and returns the same data as a structured
+`provenance` field on the tool's result, which `apps/api`'s
+`orchestration/run-stream.service.ts` already mirrors verbatim into
+`run_steps.payload` — no separate plumbing needed to make it durable and
+queryable.
+
+`GET /audit/export` (admin-only) produces a downloadable evidence bundle
+(JSON or CSV) from `audit_logs` for SOC2/ISO reviews: unpaginated within a
+50,000-row safety cap, framed with an export manifest (who pulled it, when,
+under what filter, and a note that the table is DB-enforced append-only),
+and the export itself is audited (`audit.exported`).
+
+### 2.8 Monorepo layout
 
 ```
 aura/
@@ -330,9 +353,9 @@ into a reliable, scalable, enterprise-grade platform.
   enforced by RLS at the DB layer — today scope is enforced only in
   `policy.ts`, a single point of failure.
 - SSO/SAML federation and per-region deployment for data residency.
-- Full provenance stamp (agent version, prompt version, model + version,
+- ~~Full provenance stamp (agent version, prompt version, model + version,
   run/trace ID) on every artifact, and exportable audit evidence for
-  SOC2/ISO reviews.
+  SOC2/ISO reviews.~~ Built — see section 2.7.
 - Server-enforced cost budgets per run/project/org, not just recorded cost.
 
 **4. AI harness — hardening the agent control plane itself**
@@ -359,7 +382,6 @@ but a stronger, auditable boundary around the ones that exist.
 - Tool Gateway as its own service (today its steps live split across delegate tools and `apps/api`).
 - Timeouts / circuit breakers beyond a per-turn ceiling.
 - Agent Registry as a real service (today a static file, `agents/registry.ts`).
-- Full provenance stamp (agent version, prompt version, run/trace ID) — only a partial stamp exists today.
 
 **Authorization & multi-tenancy**
 - SSO federation (SAML/OIDC) and Jira webhook ingestion.

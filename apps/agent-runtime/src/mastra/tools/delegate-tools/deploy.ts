@@ -5,7 +5,7 @@ import { draftStore } from '../../store/draft-store';
 import { jira } from '../../mcp/jira-client';
 import { DEPLOYER_MODEL_ID } from '../../agents/registry';
 import { generateObject, type MastraLike } from '../../lib/generate-object';
-import { provenance } from './shared';
+import { provenance, buildProvenance, type ProvenanceStamp } from './shared';
 
 // ==================== Deployer Agent (Gate 8, plan-only) ====================
 
@@ -25,6 +25,7 @@ const deployOutputSchema = z.object({
   markdown: z.string().optional().describe('Human-readable draft. Show it to the user verbatim.'),
   epicKey: z.string().optional(),
   error: z.string().optional(),
+  provenance: z.custom<ProvenanceStamp>().optional(),
 });
 
 function deployFail(error: unknown): z.infer<typeof deployOutputSchema> {
@@ -72,7 +73,7 @@ export const delegateToDeployTool = createTool({
           const record = await draftStore.get<DeployDraft>(input.draftId);
           if (!record || record.kind !== 'deploy-plan') return deployFail(`unknown deploy draft ${input.draftId}`);
           if (record.filed.comment) return { ok: true, draftId: record.id, epicKey: record.content.epicKey };
-          const stamp = provenance('Deployer Agent', DEPLOYER_MODEL_ID, record, `${record.content.epicKey} (Epic)`);
+          const stamp = provenance('deployer-agent', DEPLOYER_MODEL_ID, record, `${record.content.epicKey} (Epic)`);
           await jira.addComment(record.content.epicKey, deployFiledComment(record.content, stamp));
           try {
             const transitions = await jira.getTransitions(record.content.epicKey);
@@ -82,7 +83,7 @@ export const delegateToDeployTool = createTool({
             // Best-effort; the plan itself is what matters.
           }
           await draftStore.markFiled(record.id, { ...record.filed, comment: 'done' });
-          return { ok: true, draftId: record.id, epicKey: record.content.epicKey };
+          return { ok: true, draftId: record.id, epicKey: record.content.epicKey, provenance: buildProvenance('deployer-agent', DEPLOYER_MODEL_ID, record, `${record.content.epicKey} (Epic)`) };
         }
       }
     } catch (error) {

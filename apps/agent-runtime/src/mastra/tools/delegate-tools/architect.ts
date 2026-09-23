@@ -17,7 +17,7 @@ import { jira, jiraIssueUrl, type JiraIssueSummary } from '../../mcp/jira-client
 import { ARCHITECT_MODEL_ID } from '../../agents/registry';
 import { generateObject, type MastraLike } from '../../lib/generate-object';
 import { architectWorkspace, type WorkspaceRegistry } from '../../workspace/architect-workspace';
-import { outputSchema, fail, provenance, slugify, type ToolWriterLike } from './shared';
+import { outputSchema, fail, provenance, buildProvenance, slugify, type ToolWriterLike } from './shared';
 
 const architectInputSchema = z
   .object({
@@ -162,7 +162,7 @@ export const delegateToArchitectTool = createTool({
           // Already-filed tasks get updated in place; removed tasks keep their existing Jira issue untouched.
           const filedIndices = Object.keys(previous.filed).filter((k) => k !== 'adrComment');
           if (filedIndices.length) {
-            const stamp = provenance('Architect Agent', ARCHITECT_MODEL_ID, record, `${previous.content.epicKey} (Epic)`);
+            const stamp = provenance('architect-agent', ARCHITECT_MODEL_ID, record, `${previous.content.epicKey} (Epic)`);
             const carried: Record<string, string> = {};
             const syncFailures: string[] = [];
             for (const key of filedIndices) {
@@ -192,7 +192,13 @@ export const delegateToArchitectTool = createTool({
               };
             }
           }
-          return { ok: true, draftId: record.id, markdown: renderArchitecture(content), epicKey: previous.content.epicKey };
+          return {
+            ok: true,
+            draftId: record.id,
+            markdown: renderArchitecture(content),
+            epicKey: previous.content.epicKey,
+            provenance: filedIndices.length ? buildProvenance('architect-agent', ARCHITECT_MODEL_ID, record, `${previous.content.epicKey} (Epic)`) : undefined,
+          };
         }
         // Files the approved tasks in Jira and writes the design documents to the Architect workspace.
         case 'file': {
@@ -202,7 +208,7 @@ export const delegateToArchitectTool = createTool({
           if (!record || record.kind !== 'architecture') return fail(`unknown architecture draft ${input.draftId}`);
           const epicKey = record.content.epicKey;
           const filed = { ...record.filed };
-          const stamp = provenance('Architect Agent', ARCHITECT_MODEL_ID, record, `${epicKey} (Epic)`);
+          const stamp = provenance('architect-agent', ARCHITECT_MODEL_ID, record, `${epicKey} (Epic)`);
 
           // Writes the design documents to the workspace once, after approval.
           const docPaths: ArchitectureDocPaths = {
@@ -266,7 +272,7 @@ export const delegateToArchitectTool = createTool({
               // The comment is informational; the tasks and documents are what matters.
             }
           }
-          return { ok: true, draftId: record.id, epicKey, epicUrl: jiraIssueUrl(epicKey), taskKeys };
+          return { ok: true, draftId: record.id, epicKey, epicUrl: jiraIssueUrl(epicKey), taskKeys, provenance: buildProvenance('architect-agent', ARCHITECT_MODEL_ID, record, `${epicKey} (Epic)`) };
         }
       }
     } catch (error) {

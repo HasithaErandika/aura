@@ -5,7 +5,7 @@ import { draftStore } from '../../store/draft-store';
 import { jira, jiraIssueUrl } from '../../mcp/jira-client';
 import { BA_MODEL_ID } from '../../agents/registry';
 import { generateObject, type MastraLike } from '../../lib/generate-object';
-import { outputSchema, fail, provenance } from './shared';
+import { outputSchema, fail, provenance, buildProvenance } from './shared';
 
 const baInputSchema = z
   .object({
@@ -51,7 +51,7 @@ export const delegateToBaTool = createTool({
           // Already-filed Stories get updated in place; removed stories keep their existing Jira issue untouched.
           const filedIndices = Object.keys(previous.filed).filter((k) => k !== 'comment');
           if (filedIndices.length) {
-            const stamp = provenance('BA Agent', BA_MODEL_ID, record, `${previous.content.epicKey} (Epic)`);
+            const stamp = provenance('ba-agent', BA_MODEL_ID, record, `${previous.content.epicKey} (Epic)`);
             const carried: Record<string, string> = {};
             const syncFailures: string[] = [];
             for (const key of filedIndices) {
@@ -82,7 +82,13 @@ export const delegateToBaTool = createTool({
               };
             }
           }
-          return { ok: true, draftId: record.id, markdown: renderStories(content), epicKey: previous.content.epicKey };
+          return {
+            ok: true,
+            draftId: record.id,
+            markdown: renderStories(content),
+            epicKey: previous.content.epicKey,
+            provenance: filedIndices.length ? buildProvenance('ba-agent', BA_MODEL_ID, record, `${previous.content.epicKey} (Epic)`) : undefined,
+          };
         }
         // Files the approved Stories as Jira Stories under the Epic.
         case 'file': {
@@ -92,7 +98,7 @@ export const delegateToBaTool = createTool({
           if (!record || record.kind !== 'stories') return fail(`unknown stories draft ${input.draftId}`);
           const epicKey = record.content.epicKey;
           const filed = { ...record.filed };
-          const stamp = provenance('BA Agent', BA_MODEL_ID, record, `${epicKey} (Epic)`);
+          const stamp = provenance('ba-agent', BA_MODEL_ID, record, `${epicKey} (Epic)`);
           let failure: string | null = null;
           for (let i = 0; i < record.content.stories.length; i += 1) {
             const key = String(i);
@@ -126,7 +132,7 @@ export const delegateToBaTool = createTool({
               // The comment is informational; the stories are what matters.
             }
           }
-          return { ok: true, draftId: record.id, epicKey, epicUrl: jiraIssueUrl(epicKey), storyKeys };
+          return { ok: true, draftId: record.id, epicKey, epicUrl: jiraIssueUrl(epicKey), storyKeys, provenance: buildProvenance('ba-agent', BA_MODEL_ID, record, `${epicKey} (Epic)`) };
         }
       }
     } catch (error) {

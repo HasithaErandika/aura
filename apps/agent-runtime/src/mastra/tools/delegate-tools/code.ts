@@ -9,7 +9,7 @@ import { devWorkspaceDir } from '../../workspace/dev-workspace';
 import { readdir, writeFile, access } from 'node:fs/promises';
 import path from 'node:path';
 import os from 'node:os';
-import { provenance, disciplineFromTask } from './shared';
+import { provenance, buildProvenance, disciplineFromTask, type ProvenanceStamp } from './shared';
 
 // Filename the coding prompt is written to inside the target directory before the container
 // starts, so it only ever exists as file content - never interpolated into a shell string
@@ -68,6 +68,7 @@ const codingOutputSchema = z.object({
   targetDir: z.string().optional(),
   exitCode: z.number().optional(),
   error: z.string().optional(),
+  provenance: z.custom<ProvenanceStamp>().optional(),
 });
 
 function codeFail(error: unknown): z.infer<typeof codingOutputSchema> {
@@ -188,7 +189,7 @@ export const delegateToCodeTool = createTool({
           }
 
           await draftStore.markFiled(record.id, { status: 'done', exitCode: String(result.exitCode) });
-          const stamp = provenance('Coding Agent', codingProviderLabel[record.content.provider], record, `${record.content.taskKey} (Task)`);
+          const stamp = provenance('coding-agent', codingProviderLabel[record.content.provider], record, `${record.content.taskKey} (Task)`);
           try {
             await jira.addComment(record.content.taskKey, codingFiledComment(record.content, result.exitCode, result.output, stamp));
           } catch {
@@ -222,6 +223,7 @@ export const delegateToCodeTool = createTool({
             targetDir: record.content.targetDir,
             exitCode: result.exitCode,
             markdown: `Coding agent finished at ${record.content.targetDir}. Review the changes before merging.`,
+            provenance: buildProvenance('coding-agent', codingProviderLabel[record.content.provider], record, `${record.content.taskKey} (Task)`),
           };
         }
       }

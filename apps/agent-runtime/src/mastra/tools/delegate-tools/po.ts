@@ -5,7 +5,7 @@ import { draftStore } from '../../store/draft-store';
 import { jira, jiraIssueUrl } from '../../mcp/jira-client';
 import { PO_MODEL_ID } from '../../agents/registry';
 import { generateObject, type MastraLike } from '../../lib/generate-object';
-import { outputSchema, fail, provenance } from './shared';
+import { outputSchema, fail, provenance, buildProvenance } from './shared';
 
 const poInputSchema = z
   .object({
@@ -47,13 +47,22 @@ export const delegateToPoTool = createTool({
           if (previous.filed.epic) {
             const epicKey = previous.filed.epic;
             try {
+              const source = '(free-text business requirement, no upstream Jira issue)';
               await jira.updateIssue(epicKey, {
                 summary: content.title,
-                description: epicJiraDescription(content, provenance('PO Agent', PO_MODEL_ID, record, '(free-text business requirement, no upstream Jira issue)')),
+                description: epicJiraDescription(content, provenance('po-agent', PO_MODEL_ID, record, source)),
                 priority: content.priority,
               });
               await jira.addComment(epicKey, `AURA PO Agent revised this Epic after human feedback:\n\n${input.feedback.trim()}`);
               await draftStore.markFiled(record.id, { epic: epicKey }, epicKey);
+              return {
+                ok: true,
+                draftId: record.id,
+                markdown: renderEpic(content),
+                epicKey,
+                epicUrl: jiraIssueUrl(epicKey),
+                provenance: buildProvenance('po-agent', PO_MODEL_ID, record, source),
+              };
             } catch (error) {
               // Jira sync failed but the draft itself is saved - return draftId/markdown so it isn't lost.
               return {
@@ -65,7 +74,6 @@ export const delegateToPoTool = createTool({
                 error: `Draft revised (draftId ${record.id}), but syncing ${epicKey} in Jira failed: ${error instanceof Error ? error.message : String(error)}. Retry revise or file to sync again; nothing was created twice.`,
               };
             }
-            return { ok: true, draftId: record.id, markdown: renderEpic(content), epicKey, epicUrl: jiraIssueUrl(epicKey) };
           }
           return { ok: true, draftId: record.id, markdown: renderEpic(content) };
         }
@@ -78,14 +86,15 @@ export const delegateToPoTool = createTool({
           if (record.filed.epic) {
             return { ok: true, epicKey: record.filed.epic, epicUrl: jiraIssueUrl(record.filed.epic), draftId: record.id };
           }
+          const source = '(free-text business requirement, no upstream Jira issue)';
           const created = await jira.createIssue({
             summary: record.content.title,
             issueType: 'Epic',
-            description: epicJiraDescription(record.content, provenance('PO Agent', PO_MODEL_ID, record, '(free-text business requirement, no upstream Jira issue)')),
+            description: epicJiraDescription(record.content, provenance('po-agent', PO_MODEL_ID, record, source)),
             priority: record.content.priority,
           });
           await draftStore.markFiled(record.id, { epic: created.key }, created.key);
-          return { ok: true, epicKey: created.key, epicUrl: created.url, draftId: record.id };
+          return { ok: true, epicKey: created.key, epicUrl: created.url, draftId: record.id, provenance: buildProvenance('po-agent', PO_MODEL_ID, record, source) };
         }
       }
     } catch (error) {

@@ -10,7 +10,7 @@ import { qaWorkspaceRoot } from '../../workspace/qa-workspace';
 import { isDockerAvailable, runInContainer } from '../../lib/docker-exec';
 import { readdir, readFile, access } from 'node:fs/promises';
 import path from 'node:path';
-import { provenance, disciplineFromTask } from './shared';
+import { provenance, buildProvenance, disciplineFromTask, type ProvenanceStamp } from './shared';
 
 interface TestRunEntry {
   image: string;
@@ -115,6 +115,7 @@ const testOutputSchema = z.object({
   failed: z.number().optional(),
   defectKey: z.string().optional().describe('file-defect: the Jira Bug key created for the developer to pick up.'),
   error: z.string().optional(),
+  provenance: z.custom<ProvenanceStamp>().optional(),
 });
 
 function testFail(error: unknown): z.infer<typeof testOutputSchema> {
@@ -267,7 +268,7 @@ export const delegateToTestTool = createTool({
             summary: interpretation.summary,
             failureNotes: JSON.stringify(interpretation.failureNotes),
           });
-          const stamp = provenance('Tester Agent', TESTER_MODEL_ID, record, `${record.content.taskKey} (Task)`);
+          const stamp = provenance('tester-agent', TESTER_MODEL_ID, record, `${record.content.taskKey} (Task)`);
           try {
             await jira.addComment(
               record.content.taskKey,
@@ -291,7 +292,16 @@ export const delegateToTestTool = createTool({
             // Best-effort; the real result and interpretation are already returned to the human.
           }
 
-          return { ok: true, draftId: record.id, epicKey: record.content.epicKey, taskKey: record.content.taskKey, passed, failed, markdown };
+          return {
+            ok: true,
+            draftId: record.id,
+            epicKey: record.content.epicKey,
+            taskKey: record.content.taskKey,
+            passed,
+            failed,
+            markdown,
+            provenance: buildProvenance('tester-agent', TESTER_MODEL_ID, record, `${record.content.taskKey} (Task)`),
+          };
         }
         case 'file-defect': {
           if (!input.draftId) return testFail('file-defect needs draftId');
@@ -306,7 +316,7 @@ export const delegateToTestTool = createTool({
           }
 
           const failureNotes = JSON.parse(record.filed.failureNotes || '[]') as { name: string; verdict: string; note: string }[];
-          const stamp = provenance('Tester Agent', TESTER_MODEL_ID, record, `${record.content.taskKey} (Task)`);
+          const stamp = provenance('tester-agent', TESTER_MODEL_ID, record, `${record.content.taskKey} (Task)`);
           const description = [
             `Real Playwright failure(s) found testing ${record.content.taskKey} (${record.content.epicKey}), Gate 7.`,
             '',
@@ -355,6 +365,7 @@ export const delegateToTestTool = createTool({
             taskKey: record.content.taskKey,
             defectKey: created.key,
             markdown: `Filed defect ${created.key}${created.url ? ` (${created.url})` : ''} for the ${failed} failing test(s), and commented on ${record.content.taskKey} linking to it. Once fixed, ask to re-run Gate 7 to retest.`,
+            provenance: buildProvenance('tester-agent', TESTER_MODEL_ID, record, `${record.content.taskKey} (Task)`),
           };
         }
       }
