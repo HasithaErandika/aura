@@ -36,7 +36,8 @@ export function DevFilesPage() {
 
   const [epicKey, setEpicKey] = useState("");
   const [discipline, setDiscipline] = useState<ScaffoldDiscipline>("Frontend");
-  const [loaded, setLoaded] = useState<{ epicKey: string; discipline: ScaffoldDiscipline } | null>(null);
+  const [taskKey, setTaskKey] = useState("");
+  const [loaded, setLoaded] = useState<{ epicKey: string; discipline: ScaffoldDiscipline; taskKey?: string } | null>(null);
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
   const [showCi, setShowCi] = useState(false);
   const [viewingTask, setViewingTask] = useState<string | null>(null);
@@ -50,19 +51,19 @@ export function DevFilesPage() {
   const [saveError, setSaveError] = useState<string | null>(null);
 
   const filesState = useAsync(
-    () => (loaded ? devFilesApi.list(loaded.epicKey, loaded.discipline) : Promise.resolve(null)),
-    [loaded?.epicKey, loaded?.discipline],
+    () => (loaded ? devFilesApi.list(loaded.epicKey, loaded.discipline, loaded.taskKey) : Promise.resolve(null)),
+    [loaded?.epicKey, loaded?.discipline, loaded?.taskKey],
   );
   const fileState = useAsync(
-    () => (loaded && selectedPath ? devFilesApi.read(loaded.epicKey, loaded.discipline, selectedPath) : Promise.resolve(null)),
-    [loaded?.epicKey, loaded?.discipline, selectedPath],
+    () => (loaded && selectedPath ? devFilesApi.read(loaded.epicKey, loaded.discipline, selectedPath, loaded.taskKey) : Promise.resolve(null)),
+    [loaded?.epicKey, loaded?.discipline, loaded?.taskKey, selectedPath],
   );
 
   // Switching files drops any in-progress edit rather than carrying it to a different file.
   useEffect(() => {
     setEditing(false);
     setSaveError(null);
-  }, [loaded?.epicKey, loaded?.discipline, selectedPath]);
+  }, [loaded?.epicKey, loaded?.discipline, loaded?.taskKey, selectedPath]);
 
   function startEditing() {
     if (!fileState.data) return;
@@ -76,7 +77,7 @@ export function DevFilesPage() {
     setSaving(true);
     setSaveError(null);
     try {
-      await devFilesApi.write(loaded.epicKey, loaded.discipline, selectedPath, draft);
+      await devFilesApi.write(loaded.epicKey, loaded.discipline, selectedPath, draft, loaded.taskKey);
       setEditing(false);
       await fileState.reload();
     } catch (err) {
@@ -86,11 +87,12 @@ export function DevFilesPage() {
     }
   }
 
-  function load() {
+  function load(forTaskKey?: string) {
     const trimmed = epicKey.trim().toUpperCase();
     if (!trimmed) return;
+    const task = (forTaskKey ?? taskKey).trim().toUpperCase() || undefined;
     setSelectedPath(null);
-    setLoaded({ epicKey: trimmed, discipline });
+    setLoaded({ epicKey: trimmed, discipline, taskKey: task });
   }
 
   const files = filesState.data?.files ?? [];
@@ -120,10 +122,16 @@ export function DevFilesPage() {
               ))}
             </Select>
           </Field>
-          <Button variant="primary" onClick={load} disabled={!epicKey.trim()}>
+          <Field label="Task (worktree)" htmlFor="dev-files-task">
+            <Input id="dev-files-task" value={taskKey} onChange={(e) => setTaskKey(e.target.value)} placeholder="KAN-45 (blank = base scaffold)" className="w-56" onKeyDown={(e) => e.key === "Enter" && load()} />
+          </Field>
+          <Button variant="primary" onClick={() => load()} disabled={!epicKey.trim()}>
             Load
           </Button>
         </div>
+        <p className="px-4 pb-3 text-xs text-ink-500">
+          Leave Task blank to browse the shared base scaffold. Once a Task has run delegate_to_dev, its own code lives in an isolated git worktree - enter its key to browse that instead.
+        </p>
       </Card>
 
       {!loaded ? (
@@ -143,7 +151,7 @@ export function DevFilesPage() {
                   Run CI
                 </Button>
                 <p className="text-xs text-ink-500">
-                  Runs the whole {loaded.discipline} project's checked-in CI (.github/workflows) locally, in Docker, right here - project-wide, no approval gate, nothing pushed anywhere.
+                  Runs the {loaded.discipline} project's checked-in CI (.github/workflows) locally, in Docker, right here - against {loaded.taskKey ? `${loaded.taskKey}'s own worktree` : "the shared base scaffold"}, no approval gate, nothing pushed anywhere.
                 </p>
               </div>
             </Card>
@@ -169,14 +177,24 @@ export function DevFilesPage() {
               ) : (
                 <ul className="divide-y divide-line rounded-lg border border-line">
                   {tasks.map((t) => (
-                    <li key={t.key}>
-                      <button type="button" onClick={() => setViewingTask(t.key)} className="flex w-full items-center gap-2.5 px-3 py-2 text-left text-sm hover:bg-ink-50">
+                    <li key={t.key} className="flex items-center gap-1 px-1">
+                      <button type="button" onClick={() => setViewingTask(t.key)} className="flex min-w-0 flex-1 items-center gap-2.5 px-2 py-2 text-left text-sm hover:bg-ink-50">
                         <span className="shrink-0 font-mono text-xs font-semibold text-ink-500">{t.key}</span>
                         <span className="min-w-0 flex-1 truncate text-ink-800">{t.summary || "(no summary)"}</span>
                         <Badge tone={STATUS_TONE[t.statusCategory]} className="shrink-0">
                           {t.status}
                         </Badge>
                       </button>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => {
+                          setTaskKey(t.key);
+                          load(t.key);
+                        }}
+                      >
+                        Browse worktree
+                      </Button>
                     </li>
                   ))}
                 </ul>
@@ -195,6 +213,7 @@ export function DevFilesPage() {
                   </p>
                   <p className="mt-0.5 truncate font-mono text-xs font-semibold" style={{ color: vscode.text }}>
                     {loaded.epicKey} / {loaded.discipline.toLowerCase()}
+                    {loaded.taskKey ? ` / ${loaded.taskKey} (worktree)` : " (base scaffold)"}
                   </p>
                 </div>
                 <div className="min-h-0 flex-1 overflow-y-auto p-1.5">
@@ -207,7 +226,7 @@ export function DevFilesPage() {
                     </div>
                   ) : (
                     <FileTree
-                      key={`${loaded.epicKey}-${loaded.discipline}`}
+                      key={`${loaded.epicKey}-${loaded.discipline}-${loaded.taskKey ?? "base"}`}
                       files={files}
                       selectedPath={selectedPath}
                       onSelect={setSelectedPath}
@@ -281,7 +300,7 @@ export function DevFilesPage() {
       )}
 
       {showCi && loaded && (loaded.discipline === "Frontend" || loaded.discipline === "Backend") ? (
-        <RunCiModal epicKey={loaded.epicKey} discipline={loaded.discipline} onClose={() => setShowCi(false)} />
+        <RunCiModal epicKey={loaded.epicKey} discipline={loaded.discipline} taskKey={loaded.taskKey} onClose={() => setShowCi(false)} />
       ) : null}
       {viewingTask ? <TaskModal issueKey={viewingTask} onClose={() => setViewingTask(null)} /> : null}
     </>

@@ -260,20 +260,24 @@ export const runtimeClient = {
 
   // Custom routes registered in apps/agent-runtime/src/mastra/server/dev-workspace-routes.ts -
   // read-only viewer for a Task's scaffolded directory (Gate 4/5 output).
-  listDevWorkspaceFiles(epicKey: string, discipline: string): Promise<{ files: { path: string; size: number }[] }> {
-    return request(`/dev-workspace/${encodeURIComponent(epicKey)}/${encodeURIComponent(discipline)}/files`);
+  // taskKey, when given, browses that Task's own isolated git worktree instead of the shared
+  // base scaffold ("Concurrent Task Execution" milestone - real code lives in worktrees once a
+  // discipline has been scaffolded).
+  listDevWorkspaceFiles(epicKey: string, discipline: string, taskKey?: string): Promise<{ files: { path: string; size: number }[] }> {
+    const params = taskKey ? `?${new URLSearchParams({ taskKey }).toString()}` : "";
+    return request(`/dev-workspace/${encodeURIComponent(epicKey)}/${encodeURIComponent(discipline)}/files${params}`);
   },
 
-  readDevWorkspaceFile(epicKey: string, discipline: string, path: string): Promise<{ path: string; content: string }> {
-    const params = new URLSearchParams({ path });
+  readDevWorkspaceFile(epicKey: string, discipline: string, path: string, taskKey?: string): Promise<{ path: string; content: string }> {
+    const params = new URLSearchParams({ path, ...(taskKey ? { taskKey } : {}) });
     return request(`/dev-workspace/${encodeURIComponent(epicKey)}/${encodeURIComponent(discipline)}/file?${params.toString()}`);
   },
 
   // Overwrites one existing scaffolded file with human-edited content - the caller
   // (dev-workspace.router.ts) gates this to the developer role and audits every call, same
   // pattern as writeWorkspaceFile above.
-  writeDevWorkspaceFile(epicKey: string, discipline: string, path: string, content: string): Promise<{ path: string; content: string }> {
-    return request(`/dev-workspace/${encodeURIComponent(epicKey)}/${encodeURIComponent(discipline)}/file`, { method: "PUT", body: JSON.stringify({ path, content }) });
+  writeDevWorkspaceFile(epicKey: string, discipline: string, path: string, content: string, taskKey?: string): Promise<{ path: string; content: string }> {
+    return request(`/dev-workspace/${encodeURIComponent(epicKey)}/${encodeURIComponent(discipline)}/file`, { method: "PUT", body: JSON.stringify({ path, content, taskKey }) });
   },
 
   // Custom route registered in apps/agent-runtime/src/mastra/server/docker-runs-routes.ts -

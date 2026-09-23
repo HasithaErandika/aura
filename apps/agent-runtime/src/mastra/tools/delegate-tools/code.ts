@@ -5,8 +5,8 @@ import { draftStore, type DraftRecord } from '../../store/draft-store';
 import { jira } from '../../mcp/jira-client';
 import { isDockerAvailable, runInContainer } from '../../lib/docker-exec';
 import { createCodingAgent } from '../../agents/mastra-coding-agent';
-import { devWorkspaceDir } from '../../workspace/dev-workspace';
-import { readdir, writeFile, access } from 'node:fs/promises';
+import { devWorkspaceDir, taskWorktreeDir } from '../../workspace/dev-workspace';
+import { writeFile, access } from 'node:fs/promises';
 import path from 'node:path';
 import os from 'node:os';
 import { provenance, buildProvenance, disciplineFromTask, type ProvenanceStamp, type ToolWriterLike } from './shared';
@@ -178,14 +178,19 @@ export const delegateToCodeTool = createTool({
           const discipline = disciplineFromTask(task.description || '');
           if (!discipline) return codeFail(`Could not read a discipline off ${taskKey} - it should carry "**Discipline:** <name>"`);
 
-          const targetDir = await devWorkspaceDir(epicKey, discipline);
-          let scaffolded = false;
+          // This Task's own isolated worktree, created by delegate_to_dev (Gate 4) -  never the
+          // shared base repo directly, so two Tasks of the same discipline can never race or
+          // overwrite each other's changes ("Concurrent Task Execution" milestone).
+          const baseDir = await devWorkspaceDir(epicKey, discipline);
+          const targetDir = taskWorktreeDir(baseDir, taskKey);
+          let hasWorktree = false;
           try {
-            scaffolded = (await readdir(targetDir)).length > 0;
+            await access(path.join(targetDir, '.git'));
+            hasWorktree = true;
           } catch {
-            scaffolded = false;
+            hasWorktree = false;
           }
-          if (!scaffolded) return codeFail(`${taskKey} has not been scaffolded yet - run delegate_to_dev for it first (Gate 4), then come back here`);
+          if (!hasWorktree) return codeFail(`${taskKey} has no isolated worktree yet - run delegate_to_dev for it first (Gate 4), then come back here`);
 
           const prompt = [
             `Implement Jira Task ${taskKey}: ${task.summary}`,

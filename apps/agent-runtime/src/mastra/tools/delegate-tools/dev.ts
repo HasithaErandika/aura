@@ -6,10 +6,10 @@ import { draftStore } from '../../store/draft-store';
 import { jira } from '../../mcp/jira-client';
 import { DEV_MODEL_ID } from '../../agents/registry';
 import { generateObject, type MastraLike } from '../../lib/generate-object';
-import { devWorkspaceDir } from '../../workspace/dev-workspace';
+import { devWorkspaceDir, ensureTaskWorktree, taskWorktreeDir, taskBranchName } from '../../workspace/dev-workspace';
 import { isDockerAvailable, runInContainer } from '../../lib/docker-exec';
 import { provenance, buildProvenance, disciplineFromTask, AURA_GIT_IDENTITY, type ProvenanceStamp } from './shared';
-import { mkdir, writeFile, access } from 'node:fs/promises';
+import { mkdir, writeFile, access, readdir } from 'node:fs/promises';
 import path from 'node:path';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
@@ -232,15 +232,38 @@ export const delegateToDevTool = createTool({
           if ('error' in resolved) return devFail(resolved.error);
           const scaffold = resolved.entry;
 
-          const targetDir = await devWorkspaceDir(epicKey, discipline);
-          const prompt = `Task ${taskKey}: ${task.summary}\n\n${task.description || '(no description)'}\n\nDiscipline: ${discipline}\nWill run: ${scaffold.description}\nTarget directory: ${targetDir}\n\nReturn only the JSON the schema describes.`;
+          // The base repo is shared by every Task of this discipline in the Epic - check whether
+          // an earlier Task already scaffolded it before proposing the scaffold command again.
+          // This is the actual fix for re-running `npm create vite@latest` on top of another
+          // Task's already-scaffolded (or already in-progress) directory: a second Task only
+          // ever gets its own isolated worktree, never a second scaffold.
+          const baseDir = await devWorkspaceDir(epicKey, discipline);
+          let alreadyScaffolded = false;
+          try {
+            alreadyScaffolded = (await readdir(baseDir)).length > 0;
+          } catch {
+            alreadyScaffolded = false;
+          }
+          // Always this Task's own worktree path, even before it exists - execute() creates it
+          // (via ensureTaskWorktree) whether or not the base itself needed scaffolding first, so
+          // this is the one path every downstream tool (Coding Agent, Git tool, Tester Agent)
+          // will resolve to for this Task from here on.
+          const targetDir = taskWorktreeDir(baseDir, taskKey);
+          const branch = taskBranchName(taskKey);
+
+          const prompt = `Task ${taskKey}: ${task.summary}\n\n${task.description || '(no description)'}\n\nDiscipline: ${discipline}\n${
+            alreadyScaffolded ? `${discipline} is already scaffolded at ${baseDir} - this Task only gets its own isolated git worktree.` : `Will run: ${scaffold.description}`
+          }\nThis Task's own directory: ${targetDir}\n\nReturn only the JSON the schema describes.`;
           const { summary } = await generateObject(mastra as MastraLike, 'dev', prompt, z.object({ summary: z.string().min(10) }));
 
           const content: DevScaffoldDraft = {
             epicKey,
             taskKey,
             discipline,
+            baseDir,
             targetDir,
+            branch,
+            alreadyScaffolded,
             image: scaffold.image,
             command: scaffold.command,
             commandDescription: scaffold.description,
@@ -283,11 +306,34 @@ export const delegateToDevTool = createTool({
             // Best-effort; proceed regardless.
           }
 
+          // Already scaffolded by an earlier Task of this discipline - no scaffold command runs
+          // again, this Task only gets its own isolated git worktree off the existing base repo.
+          if (record.content.alreadyScaffolded) {
+            const worktree = await ensureTaskWorktree(record.content.baseDir, record.content.taskKey);
+            await draftStore.markFiled(record.id, { status: 'done', exitCode: '0' });
+            const stamp = provenance('dev-agent', DEV_MODEL_ID, record, `${record.content.taskKey} (Task)`);
+            try {
+              await jira.addComment(record.content.taskKey, devScaffoldFiledComment(record.content, 0, '', stamp));
+            } catch {
+              // The comment is informational; the worktree on disk is what matters.
+            }
+            return {
+              ok: true,
+              draftId: record.id,
+              epicKey: record.content.epicKey,
+              taskKey: record.content.taskKey,
+              targetDir: worktree.workDir,
+              exitCode: 0,
+              markdown: `${record.content.discipline} was already scaffolded at ${record.content.baseDir}. This Task now has its own isolated git worktree at ${worktree.workDir} on branch \`${worktree.branch}\` - nothing was re-scaffolded, and other Tasks' worktrees are untouched.`,
+              provenance: buildProvenance('dev-agent', DEV_MODEL_ID, record, `${record.content.taskKey} (Task)`),
+            };
+          }
+
           let result: { exitCode: number; output: string };
           try {
             result = await runInContainer({
               image: record.content.image,
-              hostDir: record.content.targetDir,
+              hostDir: record.content.baseDir,
               command: record.content.command,
               timeoutMs: 5 * 60_000,
               name: `aura-dev-${record.id}`,
@@ -300,15 +346,14 @@ export const delegateToDevTool = createTool({
             return devFail(error);
           }
 
-          await draftStore.markFiled(record.id, { status: 'done', exitCode: String(result.exitCode) });
-          const stamp = provenance('dev-agent', DEV_MODEL_ID, record, `${record.content.taskKey} (Task)`);
-          try {
-            await jira.addComment(record.content.taskKey, devScaffoldFiledComment(record.content, result.exitCode, result.output, stamp));
-          } catch {
-            // The comment is informational; the scaffold on disk is what matters.
-          }
-
           if (result.exitCode !== 0) {
+            await draftStore.markFiled(record.id, { status: 'done', exitCode: String(result.exitCode) });
+            const stamp = provenance('dev-agent', DEV_MODEL_ID, record, `${record.content.taskKey} (Task)`);
+            try {
+              await jira.addComment(record.content.taskKey, devScaffoldFiledComment(record.content, result.exitCode, result.output, stamp));
+            } catch {
+              // Best-effort.
+            }
             return {
               ok: false,
               draftId: record.id,
@@ -319,8 +364,21 @@ export const delegateToDevTool = createTool({
             };
           }
 
+          // Scaffold succeeded in the base repo: finish it (CI workflow, .gitignore, git init +
+          // chore commit - all committed to the base's default branch) BEFORE branching this
+          // first Task's own worktree off it, so the worktree inherits that baseline commit
+          // rather than branching off an empty/uncommitted repo.
           if (record.content.discipline === 'Frontend' || record.content.discipline === 'Backend') {
-            await finishScaffold(record.content.targetDir, record.content.discipline);
+            await finishScaffold(record.content.baseDir, record.content.discipline);
+          }
+          const worktree = await ensureTaskWorktree(record.content.baseDir, record.content.taskKey);
+
+          await draftStore.markFiled(record.id, { status: 'done', exitCode: String(result.exitCode) });
+          const stamp = provenance('dev-agent', DEV_MODEL_ID, record, `${record.content.taskKey} (Task)`);
+          try {
+            await jira.addComment(record.content.taskKey, devScaffoldFiledComment(record.content, result.exitCode, result.output, stamp));
+          } catch {
+            // The comment is informational; the scaffold on disk is what matters.
           }
 
           return {
@@ -328,9 +386,9 @@ export const delegateToDevTool = createTool({
             draftId: record.id,
             epicKey: record.content.epicKey,
             taskKey: record.content.taskKey,
-            targetDir: record.content.targetDir,
+            targetDir: worktree.workDir,
             exitCode: result.exitCode,
-            markdown: `Scaffold complete at ${record.content.targetDir}. A CI workflow (.github/workflows/${record.content.discipline === 'Backend' ? 'backend' : 'frontend'}-ci.yaml) and a local git repo (git init) were also set up - no remote, no push; that stays yours to do by hand.`,
+            markdown: `Scaffold complete at ${record.content.baseDir}. A CI workflow (.github/workflows/${record.content.discipline === 'Backend' ? 'backend' : 'frontend'}-ci.yaml) and a local git repo (git init) were also set up. This Task's own isolated worktree is at ${worktree.workDir} on branch \`${worktree.branch}\` - work happens there, not in the base repo. No remote, no push; that stays yours to do by hand.`,
             provenance: buildProvenance('dev-agent', DEV_MODEL_ID, record, `${record.content.taskKey} (Task)`),
           };
         }

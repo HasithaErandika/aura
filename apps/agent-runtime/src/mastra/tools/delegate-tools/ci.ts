@@ -2,7 +2,8 @@ import { createTool } from '@mastra/core/tools';
 import { z } from 'zod';
 import { access } from 'node:fs/promises';
 import { jira } from '../../mcp/jira-client';
-import { devWorkspaceDir } from '../../workspace/dev-workspace';
+import { devWorkspaceDir, taskWorktreeDir } from '../../workspace/dev-workspace';
+import path from 'node:path';
 import { isDockerAvailable, runInContainer } from '../../lib/docker-exec';
 import { draftStore } from '../../store/draft-store';
 import { provenance, buildProvenance, type ProvenanceStamp } from './shared';
@@ -28,13 +29,18 @@ import { ciStepsToShellScript } from './dev';
 interface CiRunDraft {
   epicKey: string;
   discipline: 'Frontend' | 'Backend';
+  taskKey: string | null;
 }
 
 const ciInputSchema = z
   .object({
     mode: z.enum(['run', 'file-defect']),
-    epicKey: z.string().optional().describe('run: the Epic whose scaffolded project to run CI against'),
-    discipline: z.enum(['Frontend', 'Backend']).optional().describe('run: which scaffolded project (must already exist via delegate_to_dev)'),
+    epicKey: z.string().optional().describe('run: the Epic whose project to run CI against'),
+    discipline: z.enum(['Frontend', 'Backend']).optional().describe('run: which project (must already exist via delegate_to_dev)'),
+    taskKey: z
+      .string()
+      .optional()
+      .describe("run: a specific Task's own isolated worktree to run CI against (recommended - tests that Task's real code). Omit to run against the shared base scaffold instead, which reflects no Task's changes once worktrees are in use."),
     draftId: z.string().optional().describe('file-defect: the draftId returned by a failed run'),
     approved: z.boolean().optional().describe('file-defect: must be true; set only after ask_user returned an approval'),
   })
@@ -59,7 +65,7 @@ function ciFail(error: unknown): z.infer<typeof ciOutputSchema> {
 export const delegateToCiTool = createTool({
   id: 'delegate_to_ci',
   description:
-    "Runs an Epic's whole scaffolded project's checked-in CI (the same steps as .github/workflows/<discipline>-ci.yaml, written by Gate 4) locally, inside a sandboxed Docker container - a preview of what CI would report, before pushing anywhere. This is project-wide, not per-Task - there is no taskKey. run: epicKey + discipline -> runs immediately, no approval needed (non-mutating) - returns {ok, draftId, exitCode, markdown}; ok=false means CI failed, read error for the log tail. file-defect: draftId + approved, only after a failed run -> files a real Jira Bug under the Epic with the failure log and comments the Epic pointing to it. Only Frontend and Backend/NestJS are supported (the disciplines Gate 4 actually scaffolds) - fails clearly for anything else. Never pushes anywhere and never calls the GitHub API - AURA has no GitHub integration at all.",
+    "Runs a project's checked-in CI (the same steps as .github/workflows/<discipline>-ci.yaml, written by Gate 4) locally, inside a sandboxed Docker container - a preview of what CI would report, before pushing anywhere. run: epicKey + discipline + taskKey -> runs against that Task's own isolated worktree (recommended - tests its real code); omit taskKey to run against the shared base scaffold instead, which reflects no Task's changes once worktrees are in use. Runs immediately, no approval needed (non-mutating) - returns {ok, draftId, exitCode, markdown}; ok=false means CI failed, read error for the log tail. file-defect: draftId + approved, only after a failed run -> files a real Jira Bug under the Epic with the failure log and comments the Epic pointing to it. Only Frontend and Backend/NestJS are supported (the disciplines Gate 4 actually scaffolds) - fails clearly for anything else. Never pushes anywhere and never calls the GitHub API - AURA has no GitHub integration at all.",
   inputSchema: ciInputSchema,
   outputSchema: ciOutputSchema,
   execute: async (input, { writer, agent }) => {
@@ -69,13 +75,19 @@ export const delegateToCiTool = createTool({
         case 'run': {
           const epicKey = input.epicKey?.trim().toUpperCase();
           const discipline = input.discipline;
+          const taskKey = input.taskKey?.trim().toUpperCase() || null;
           if (!epicKey || !discipline) return ciFail('run needs epicKey and discipline (Frontend or Backend)');
 
-          const targetDir = await devWorkspaceDir(epicKey, discipline);
+          const baseDir = await devWorkspaceDir(epicKey, discipline);
+          const targetDir = taskKey ? taskWorktreeDir(baseDir, taskKey) : baseDir;
           try {
-            await access(targetDir);
+            await access(taskKey ? path.join(targetDir, '.git') : targetDir);
           } catch {
-            return ciFail(`${discipline} under ${epicKey} has not been scaffolded yet - run delegate_to_dev for a Task in that discipline first (Gate 4)`);
+            return ciFail(
+              taskKey
+                ? `${taskKey} has no isolated worktree yet - run delegate_to_dev for it first (Gate 4)`
+                : `${discipline} under ${epicKey} has not been scaffolded yet - run delegate_to_dev for a Task in that discipline first (Gate 4)`,
+            );
           }
           if (!(await isDockerAvailable())) return ciFail('Docker is not available - install/start Docker to run CI locally');
 
@@ -86,8 +98,8 @@ export const delegateToCiTool = createTool({
               hostDir: targetDir,
               command: ciStepsToShellScript(discipline),
               timeoutMs: 10 * 60_000,
-              name: `aura-ci-${epicKey}-${discipline}-${Date.now()}`.toLowerCase(),
-              labels: { 'aura.epic': epicKey, 'aura.kind': 'ci' },
+              name: `aura-ci-${epicKey}-${discipline}-${taskKey ?? 'base'}-${Date.now()}`.toLowerCase(),
+              labels: { 'aura.epic': epicKey, 'aura.kind': 'ci', ...(taskKey ? { 'aura.task': taskKey } : {}) },
               onOutput: (chunk) => {
                 void writer?.custom({ type: 'data-ci-output', data: { chunk }, transient: true });
               },
@@ -96,10 +108,11 @@ export const delegateToCiTool = createTool({
             return ciFail(error);
           }
 
-          const content: CiRunDraft = { epicKey, discipline };
+          const content: CiRunDraft = { epicKey, discipline, taskKey };
           const record = await draftStore.create({ kind: 'ci-run', content, threadId, epicKey });
           await draftStore.markFiled(record.id, { exitCode: String(result.exitCode), output: result.output.slice(-4000) });
 
+          const label = taskKey ? `${epicKey} / ${taskKey} (${discipline})` : `${epicKey} (${discipline}, base scaffold)`;
           if (result.exitCode !== 0) {
             return {
               ok: false,
@@ -107,10 +120,10 @@ export const delegateToCiTool = createTool({
               epicKey,
               discipline,
               exitCode: result.exitCode,
-              error: `CI failed (exit code ${result.exitCode}). Last output:\n${result.output.slice(-2000)}`,
+              error: `CI failed (exit code ${result.exitCode}) for ${label}. Last output:\n${result.output.slice(-2000)}`,
             };
           }
-          return { ok: true, draftId: record.id, epicKey, discipline, exitCode: result.exitCode, markdown: `CI passed for ${epicKey} (${discipline}).\n\n\`\`\`\n${result.output.trim().slice(-2000)}\n\`\`\`` };
+          return { ok: true, draftId: record.id, epicKey, discipline, exitCode: result.exitCode, markdown: `CI passed for ${label}.\n\n\`\`\`\n${result.output.trim().slice(-2000)}\n\`\`\`` };
         }
         case 'file-defect': {
           if (!input.draftId) return ciFail('file-defect needs draftId');

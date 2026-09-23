@@ -21,8 +21,10 @@ const filePathSchema = z
   .refine((p) => !p.split("/").includes(".."), "path cannot contain '..'");
 
 const disciplineSchema = z.enum(["Frontend", "Backend", "Data", "AI", "Integration"]);
+const taskKeySchema = z.string().trim().max(40).optional();
 
-// GET /dev-workspace/:epicKey/:discipline/files - lists a Task's scaffolded files (Gate 4/5 output).
+// GET /dev-workspace/:epicKey/:discipline/files?taskKey=... - lists a Task's own isolated
+// worktree files, or the shared base scaffold if taskKey is omitted (Gate 4/5 output).
 devWorkspaceRouter.get(
   "/:epicKey/:discipline/files",
   asyncHandler(async (req, res) => {
@@ -30,12 +32,13 @@ devWorkspaceRouter.get(
     if (user.role !== "admin" && !canViewDevWorkspace(user.role)) throw forbidden("Your role cannot view scaffolded project files");
     const epicKey = idParam(req.params.epicKey, "Epic");
     const discipline = parseOrThrow(disciplineSchema, req.params.discipline);
-    const { files } = await runtimeClient.listDevWorkspaceFiles(epicKey, discipline);
+    const taskKey = parseOrThrow(taskKeySchema, req.query.taskKey);
+    const { files } = await runtimeClient.listDevWorkspaceFiles(epicKey, discipline, taskKey);
     res.json({ epicKey, discipline, files });
   }),
 );
 
-// GET /dev-workspace/:epicKey/:discipline/file?path=... - reads one scaffolded file's content.
+// GET /dev-workspace/:epicKey/:discipline/file?path=...&taskKey=... - reads one file's content.
 devWorkspaceRouter.get(
   "/:epicKey/:discipline/file",
   asyncHandler(async (req, res) => {
@@ -44,8 +47,9 @@ devWorkspaceRouter.get(
     const epicKey = idParam(req.params.epicKey, "Epic");
     const discipline = parseOrThrow(disciplineSchema, req.params.discipline);
     const path = parseOrThrow(filePathSchema, req.query.path);
+    const taskKey = parseOrThrow(taskKeySchema, req.query.taskKey);
     try {
-      const file = await runtimeClient.readDevWorkspaceFile(epicKey, discipline, path);
+      const file = await runtimeClient.readDevWorkspaceFile(epicKey, discipline, path, taskKey);
       res.json({ epicKey, discipline, ...file });
     } catch {
       throw notFound("Scaffolded file");
@@ -54,10 +58,11 @@ devWorkspaceRouter.get(
 );
 
 // Content limit matches workspace.router.ts's writeFileBodySchema.
-const writeFileBodySchema = z.object({ path: filePathSchema, content: z.string().max(100_000) }).strict();
+const writeFileBodySchema = z.object({ path: filePathSchema, content: z.string().max(100_000), taskKey: taskKeySchema }).strict();
 
-// PUT /dev-workspace/:epicKey/:discipline/file - overwrites one existing scaffolded file with
-// human-edited content. Developer-role only (the code's own author); every save is audited.
+// PUT /dev-workspace/:epicKey/:discipline/file - overwrites one existing file (in a Task's
+// worktree, or the base scaffold if taskKey is omitted) with human-edited content.
+// Developer-role only (the code's own author); every save is audited.
 devWorkspaceRouter.put(
   "/:epicKey/:discipline/file",
   asyncHandler(async (req, res) => {
@@ -65,10 +70,17 @@ devWorkspaceRouter.put(
     if (!canEditDevWorkspace(user.role)) throw forbidden("Your role cannot edit scaffolded project files");
     const epicKey = idParam(req.params.epicKey, "Epic");
     const discipline = parseOrThrow(disciplineSchema, req.params.discipline);
-    const { path, content } = parseOrThrow(writeFileBodySchema, req.body);
+    const { path, content, taskKey } = parseOrThrow(writeFileBodySchema, req.body);
     try {
-      const file = await runtimeClient.writeDevWorkspaceFile(epicKey, discipline, path, content);
-      await writeAudit({ actorId: user.id, actorRole: user.role, action: "workspace.file.edit", entityType: "dev_workspace_file", entityId: `${epicKey}/${discipline}/${path}`, metadata: { epicKey, discipline, path, length: content.length } });
+      const file = await runtimeClient.writeDevWorkspaceFile(epicKey, discipline, path, content, taskKey);
+      await writeAudit({
+        actorId: user.id,
+        actorRole: user.role,
+        action: "workspace.file.edit",
+        entityType: "dev_workspace_file",
+        entityId: `${epicKey}/${discipline}/${taskKey ?? "base"}/${path}`,
+        metadata: { epicKey, discipline, taskKey: taskKey ?? null, path, length: content.length },
+      });
       res.json({ epicKey, discipline, ...file });
     } catch {
       throw notFound("Scaffolded file");

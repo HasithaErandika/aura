@@ -5,8 +5,9 @@ import { draftStore } from '../../store/draft-store';
 import { jira } from '../../mcp/jira-client';
 import { TESTER_MODEL_ID } from '../../agents/registry';
 import type { MastraLike } from '../../lib/generate-object';
-import { devWorkspaceDir } from '../../workspace/dev-workspace';
-import { readdir } from 'node:fs/promises';
+import { devWorkspaceDir, taskWorktreeDir } from '../../workspace/dev-workspace';
+import { access } from 'node:fs/promises';
+import path from 'node:path';
 import { provenance, buildProvenance, disciplineFromTask, type ProvenanceStamp, type ToolWriterLike } from './shared';
 import { MAX_ITERATIONS, TEST_COMMANDS, type AttemptState } from '../../workflows/tester-workflow';
 
@@ -86,14 +87,18 @@ export const delegateToTestTool = createTool({
           const entry = TEST_COMMANDS[discipline];
           if (!entry) return testFail(`No test runner is configured for ${discipline} yet`);
 
-          const targetDir = await devWorkspaceDir(epicKey, discipline);
-          let scaffolded = false;
+          // This Task's own isolated worktree - the loop tests exactly this Task's code, never
+          // another Task's changes sharing the same discipline ("Concurrent Task Execution").
+          const baseDir = await devWorkspaceDir(epicKey, discipline);
+          const targetDir = taskWorktreeDir(baseDir, taskKey);
+          let hasWorktree = false;
           try {
-            scaffolded = (await readdir(targetDir)).length > 0;
+            await access(path.join(targetDir, '.git'));
+            hasWorktree = true;
           } catch {
-            scaffolded = false;
+            hasWorktree = false;
           }
-          if (!scaffolded) return testFail(`${taskKey} has not been scaffolded yet - run delegate_to_dev for it first (Gate 4)`);
+          if (!hasWorktree) return testFail(`${taskKey} has no isolated worktree yet - run delegate_to_dev for it first (Gate 4)`);
 
           const qaRecord = await draftStore.latestByEpic<QaDraft>('qa-plan', epicKey);
           if (!qaRecord || !qaRecord.filed.workspaceWritten) return testFail(`${epicKey} has no filed QA plan yet - run delegate_to_qa (Gate 6) and file it before testing`);
