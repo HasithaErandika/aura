@@ -14,7 +14,7 @@ import { Badge } from "../../shared/ui/Badge.tsx";
 // tool-activity/gate primitives the Workspace chat uses (GateCard, ToolActivity), just embedded
 // in a modal instead of a full conversation view. If CI fails, the resulting "File a defect?"
 // gate renders here too, so filing one never requires switching pages either.
-export function RunCiModal({ epicKey, discipline, onClose }: { epicKey: string; discipline: "Frontend" | "Backend"; onClose: () => void }) {
+export function RunCiModal({ epicKey, discipline, taskKey, onClose }: { epicKey: string; discipline: "Frontend" | "Backend"; taskKey?: string; onClose: () => void }) {
   const [threadId, setThreadId] = useState<string | null>(null);
   const [createError, setCreateError] = useState<string | null>(null);
   const startedSend = useRef(false);
@@ -39,7 +39,9 @@ export function RunCiModal({ epicKey, discipline, onClose }: { epicKey: string; 
   useEffect(() => {
     if (!threadId || startedSend.current) return;
     startedSend.current = true;
-    void conversation.send(`Run CI for the ${discipline} project under Epic ${epicKey}.`);
+    void conversation.send(
+      taskKey ? `Run CI for Task ${taskKey}'s own worktree (${discipline}) under Epic ${epicKey}.` : `Run CI for the shared ${discipline} base scaffold under Epic ${epicKey} (no specific Task).`,
+    );
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [threadId]);
 
@@ -49,7 +51,7 @@ export function RunCiModal({ epicKey, discipline, onClose }: { epicKey: string; 
   const tools = conversation.streaming?.tools ?? conversation.messages.at(-1)?.tools ?? [];
 
   return (
-    <Modal open onClose={onClose} title={`Run CI - ${discipline}`} description={epicKey} widthClassName="max-w-xl">
+    <Modal open onClose={onClose} title={`Run CI - ${discipline}`} description={taskKey ? `${epicKey} / ${taskKey}` : `${epicKey} (base scaffold)`} widthClassName="max-w-xl">
       <div className="space-y-3">
         {createError ? <Alert tone="danger">{createError}</Alert> : null}
         {conversation.error ? <Alert tone="danger">{conversation.error}</Alert> : null}

@@ -15,7 +15,17 @@ export const devScaffoldDraftSchema = z.object({
   epicKey: z.string().min(1),
   taskKey: z.string().min(1),
   discipline: z.enum(scaffoldDisciplines),
-  targetDir: z.string().min(1).describe('Host path the scaffold will be written into'),
+  // The Epic+discipline base repo - scaffolded once by the first Task of that discipline, never
+  // edited by an agent again after that. targetDir (below) is what every agent actually works
+  // in; baseDir exists so the plan/comment can say where the shared history lives.
+  baseDir: z.string().min(1).describe('The Epic+discipline base repo, scaffolded once and shared as history every Task branches from'),
+  targetDir: z.string().min(1).describe("This Task's own isolated git worktree - what the Coding Agent, Git tool, and Tester Agent actually operate on"),
+  branch: z.string().min(1).describe('This Task\'s own branch (feature/<taskKey>), checked out into targetDir'),
+  // True when baseDir was already scaffolded by an earlier Task of this discipline in the same
+  // Epic - the scaffold command does NOT run again in that case, only a new worktree is created
+  // for this Task ("Concurrent Task Execution" milestone - two Tasks of the same discipline must
+  // never share one mutable directory).
+  alreadyScaffolded: z.boolean(),
   image: z.string().min(1).describe('Docker image the scaffold command runs in'),
   command: z.string().min(1).describe('Fixed shell command that runs inside the container - resolved once at draft time, not re-derived at execute time'),
   commandDescription: z.string().min(1).describe('Fixed, human-readable description of exactly what will run'),
@@ -32,10 +42,12 @@ export function renderDevScaffoldPlan(draft: DevScaffoldDraft): string {
     DEV_PERSPECTIVE,
     '',
     `**Discipline:** ${draft.discipline}`,
-    `**Target directory:** ${draft.targetDir}`,
+    draft.alreadyScaffolded
+      ? `**${draft.discipline} is already scaffolded** at \`${draft.baseDir}\` (an earlier Task set it up). This Task gets its own isolated git worktree at \`${draft.targetDir}\` on branch \`${draft.branch}\` - the scaffold command below will NOT run again.`
+      : `**Target directory (base repo):** ${draft.baseDir}\n**This Task's worktree:** ${draft.targetDir} on branch \`${draft.branch}\``,
     '',
     '## What will run',
-    draft.commandDescription,
+    draft.alreadyScaffolded ? '*(nothing - only the worktree above gets created)*' : draft.commandDescription,
     '',
     '## Why this matches the Task',
     draft.summary,
@@ -48,10 +60,13 @@ export function renderDevScaffoldPlan(draft: DevScaffoldDraft): string {
 export function devScaffoldFiledComment(draft: DevScaffoldDraft, exitCode: number, outputTail: string, stamp: string): string {
   const lines = [
     exitCode === 0
-      ? `AURA Dev Agent scaffolded ${draft.discipline} for this Task.`
+      ? draft.alreadyScaffolded
+        ? `AURA Dev Agent created an isolated git worktree for this Task (${draft.discipline} was already scaffolded).`
+        : `AURA Dev Agent scaffolded ${draft.discipline} for this Task.`
       : `AURA Dev Agent's scaffold for this Task FAILED (exit code ${exitCode}).`,
     '',
-    `Local path: ${draft.targetDir}`,
+    `Task worktree: ${draft.targetDir} (branch ${draft.branch})`,
+    `Base repo: ${draft.baseDir}`,
     `Command: ${draft.commandDescription}`,
   ];
   if (exitCode !== 0 && outputTail.trim()) {

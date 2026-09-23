@@ -20,7 +20,7 @@ gates every consequential action behind human approval. There is no human
 oversees (a bounded test/diagnose/route/retest loop, section 2.4), not a
 person a project assigns.
 
-### Five principles
+### Six principles
 
 1. **Agents propose; deterministic code decides.** Authorization, risk
    classification, and audit are never delegated to a prompt.
@@ -39,6 +39,13 @@ person a project assigns.
    agent* — never what the model decides to try.
 5. **Evidence over assertion.** An agent may never claim a test passed or a
    requirement is met without a machine-generated artifact behind it.
+6. **Every Task gets an isolated workspace; agents never share a mutable
+   one.** Two Tasks of the same Epic and discipline never touch the same
+   working directory at the same time — each gets its own git worktree and
+   branch (section 2.4, "Concurrent Task Execution"). This is about
+   concurrent *developers/Tasks* within one project, a different problem
+   from multi-*tenant* isolation between organizations (not built — see
+   section 5.3): worktrees solve the first, not the second.
 
 ---
 
@@ -177,7 +184,7 @@ direct write.
 flowchart TD
     PO["PO — Gate 1<br/>Epic draft"] --> BA["BA — Gate 2<br/>Stories, AC, DoD"]
     BA --> ARCH["Architect — Gate 3<br/>Design, ADRs, architecture Tasks"]
-    ARCH --> DEV["Dev — Gate 4 (Project Init)<br/>git init + chore commit · scaffold (Frontend and/or Backend, one Task at a time) · CI workflow file"]
+    ARCH --> DEV["Dev — Gate 4 (Project Init)<br/>first Task of a discipline: scaffold + git init + chore commit + CI workflow file<br/>every Task: its own isolated git worktree + branch off that base"]
     DEV --> CODE["Coding Agent — Gate 5<br/>Production code · unit/integration tests"]
     CODE --> QA["QA Agent — Gate 6<br/>inspects implementation/API/UI · writes test scenarios · Playwright/API tests"]
     QA --> QAOK{"Human (QA Engineer)<br/>approves and starts Gate 7"}
@@ -203,7 +210,11 @@ flowchart TD
     DONE --> DEPLOY["Deployer — Gate 8<br/>release / change / rollback plan (plan only)"]
 ```
 
-Two things this diagram makes explicit that the table doesn't: Gate 4's "Project Init" is real (git, scaffold, CI) but runs **once per Task per discipline**, not once for the whole Epic — an Epic with both a Frontend and a Backend Task runs Gate 4 twice. And "test infrastructure" (a dedicated Playwright config/directory, as opposed to the scenario files themselves) is not a distinct Dev deliverable today — the test directory is created lazily, by QA's own file step (Gate 6) and by Tester's run step (Gate 7), not provisioned upfront at Gate 4.
+Two things this diagram makes explicit that the table doesn't. First, Gate 4 fires **once per Task**, not once per discipline: the scaffold command itself (git init, `npm create vite@latest`/`nest new`, CI workflow file) only runs for the *first* Task of a discipline in an Epic — every Task after that, including that first one, gets its own isolated git worktree checked out on its own branch (`feature/<taskKey>`) off the shared base repo (`workspace/dev-workspace.ts`'s `ensureTaskWorktree`). This is the actual fix for two Tasks of the same discipline racing or overwriting each other in one shared directory — every agent from here on (Coding Agent, Git tool, Tester Agent) operates on that Task's own worktree, never the base. Dependency installs aren't repeated per Task either: a fresh worktree's `node_modules` is symlinked from the base repo's already-installed one rather than reinstalled.
+
+Second, "test infrastructure" (a dedicated Playwright config/directory, as opposed to the scenario files themselves) is still not a distinct Dev deliverable — the test directory is created lazily, by QA's own file step (Gate 6) and by Tester's run step (Gate 7), not provisioned upfront at Gate 4.
+
+This is the "Concurrent Task Execution" milestone, not full "enterprise readiness": it solves multiple Tasks/developers safely sharing one project (git isolation), which is a different, narrower problem than multi-*tenant* isolation between organizations (`org_id`/RLS — still not built, section 5.3). Deliberately deferred alongside it: an Integration Agent to detect (not auto-resolve) merge conflicts between Tasks' branches, real remote Git (a GitHub App, push, PR, required checks), and multi-repository support — worktrees only solve isolation *within* one repository.
 
 Rules:
 - A gate only fires when a human asks for that stage; nothing auto-advances
@@ -224,32 +235,38 @@ Rules:
   `<AURA_WORKSPACE_ROOT>/<epicKey>/architecture/` only after Gate 3 approval,
   and are editable by an Architect through the Design Documents page (no
   version history on manual edits).
-- **Dev (Gate 4)** — project init for one Task's discipline: explains, but
-  does not choose, a fixed scaffold command read from the Task's own
-  discipline field, then (on approval) runs it in an ephemeral, non-root
-  Docker container mounted only to that Task's own workspace directory, and
-  finishes by writing the CI workflow file, a `.gitignore` if missing, and
-  an automatic `git init` + `chore: initial scaffold` commit. Run once per
-  Task per discipline — an Epic with both a Frontend and a Backend Task
-  runs this gate twice, not once for the whole Epic. **Frontend and
-  Backend/NestJS are implemented and verified** (real Docker run, correct
-  file ownership). Backend/Spring Boot, Data, AI, Integration, and
+- **Dev (Gate 4)** — project init, per Task: explains, but does not choose,
+  a fixed scaffold command read from the Task's own discipline field. On
+  approval: if this is the *first* Task of that discipline in the Epic, it
+  runs the scaffold in an ephemeral, non-root Docker container against a
+  shared **base repo**, then finishes it (CI workflow file, `.gitignore` if
+  missing, `git init` + `chore: initial scaffold` commit). Either way — first
+  Task or not — it then creates that Task's own isolated **git worktree**,
+  checked out on its own branch (`feature/<taskKey>`) off the base
+  (`workspace/dev-workspace.ts`'s `ensureTaskWorktree`), and every downstream
+  tool for that Task (Coding Agent, Git tool, Tester Agent) operates on the
+  worktree, never the base or another Task's worktree. A worktree's
+  `node_modules` is symlinked from the base's, not reinstalled. **Frontend
+  and Backend/NestJS are implemented and verified** (real Docker run,
+  correct file ownership). Backend/Spring Boot, Data, AI, Integration, and
   Deployment are **not implemented** — the tool fails clearly rather than
   doing nothing.
-- **Coding Agent (Gate 5)** — implements the scaffolded Task, and is now
-  also asked to write/update unit and integration tests alongside it, using
-  whatever test runner the scaffold already includes — end-to-end/UI
+- **Coding Agent (Gate 5)** — implements the Task, in that Task's own
+  worktree (never the shared base, never another Task's worktree), and is
+  now also asked to write/update unit and integration tests alongside it,
+  using whatever test runner the scaffold already includes — end-to-end/UI
   testing stays QA's job (Gate 6), not this agent's. Three interchangeable
   providers behind the same draft/approve/execute flow:
   - **AURA's own built-in agent** (default, no external account) — three
     file tools only (`list_files`/`read_file`/`write_file`), no shell
-    access, every path checked to stay inside the Task's own directory.
+    access, every path checked to stay inside the Task's own worktree.
     Verified end-to-end with a real model and file.
   - **Claude Code** / **Codex** — external CLIs, authenticated via the
     developer's own CLI login on the host (no API key stored by AURA), run
     non-interactively inside the same Docker sandbox as Gate 4. Built and
     typechecked; **CLI execution has not been verified end-to-end.**
-  - No git branch/PR automation at any provider.
+  - No git branch/PR automation at any provider — the worktree/branch Gate 4
+    creates is local only; nothing pushes it anywhere.
 - **QA (Gate 6)** — drafts a test plan and real Playwright spec files from
   the Epic's approved Stories **and, if Frontend/Backend is already
   scaffolded or implemented, the real code** (`workspace/read-scaffold-
@@ -259,8 +276,9 @@ Rules:
   failing scenario in isolation (`revise-scenario`) instead of regenerating
   the whole plan — every scenario carries its own revision counter.
 - **Tester (Gate 7)** — a bounded loop (`workflows/tester-workflow.ts`), not
-  a single pass: starts the scaffolded app for real and runs the suite in
-  Docker; the pass/failed/skipped counts always come from Playwright's own
+  a single pass: starts the Task's own worktree for real and runs the suite
+  in Docker (never a shared directory another Task could also be changing);
+  the pass/failed/skipped counts always come from Playwright's own
   JSON output, read by code, never a model's claim. On failure it collects
   evidence (the real error, the failing test's own source, the current git
   commit, the app's own output) and diagnoses each failure through an
@@ -268,33 +286,44 @@ Rules:
   problem? test implementation problem? application defect? requirements
   ambiguity? — before acting. Only two outcomes route automatically: a test
   implementation problem back to QA (revising only that one scenario) or an
-  application defect to the Coding Agent (a scoped fix against the same
-  already-scaffolded directory, filing/updating one linked Jira Bug rather
-  than a new one per attempt). Everything else — including any diagnosis
+  application defect to the Coding Agent (a scoped fix against that same
+  Task's own worktree, filing/updating one linked Jira Bug rather than a
+  new one per attempt). Everything else — including any diagnosis
   the model isn't confident about — routes straight to a human; the loop
   never guesses. Retries up to 3 attempts, then sets the run to
   `HALTED_LOOP_GUARD` with the full attempt history attached.
 - **Deployer (Gate 8)** — produces a release note, change plan, and
   rollback plan only. There is no execute mode and no deployment pipeline.
 - **Git tool** — local `init`/`branch`/`commit` (gated) and `status`/`diff`
-  (ungated, read-only). No push, no PR, no GitHub/GitLab integration of any
-  kind exists. Gate 4's scaffold step also makes its own first commit
-  automatically (`chore: initial <discipline> scaffold`) right after
-  scaffolding, under a fixed `AURA <aura@localhost>` identity (not the
-  host's git config) — so `git diff` after Gate 5 shows exactly what the
-  Coding Agent changed versus the raw scaffold, not every file as untracked.
-- **CI tool** (`delegate_to_ci`) — re-runs a scaffolded project's own local
-  checks (not per-Task) inside the same Docker sandbox, and can file a Jira
-  Bug on failure. "CI" here means this local run; there is no external CI
-  system involved.
+  (ungated, read-only), always against the Task's own worktree — `status`/
+  `diff` show exactly this Task's changes, never another Task's sharing the
+  same discipline. No push, no PR, no GitHub/GitLab integration of any kind
+  exists; the worktree/branch Gate 4 creates is local only. `init` is close
+  to a no-op now (a worktree is already a real git checkout from creation).
+  Gate 4's scaffold step also makes its own first commit automatically
+  (`chore: initial <discipline> scaffold`) in the **base repo** right after
+  scaffolding, before any worktree branches off it, under a fixed
+  `AURA <aura@localhost>` identity (not the host's git config) — so `git
+  diff` after Gate 5 shows exactly what the Coding Agent changed versus the
+  raw scaffold, not every file as untracked.
+- **CI tool** (`delegate_to_ci`) — re-runs a project's own checked-in local
+  checks inside the same Docker sandbox, and can file a Jira Bug on failure.
+  Takes an optional `taskKey`: given one, it runs against that Task's own
+  worktree (recommended, tests real code); omitted, it runs against the
+  shared base scaffold, which reflects no Task's changes once worktrees are
+  in use. "CI" here means this local run; there is no external CI system
+  involved.
 
 ### 2.5 Testing
 
 Tests run for real, in AURA's own Docker sandbox — there is no CI pipeline
 and no Robot Framework.
 
-- Real Playwright specs are filed under `.workspaces/<epicKey>/qa/` and
-  copied into the scaffolded project's own test directory.
+- Real Playwright specs are filed under `.workspaces/<epicKey>/qa/` and,
+  best-effort, also copied into the shared **base** scaffold's own test
+  directory (a convenience so a plain local `npm test` sees them too) — not
+  into every Task's individual worktree, since that copy isn't what any
+  gate actually reads from anyway (see below).
 - Tester's `execute` starts the app and runs the suite in the same sandbox
   Gates 4–5 use; the JSON result is stored on the draft record, not
   invented by the model. On `failed > 0`, it no longer just reports and
@@ -391,6 +420,69 @@ consumers).
 ## 5. Pending (Future)
 
 Everything below is design intent, not running code.
+
+### Target per-Task pipeline (once Integration + remote Git land)
+
+The diagram below is the target shape once the still-pending pieces below
+(Integration Agent, real remote Git, PR-gated merge) exist. Some of it is
+already true today, some is not — read the labels, not just the shape:
+
+- **Already built exactly as drawn:** PO/BA/Architect (Gates 1–3), branch +
+  worktree + Docker environment creation (Gate 4), the Coding Agent (Gate 5,
+  reading Story/Architecture/existing code/AC, writing code + unit +
+  integration tests), the QA Agent (Gate 6, reading Story/AC/source/OpenAPI/
+  the running app, generating UI/Playwright/API/negative-case tests), Human
+  QA approval, and the Tester Agent's evidence-based diagnose → route
+  (Coding Agent for a code bug, QA Agent for a bad test) → commit → retest →
+  `HALTED_LOOP_GUARD` after 3 attempts loop (Gate 7).
+- **Not built yet:** "Local verification" as an enforced build/lint/test
+  gate before a commit is allowed (the Coding Agent is only *asked* to write
+  tests today, nothing currently blocks a commit on them failing);
+  Integration (conflict detection between Tasks' branches); CI as a gate
+  between Integration and Human Review; Human Review as a PR step; and the
+  merge to `main` itself — there is no remote Git integration at all today
+  (§2.4's Git tool is local-only).
+- Deployer (Gate 8) is unchanged from §2.4 either way — it produces a
+  release/change/rollback plan only, whether or not `main` reflects an
+  automated merge or a human's own manual one.
+
+```mermaid
+flowchart TD
+    PO["PO — Gate 1"] --> BA["BA — Gate 2"]
+    BA --> ARCHITECT["Architect — Gate 3"]
+    ARCHITECT --> TASK["Jira Task<br/>e.g. KAN-45 / Story"]
+    TASK --> WORKTREE["Create Task branch<br/>+ git worktree<br/>+ Docker environment"]
+    WORKTREE --> CODEIN["Coding Agent — Gate 5<br/>reads: Story + Architecture<br/>+ existing code + Acceptance Criteria"]
+    CODEIN --> IMPL["Implement code<br/>+ unit tests + integration tests"]
+    IMPL --> VERIFY["Local verification<br/>build / lint / tests"]
+    VERIFY -->|"fail"| CODEFIX["Coding Agent fixes"]
+    CODEFIX --> VERIFY
+    VERIFY -->|"pass"| COMMIT["Commit changes"]
+    COMMIT --> READYQA["Ready for QA"]
+    READYQA --> QAIN["QA Agent — Gate 6<br/>reads: Story + AC + source code<br/>+ OpenAPI + running application"]
+    QAIN --> GEN["Generate / update test cases<br/>UI/Playwright · API · negative cases"]
+    GEN --> QAAPPROVE{"Human QA approval"}
+    QAAPPROVE --> TESTERRUN["Tester Agent — Gate 7<br/>run real tests, collect evidence"]
+    TESTERRUN --> TPASS{"Pass?"}
+    TPASS -->|"pass"| QAPASSED["QA passed<br/>test evidence stored"]
+    TPASS -->|"fail"| DIAGNOSE["Diagnose failure<br/>logs · trace · screenshot · network"]
+    DIAGNOSE --> DKIND{"Code bug or bad test?"}
+    DKIND -->|"code bug"| DFIX_CODE["Coding Agent"]
+    DKIND -->|"bad test"| DFIX_QA["QA Agent"]
+    DFIX_CODE --> DCOMMIT["Commit"]
+    DFIX_QA --> DCOMMIT
+    DCOMMIT --> RETEST["Retest<br/>iteration + 1"]
+    RETEST --> ITER{"attempt <= 3?"}
+    ITER -->|"yes"| TESTERRUN
+    ITER -->|"no"| HALT2["HALTED_LOOP_GUARD"]
+    HALT2 --> HUMAN2["Human"]
+    QAPASSED --> READYINT["Ready for integration / PR"]
+    READYINT --> INTEGRATION["Integration"]
+    INTEGRATION --> CI["CI"]
+    CI --> REVIEW["Human review"]
+    REVIEW --> MAIN["main"]
+    MAIN --> DEPLOYER["Deployer — Gate 8<br/>release / change / rollback plan (plan only)"]
+```
 
 ### Improvements to plan — reliability, scale & enterprise hardening
 

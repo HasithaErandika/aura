@@ -3,6 +3,7 @@ import { useAsync } from "../../shared/hooks/useAsync.ts";
 import { describeError } from "../../shared/api/errors.ts";
 import { jiraApi } from "./api.ts";
 import { STATUS_TONE, priorityTone } from "./format.ts";
+import { PipelineTracker } from "./PipelineTracker.tsx";
 import { Modal } from "../../shared/ui/Modal.tsx";
 import { Badge } from "../../shared/ui/Badge.tsx";
 import { Alert } from "../../shared/ui/Alert.tsx";
@@ -110,6 +111,8 @@ export function TaskModal({ issueKey, onClose }: { issueKey: string; onClose: ()
             )}
           </div>
           {moveError ? <p className="text-xs text-danger">{moveError}</p> : null}
+
+          <PipelineTracker issueType={issue.issueType} comments={list ?? []} />
 
           <div className="border-t border-line pt-3">
             <div className="mb-2 flex items-center gap-2">

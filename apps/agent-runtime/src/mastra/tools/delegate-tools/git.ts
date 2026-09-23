@@ -3,9 +3,11 @@ import { z } from 'zod';
 import { gitOps, gitOpFiledComment, renderGitOpPlan, type GitOpDraft } from '../../contracts/git-drafts';
 import { draftStore } from '../../store/draft-store';
 import { jira } from '../../mcp/jira-client';
-import { devWorkspaceDir } from '../../workspace/dev-workspace';
+import { devWorkspaceDir, taskWorktreeDir } from '../../workspace/dev-workspace';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
+import { access } from 'node:fs/promises';
+import path from 'node:path';
 import { disciplineFromTask, provenance, buildProvenance, AURA_GIT_IDENTITY, type ProvenanceStamp } from './shared';
 
 const execFileAsync = promisify(execFile);
@@ -40,16 +42,26 @@ function gitFail(error: unknown): z.infer<typeof gitOutputSchema> {
   return { ok: false, error: message };
 }
 
-// Resolves a Task's scaffolded directory (same lookup delegate_to_code uses), for git commands
-// to run directly against - no Docker, git runs on the host as the same user that owns the
-// scaffolded files (node:22-slim has no git installed anyway, and this directory is already
-// host-trusted - docs/ARCHITECTURE.md section 6.4).
+// Resolves a Task's own isolated git worktree (same lookup delegate_to_code uses), for git
+// commands to run directly against - no Docker, git runs on the host as the same user that owns
+// the worktree's files (node:22-slim has no git installed anyway, and this directory is already
+// host-trusted - docs/ARCHITECTURE.md section 6.4). Never the shared base repo: every op here
+// (including `status`/`diff`) is scoped to this one Task's own branch, by construction - `init`
+// is close to a no-op now (the worktree is already a real git checkout the moment Gate 4 creates
+// it), kept only because a stray "run git init" request should still be safe, not an error.
 async function taskTargetDir(taskKey: string, epicKey: string): Promise<{ targetDir: string; discipline: string } | { error: string }> {
   const task = await jira.getIssue(taskKey);
   if (task.issueType && task.issueType.toLowerCase() !== 'task') return { error: `${taskKey} is a ${task.issueType}, not a Task` };
   const discipline = disciplineFromTask(task.description || '');
   if (!discipline) return { error: `Could not read a discipline off ${taskKey} - it should carry "**Discipline:** <name>"` };
-  return { targetDir: await devWorkspaceDir(epicKey, discipline), discipline };
+  const baseDir = await devWorkspaceDir(epicKey, discipline);
+  const targetDir = taskWorktreeDir(baseDir, taskKey);
+  try {
+    await access(path.join(targetDir, '.git'));
+  } catch {
+    return { error: `${taskKey} has no isolated worktree yet - run delegate_to_dev for it first (Gate 4)` };
+  }
+  return { targetDir, discipline };
 }
 
 export const delegateToGitTool = createTool({

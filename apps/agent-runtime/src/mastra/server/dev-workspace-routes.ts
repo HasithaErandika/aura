@@ -1,15 +1,17 @@
 import { registerApiRoute } from '@mastra/core/server';
 import { readdir, readFile, writeFile, stat, access } from 'node:fs/promises';
 import path from 'node:path';
-import { devWorkspaceRoot } from '../workspace/dev-workspace';
+import { devWorkspaceRoot, taskWorktreeDir } from '../workspace/dev-workspace';
 
-// Read/write file viewer for a Task's scaffolded directory (devWorkspaceDir). devWorkspaceDir is
-// a plain host path, not a Mastra Workspace/LocalFilesystem (workspace/dev-workspace.ts's own
-// comment - Docker bind-mounts it directly), so containment is checked by hand here the same way
-// workspace-routes.ts's writeWorkspaceFileRoute guards against escaping the Epic's own workspace.
-// The write route (writeDevWorkspaceFileRoute) is deliberately narrow, same shape as the
-// Architect's: it can only overwrite a file Gate 4/5 already created, never create a new one or
-// escape the Task's own directory. apps/api gates who may call it (developer role only) and
+// Read/write file viewer for a discipline's base scaffold, or (with ?taskKey=) one Task's own
+// isolated git worktree ("Concurrent Task Execution" milestone - real code lives in worktrees
+// once a discipline has been scaffolded, not in the shared base). devWorkspaceDir/taskWorktreeDir
+// are plain host paths, not a Mastra Workspace/LocalFilesystem (workspace/dev-workspace.ts's own
+// comment - Docker bind-mounts them directly), so containment is checked by hand here the same
+// way workspace-routes.ts's writeWorkspaceFileRoute guards against escaping the Epic's own
+// workspace. The write route (writeDevWorkspaceFileRoute) is deliberately narrow, same shape as
+// the Architect's: it can only overwrite a file Gate 4/5 already created, never create a new one
+// or escape the resolved directory. apps/api gates who may call it (developer role only) and
 // audits every call; this route trusts that gate the same way the read routes already do.
 
 function segmentParam(raw: string | undefined, label: string): string {
@@ -20,10 +22,17 @@ function segmentParam(raw: string | undefined, label: string): string {
   return value;
 }
 
-// Resolves a task directory the same way devWorkspaceDir does, without creating it - this route
-// only ever reads.
-function taskDir(epicKey: string, discipline: string): string {
+// Resolves the base scaffold directory the same way devWorkspaceDir does, without creating it -
+// this route only ever reads.
+function baseDir(epicKey: string, discipline: string): string {
   return path.resolve(devWorkspaceRoot, epicKey, 'dev', discipline.toLowerCase());
+}
+
+// Resolves which directory to browse: a specific Task's worktree when taskKey is given, else the
+// shared base scaffold (kept for browsing the base itself, and for pre-worktree records).
+function taskDir(epicKey: string, discipline: string, taskKey: string | undefined): string {
+  const base = baseDir(epicKey, discipline);
+  return taskKey ? taskWorktreeDir(base, segmentParam(taskKey, 'taskKey').toUpperCase()) : base;
 }
 
 // Rejects `..`, an absolute path, or anything that resolves outside `base` - the same
@@ -58,7 +67,7 @@ export const listDevWorkspaceFilesRoute = registerApiRoute('/dev-workspace/:epic
     try {
       const epicKey = segmentParam(c.req.param('epicKey'), 'epicKey').toUpperCase();
       const discipline = segmentParam(c.req.param('discipline'), 'discipline');
-      const dir = taskDir(epicKey, discipline);
+      const dir = taskDir(epicKey, discipline, c.req.query('taskKey'));
       const files = await listFilesRecursive(dir, dir);
       return c.json({ files });
     } catch (error) {
@@ -75,7 +84,7 @@ export const readDevWorkspaceFileRoute = registerApiRoute('/dev-workspace/:epicK
       const discipline = segmentParam(c.req.param('discipline'), 'discipline');
       const relPath = c.req.query('path');
       if (!relPath) return c.json({ error: 'path query parameter is required' }, 400);
-      const dir = taskDir(epicKey, discipline);
+      const dir = taskDir(epicKey, discipline, c.req.query('taskKey'));
       const filePath = safeJoin(dir, relPath);
       const content = await readFile(filePath, 'utf-8');
       return c.json({ path: relPath, content });
@@ -96,11 +105,11 @@ export const writeDevWorkspaceFileRoute = registerApiRoute('/dev-workspace/:epic
     try {
       const epicKey = segmentParam(c.req.param('epicKey'), 'epicKey').toUpperCase();
       const discipline = segmentParam(c.req.param('discipline'), 'discipline');
-      const body = await c.req.json<{ path?: string; content?: string }>();
+      const body = await c.req.json<{ path?: string; content?: string; taskKey?: string }>();
       const relPath = body.path?.trim();
       if (!relPath) return c.json({ error: 'path is required' }, 400);
       if (typeof body.content !== 'string') return c.json({ error: 'content is required' }, 400);
-      const dir = taskDir(epicKey, discipline);
+      const dir = taskDir(epicKey, discipline, body.taskKey);
       const filePath = safeJoin(dir, relPath);
       try {
         await access(filePath);
