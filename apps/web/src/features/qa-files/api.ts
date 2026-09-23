@@ -11,6 +11,17 @@ export interface TestRunFailureNote {
   note: string;
 }
 
+export interface TestRunAttempt {
+  attempt: number;
+  commit: string | null;
+  passed: number;
+  failed: number;
+  skipped: number;
+  diagnoses: { name: string; stage: string; classification: "code_bug" | "bad_test" | "unknown"; confidence: "low" | "medium" | "high"; reasoning: string }[];
+  route: "dev" | "qa" | "human" | "none";
+  action: string;
+}
+
 export interface TestRun {
   draftId: string;
   taskKey: string;
@@ -21,6 +32,14 @@ export interface TestRun {
   skipped: number;
   summary: string | null;
   failureNotes: TestRunFailureNote[];
+  // The Tester Agent loop (workflows/tester-workflow.ts): how many test/diagnose/route attempts
+  // this run took, whether it stopped without passing (HALTED_LOOP_GUARD), the Bug it auto-filed
+  // (if any), and the full per-attempt trail.
+  attempt: number;
+  halted: boolean;
+  haltReason: "cap_reached" | "escalated_unknown" | null;
+  bugKey: string | null;
+  history: TestRunAttempt[];
 }
 
 // Read-only viewer for Gate 6's test plan + Playwright source, and Gate 7's real test-run

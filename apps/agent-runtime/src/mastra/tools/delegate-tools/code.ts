@@ -1,7 +1,7 @@
 import { createTool } from '@mastra/core/tools';
 import { z } from 'zod';
 import { codingFiledComment, codingProviderLabel, codingProviders, renderCodingPlan, type CodingProvider, type CodingTaskDraft } from '../../contracts/coding-drafts';
-import { draftStore } from '../../store/draft-store';
+import { draftStore, type DraftRecord } from '../../store/draft-store';
 import { jira } from '../../mcp/jira-client';
 import { isDockerAvailable, runInContainer } from '../../lib/docker-exec';
 import { createCodingAgent } from '../../agents/mastra-coding-agent';
@@ -9,7 +9,7 @@ import { devWorkspaceDir } from '../../workspace/dev-workspace';
 import { readdir, writeFile, access } from 'node:fs/promises';
 import path from 'node:path';
 import os from 'node:os';
-import { provenance, buildProvenance, disciplineFromTask, type ProvenanceStamp } from './shared';
+import { provenance, buildProvenance, disciplineFromTask, type ProvenanceStamp, type ToolWriterLike } from './shared';
 
 // Filename the coding prompt is written to inside the target directory before the container
 // starts, so it only ever exists as file content - never interpolated into a shell string
@@ -75,6 +75,87 @@ function codeFail(error: unknown): z.infer<typeof codingOutputSchema> {
   return { ok: false, error: error instanceof Error ? error.message : String(error) };
 }
 
+// Runs one prompt against an already-scaffolded targetDir with the drafted provider - the
+// provider-dispatch logic shared by delegate_to_code's own `execute` case and runCodingFix below
+// (the Tester Agent loop's automatic retry, tools/tester-workflow.ts), so there is exactly one
+// place that knows how to actually invoke mastra/anthropic/openai against a directory.
+async function runCodingProviderPrompt(content: CodingTaskDraft, prompt: string, draftId: string, writer: ToolWriterLike | undefined): Promise<{ exitCode: number; output: string }> {
+  await writeFile(path.join(content.targetDir, PROMPT_FILE), prompt, 'utf8');
+
+  if (content.provider === 'mastra') {
+    try {
+      const codingAgent = createCodingAgent(content.targetDir);
+      const response = await codingAgent.generate(prompt, { maxSteps: 20 });
+      const summary = response.text?.trim() || '(the agent made changes but returned no summary text)';
+      void writer?.custom({ type: 'data-code-output', data: { chunk: summary }, transient: true });
+      return { exitCode: 0, output: summary };
+    } catch (error) {
+      return { exitCode: 1, output: error instanceof Error ? error.message : String(error) };
+    }
+  }
+
+  const cli = CODING_COMMANDS[content.provider];
+  try {
+    await access(cli.hostCredential);
+  } catch {
+    throw new Error(`${codingProviderLabel[content.provider]} is not logged in on this machine. ${cli.loginHint}`);
+  }
+  if (!(await isDockerAvailable())) throw new Error('Docker is not available - install/start Docker to run the coding agent');
+  return runInContainer({
+    image: cli.image,
+    hostDir: content.targetDir,
+    command: cli.command,
+    mounts: [{ hostPath: cli.hostCredential, containerPath: cli.containerCredential, readOnly: true }],
+    timeoutMs: 20 * 60_000,
+    name: `aura-code-${draftId}`,
+    labels: { 'aura.epic': content.epicKey, 'aura.task': content.taskKey, 'aura.kind': 'code' },
+    onOutput: (chunk) => {
+      void writer?.custom({ type: 'data-code-output', data: { chunk }, transient: true });
+    },
+  });
+}
+
+export interface CodingFixResult {
+  record: DraftRecord<CodingTaskDraft>;
+  exitCode: number;
+  output: string;
+  commit: string | null;
+}
+
+// Runs an automatic fix attempt against an already-implemented Task, from real test-failure
+// evidence - the Tester Agent loop's Dev-routing step (workflows/tester-workflow.ts), not a
+// tool the Orchestrator/a human calls directly. This deliberately bypasses delegate_to_code's
+// own draft/approve/execute contract: the loop's bounded retries run inside a single already
+// human-approved Gate 7 (the "Option A" decision - one approval starts the loop, not one per
+// attempt), the same trust boundary the Architect workflow's many internal model calls already
+// rely on for Gate 3. It never re-scaffolds; it edits the same targetDir Gate 4/5 already own.
+export async function runCodingFix(original: DraftRecord<CodingTaskDraft>, feedback: string, writer?: ToolWriterLike): Promise<CodingFixResult> {
+  const prompt = [
+    `A real test failure was found against the code you (or a previous attempt) wrote for Task ${original.content.taskKey}: ${original.content.prompt.split('\n')[0]}`,
+    '',
+    'Failure evidence:',
+    feedback,
+    '',
+    'Fix ONLY what is needed to make this pass. Do not remove or weaken other passing behaviour. Work only within this directory. If a unit/integration test runner is already set up here, update or add a test that covers this fix; do not remove existing tests.',
+  ].join('\n');
+
+  const record = await draftStore.create({ kind: 'coding-task', content: { ...original.content, prompt }, threadId: original.threadId, epicKey: original.epicKey, parentId: original.id });
+  const result = await runCodingProviderPrompt(record.content, prompt, record.id, writer);
+  await draftStore.markFiled(record.id, { status: 'done', exitCode: String(result.exitCode) });
+
+  let commit: string | null = null;
+  try {
+    const { execFile } = await import('node:child_process');
+    const { promisify } = await import('node:util');
+    const r = await promisify(execFile)('git', ['rev-parse', '--short', 'HEAD'], { cwd: record.content.targetDir });
+    commit = r.stdout.trim() || null;
+  } catch {
+    // No git repo, or nothing committed yet - fine, the caller just won't have a commit sha.
+  }
+
+  return { record, exitCode: result.exitCode, output: result.output, commit };
+}
+
 export const delegateToCodeTool = createTool({
   id: 'delegate_to_code',
   description:
@@ -112,6 +193,8 @@ export const delegateToCodeTool = createTool({
             task.description || '(no description)',
             '',
             'Work only within this directory. Make the acceptance criteria above pass. Do not touch files outside it, and do not run destructive commands.',
+            '',
+            'Also write or update unit/integration tests for the code you write, using whatever test runner this scaffold already includes (e.g. NestJS ships with Jest; a plain Vite React scaffold has none set up by default - add one only if the acceptance criteria clearly call for it, otherwise focus on the implementation). End-to-end/UI tests are QA\'s responsibility (Gate 6), not yours - stay at the unit/integration level.',
           ].join('\n');
 
           const content: CodingTaskDraft = { epicKey, taskKey, discipline, targetDir, provider: input.provider, prompt };
@@ -139,53 +222,11 @@ export const delegateToCodeTool = createTool({
             };
           }
 
+          let result: { exitCode: number; output: string };
           try {
-            await writeFile(path.join(record.content.targetDir, PROMPT_FILE), record.content.prompt, 'utf8');
+            result = await runCodingProviderPrompt(record.content, record.content.prompt, record.id, writer);
           } catch (error) {
             return codeFail(error);
-          }
-
-          let result: { exitCode: number; output: string };
-          if (record.content.provider === 'mastra') {
-            // Built-in agent: no external credential, no Docker - runs in-process, contained
-            // entirely by its own tool surface (list_files/read_file/write_file, path-checked
-            // against record.content.targetDir - see tools/file-tools.ts).
-            try {
-              const codingAgent = createCodingAgent(record.content.targetDir);
-              const response = await codingAgent.generate(record.content.prompt, { maxSteps: 20 });
-              const summary = response.text?.trim() || '(the agent made changes but returned no summary text)';
-              void writer?.custom({ type: 'data-code-output', data: { chunk: summary }, transient: true });
-              result = { exitCode: 0, output: summary };
-            } catch (error) {
-              result = { exitCode: 1, output: error instanceof Error ? error.message : String(error) };
-            }
-          } else {
-            const cli = CODING_COMMANDS[record.content.provider];
-
-            try {
-              await access(cli.hostCredential);
-            } catch {
-              return codeFail(`${codingProviderLabel[record.content.provider]} is not logged in on this machine. ${cli.loginHint}`);
-            }
-
-            if (!(await isDockerAvailable())) return codeFail('Docker is not available - install/start Docker to run the coding agent');
-
-            try {
-              result = await runInContainer({
-                image: cli.image,
-                hostDir: record.content.targetDir,
-                command: cli.command,
-                mounts: [{ hostPath: cli.hostCredential, containerPath: cli.containerCredential, readOnly: true }],
-                timeoutMs: 20 * 60_000,
-                name: `aura-code-${record.id}`,
-                labels: { 'aura.epic': record.content.epicKey, 'aura.task': record.content.taskKey, 'aura.kind': 'code' },
-                onOutput: (chunk) => {
-                  void writer?.custom({ type: 'data-code-output', data: { chunk }, transient: true });
-                },
-              });
-            } catch (error) {
-              return codeFail(error);
-            }
           }
 
           await draftStore.markFiled(record.id, { status: 'done', exitCode: String(result.exitCode) });

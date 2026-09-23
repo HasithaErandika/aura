@@ -6,7 +6,7 @@ import { jira } from '../../mcp/jira-client';
 import { devWorkspaceDir } from '../../workspace/dev-workspace';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { disciplineFromTask, provenance, buildProvenance, type ProvenanceStamp } from './shared';
+import { disciplineFromTask, provenance, buildProvenance, AURA_GIT_IDENTITY, type ProvenanceStamp } from './shared';
 
 const execFileAsync = promisify(execFile);
 
@@ -126,7 +126,7 @@ export const delegateToGitTool = createTool({
               output = r.stdout + r.stderr;
             } else {
               const add = await execFileAsync('git', ['add', '-A'], { cwd: targetDir });
-              const commit = await execFileAsync('git', ['commit', '-m', args[0] ?? 'AURA commit'], { cwd: targetDir });
+              const commit = await execFileAsync('git', [...AURA_GIT_IDENTITY, 'commit', '-m', args[0] ?? 'AURA commit'], { cwd: targetDir });
               output = add.stdout + add.stderr + commit.stdout + commit.stderr;
             }
           } catch (error) {

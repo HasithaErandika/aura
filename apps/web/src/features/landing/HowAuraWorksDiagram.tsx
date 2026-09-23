@@ -127,21 +127,19 @@ approvalService.request({
   {
     id: "tester",
     step: 6,
-    role: "Tester",
+    role: "QA Engineer",
     agent: "Tester Agent",
     icon: SearchIcon,
-    objective: "Interprets CI machine evidence (traces, video recordings), files defects, and flags flakiness.",
-    outputs: ["Machine test evidence", "Defect reports", "Flakiness metrics"],
-    gate: "Gate 6: Human QA verifies test evidence & sign-off",
+    objective: "A bounded loop, not a separate role: runs the suite, diagnoses each failure from real evidence, and routes it back to Dev or QA automatically.",
+    outputs: ["Machine test evidence", "Diagnosis + confidence per failure", "Linked defect, updated per attempt"],
+    gate: "QA Engineer starts it; escalates back to a human after 3 attempts or an unclear diagnosis",
     gateRole: "QA Engineer",
     riskTier: "LOW",
-    jiraTransition: "Testing In Progress → Ready for Release",
-    codeSnippet: `// Evidence-Based Verification
-evidenceVerifier.assertPass({
-  playwrightReport: "storage/runs/run-992/report.json",
-  videoArtifact: "storage/runs/run-992/trace.zip",
-  verifiedByMachine: true
-});`,
+    jiraTransition: "Testing In Progress → Ready for Release (or HALTED_LOOP_GUARD)",
+    codeSnippet: `// Evidence-based diagnosis, bounded retry
+const diagnosis = diagnose(failure, evidence);
+route(diagnosis); // code_bug -> Dev, bad_test -> QA, unknown -> human
+if (attempt >= maxIterations) status = "HALTED_LOOP_GUARD";`,
   },
   {
     id: "deployer",

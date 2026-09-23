@@ -21,7 +21,7 @@ export const listTestRunsRoute = registerApiRoute('/test-runs/:epicKey', {
       const taskKey = c.req.query('taskKey')?.trim().toUpperCase();
       const records = await draftStore.listByEpic<TestRunContent>('test-run', epicKey);
       const runs = records
-        .filter((r) => r.filed.status === 'done' && (!taskKey || r.content.taskKey === taskKey))
+        .filter((r) => (r.filed.status === 'done' || r.filed.status === 'halted') && (!taskKey || r.content.taskKey === taskKey))
         .map((r) => ({
           draftId: r.id,
           taskKey: r.content.taskKey,
@@ -32,6 +32,14 @@ export const listTestRunsRoute = registerApiRoute('/test-runs/:epicKey', {
           skipped: Number(r.filed.skipped ?? '0'),
           summary: r.filed.summary ?? null,
           failureNotes: r.filed.failureNotes ? (JSON.parse(r.filed.failureNotes) as { name: string; verdict: string; note: string }[]) : [],
+          // Added for the Tester Agent loop (workflows/tester-workflow.ts) - how many
+          // test/diagnose/route attempts this run took, whether it stopped without passing
+          // (HALTED_LOOP_GUARD), the Bug it auto-filed (if any), and the full per-attempt trail.
+          attempt: Number(r.filed.attempt ?? '1'),
+          halted: r.filed.status === 'halted',
+          haltReason: r.filed.haltReason || null,
+          bugKey: r.filed.bugKey || null,
+          history: r.filed.history ? (JSON.parse(r.filed.history) as unknown[]) : [],
         }));
       return c.json({ epicKey, runs });
     } catch (error) {

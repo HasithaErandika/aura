@@ -32,18 +32,14 @@ type EpicFiles = { status: "loading" } | { status: "error"; message: string } | 
 type CiDiscipline = "Frontend" | "Backend";
 
 // Viewer, and (for the QA Engineer role) editor, for Gate 6's test plan + Playwright source, VS
-// Code dark theme, mirroring Design Documents' tree/editor shape - plus test-run history (Gate 7),
-// an inline "run CI" check (delegate_to_ci - ungated, available to QA Engineer and Tester alike,
-// not just the Developer role on Scaffolded Project Files), and a visible Task list per Epic
-// (TaskModal) instead of requiring either role to already know a Task key by heart.
-// Role-tailored on one shared route (both qa_engineer and tester use it): QA Engineer gets the
-// hand-edit controls (Gate 6 is theirs to author); both get the same Run tests/Run CI actions,
-// since qa_engineer approves Gate 7 while tester can request it - the Orchestrator chat's own
-// gate UI already explains whose approval a pending run is waiting on.
+// Code dark theme, mirroring Design Documents' tree/editor shape - plus test-run history (Gate 7,
+// now a bounded Tester Agent loop - see TestRunHistory.tsx), and an inline "run CI" check
+// (delegate_to_ci - ungated), and a visible Task list per Epic (TaskModal) instead of requiring
+// the QA Engineer to already know a Task key by heart. No separate Tester role: qa_engineer owns
+// both Gate 6 (hand-edit controls below) and starting/overseeing Gate 7.
 export function QaFilesPage() {
   const navigate = useNavigate();
   const { profile } = useAuth();
-  const isTester = profile?.role === "tester";
   const canEdit = profile?.role === "qa_engineer";
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [filesByEpic, setFilesByEpic] = useState<Record<string, EpicFiles>>({});
@@ -324,8 +320,8 @@ export function QaFilesPage() {
                   Run tests
                 </Button>
                 <p className="text-xs text-ink-500">
-                  Opens the Orchestrator chat pre-filled to run Gate 7 for this Task under {selected.epicKey}.{" "}
-                  {isTester ? "A QA Engineer will need to approve it before it runs." : "You can approve it yourself."}
+                  Opens the Orchestrator chat pre-filled to start the Tester Agent for this Task under {selected.epicKey}: it runs the suite, and on failure
+                  diagnoses, routes to Dev or back to QA, and retests automatically for up to 3 attempts before escalating back to you.
                 </p>
               </div>
             </Card>

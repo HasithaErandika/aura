@@ -18,6 +18,7 @@ import { testerAgent } from './agents/tester-agent';
 import { deployerAgent } from './agents/deployer-agent';
 import { architectWorkflow } from './workflows/architect-workflow';
 import { qaWorkflow } from './workflows/qa-workflow';
+import { testerWorkflow } from './workflows/tester-workflow';
 import { printManifest, type AgentId } from './agents/registry';
 import { jiraMcp } from './mcp/jira-client';
 import { getArchitectThreadRoute, listEpicsRoute, listWorkspaceFilesRoute, readWorkspaceFileRoute, writeWorkspaceFileRoute } from './server/workspace-routes';
@@ -64,7 +65,7 @@ export const mastra = new Mastra({
   agents: { orchestrator, po: poAgent, ba: baAgent, architect: architectAgent, dev: devAgent, qa: qaAgent, tester: testerAgent, deployer: deployerAgent },
   // Registration key must match the id delegate-tools.ts requests via mastra.getWorkflow() -
   // Mastra resolves getWorkflow() by this key, not by the workflow's own internal `id` field.
-  workflows: { 'architect-workflow': architectWorkflow, 'qa-workflow': qaWorkflow },
+  workflows: { 'architect-workflow': architectWorkflow, 'qa-workflow': qaWorkflow, 'tester-workflow': testerWorkflow },
   server: {
     apiRoutes: [
       listEpicsRoute,

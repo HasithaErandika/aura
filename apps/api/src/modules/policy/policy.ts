@@ -63,12 +63,11 @@ export const ROLE_AGENT_GRANTS: Record<Role, Record<string, AgentAccess>> = {
   },
   developer: { orchestrator: "run", "dev-agent": "run", "coding-agent": "run", "git-tool": "run", "architect-agent": "read" },
   // "QA Engineer | QA, Tester, Dev (read) | Approves test plans; verifies results" - QA Engineer
-  // can run both QA and Tester agents and is the sole approver of both their gates (6 and 7),
-  // matching the RACI row exactly rather than splitting approval across two roles.
+  // runs both QA and Tester agents and is the sole approver of both their gates (6 and 7). There
+  // is no separate Tester role (removed - see supabase/migrations/0005_remove_tester_role.sql):
+  // Gate 7 is now a bounded Tester Agent loop (workflows/tester-workflow.ts) that qa_engineer
+  // alone starts and oversees, not a second person who could trigger it without approving it.
   qa_engineer: { orchestrator: "run", "qa-agent": "run", "tester-agent": "run", "dev-agent": "read" },
-  // "Tester | Tester | Executes/curates suites" - can run the Tester agent, but does not approve
-  // its gate (that stays qa_engineer, per AGENT_APPROVER_ROLE below).
-  tester: { orchestrator: "run", "tester-agent": "run", "qa-agent": "read" },
   // "Deployer | Deployer, QA (read) | Approves releases" (four-eyes is enforced at the release
   // execution step itself, outside this table - see docs/ARCHITECTURE.md section 4.2).
   deployer: { orchestrator: "run", "deployer-agent": "run", "qa-agent": "read" },
@@ -85,8 +84,7 @@ export const AGENT_APPROVER_ROLE: Record<string, Role> = {
   "dev-agent": "developer",
   "coding-agent": "developer",
   // Both test-related gates are approved by QA Engineer ("Approves test plans; verifies
-  // results" - docs/ARCHITECTURE.md section 4.2), even though the Tester role can also run
-  // tester-agent (ROLE_AGENT_GRANTS above).
+  // results" - docs/ARCHITECTURE.md section 4.2).
   "qa-agent": "qa_engineer",
   "tester-agent": "qa_engineer",
   "deployer-agent": "deployer",

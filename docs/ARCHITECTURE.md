@@ -15,7 +15,10 @@ If a capability isn't mentioned in Sections 1–4, assume it doesn't exist yet.
 AURA is an AI agent orchestration platform for the software delivery
 lifecycle. It coordinates specialised agents (PO, BA, Architect, Developer,
 QA, Tester, Deployer), uses **Jira as the single system of record**, and
-gates every consequential action behind human approval.
+gates every consequential action behind human approval. There is no human
+"Tester" role — Tester is an agent capability QA Engineer starts and
+oversees (a bounded test/diagnose/route/retest loop, section 2.4), not a
+person a project assigns.
 
 ### Five principles
 
@@ -25,7 +28,12 @@ gates every consequential action behind human approval.
    write back to Jira; AURA is not a second project-management system.
 3. **Human-in-the-loop is a workflow primitive.** Every stage ends in a
    durable "waiting for approval" state; nothing continues without a
-   recorded human decision.
+   recorded human decision. One deliberate, narrow exception: once a human
+   approves *starting* the Tester Agent loop (Gate 7), its own bounded
+   internal retries (up to 3 attempts) do not each ask for approval again —
+   the same trust boundary the Architect workflow's many internal model
+   calls already rely on for Gate 3. The loop still never guesses on an
+   unsure diagnosis (principle 5) and always halts to a human at the cap.
 4. **Every tool call is authorized, validated, and logged.** An agent can
    only call what the policy engine grants for *this user, project, and
    agent* — never what the model decides to try.
@@ -54,7 +62,7 @@ There is **no event bus / queue yet** — API and runtime talk directly.
 
 ```mermaid
 flowchart TD
-    ROLES(["PO · BA · Architect · Developer<br/>QA Engineer · Tester · Deployer"]) --> WEB
+    ROLES(["PO · BA · Architect · Developer<br/>QA Engineer · Deployer"]) --> WEB
 
     subgraph WEB["apps/web — React"]
         UI["Approval Inbox · Run Console · Jira Browser<br/>Design Documents · Scaffolded Files"]
@@ -123,8 +131,7 @@ not a prompt:
 | Business Analyst | BA | Gate 2 (Stories) |
 | Architect | Architect | Gate 3 (design) |
 | Developer | Dev, Coding Agent, Git | Gates 4–5 |
-| QA Engineer | QA, Tester | Gates 6–7 (sole approver of both) |
-| Tester | Tester | — (can run, not approve) |
+| QA Engineer | QA, Tester | Gates 6–7 (sole approver of both; starts and oversees the Tester Agent loop) |
 | Deployer | Deployer | Gate 8 |
 
 Risk tiers, attached to tools:
@@ -158,11 +165,45 @@ direct write.
 | 1 | PO | Epic draft | PO |
 | 2 | BA | Stories, AC, DoD, risks | BA |
 | 3 | Architect | Design, ADRs, architecture Tasks | Architect |
-| 4 | Dev | Scaffold command explanation | Developer |
+| 4 | Dev | Project init: git + scaffold (Frontend and/or Backend, per Task) + CI workflow file | Developer |
 | 5 | Coding Agent | Real code in the scaffold | Developer |
-| 6 | QA | Test plan + real Playwright specs | QA Engineer |
-| 7 | Tester | Runs the suite for real, interprets the result | QA Engineer |
+| 6 | QA | Test plan + real Playwright specs, informed by the real code | QA Engineer |
+| 7 | Tester | Bounded test/diagnose/route/retest loop (up to 3 attempts) | QA Engineer starts it; the loop's own retries need no further approval |
 | 8 | Deployer | Release / change / rollback plan (plan only) | Deployer |
+
+### Delivery pipeline (as built)
+
+```mermaid
+flowchart TD
+    PO["PO — Gate 1<br/>Epic draft"] --> BA["BA — Gate 2<br/>Stories, AC, DoD"]
+    BA --> ARCH["Architect — Gate 3<br/>Design, ADRs, architecture Tasks"]
+    ARCH --> DEV["Dev — Gate 4 (Project Init)<br/>git init + chore commit · scaffold (Frontend and/or Backend, one Task at a time) · CI workflow file"]
+    DEV --> CODE["Coding Agent — Gate 5<br/>Production code · unit/integration tests"]
+    CODE --> QA["QA Agent — Gate 6<br/>inspects implementation/API/UI · writes test scenarios · Playwright/API tests"]
+    QA --> QAOK{"Human (QA Engineer)<br/>approves and starts Gate 7"}
+    QAOK --> RUN
+
+    subgraph TESTER["Tester Agent — Gate 7 (bounded loop, max 3 attempts)"]
+        direction TB
+        RUN["Run suite"] --> PASSCHK{"Passed?"}
+        PASSCHK -->|"yes"| DONE["Ready for Release"]
+        PASSCHK -->|"no"| DIAG["Diagnose from evidence<br/>(error, test source, commit, app output)"]
+        DIAG -->|"code defect"| TOCODE["Coding Agent<br/>scoped fix -> commit"]
+        DIAG -->|"test defect"| TOQA["QA Agent<br/>revise only that scenario"]
+        DIAG -->|"unknown / low confidence"| ESCALATE["Human — escalated immediately"]
+        TOCODE --> RETEST["Retest"]
+        TOQA --> RETEST
+        RETEST --> CAP{"attempt <= 3?"}
+        CAP -->|"yes"| RUN
+        CAP -->|"no"| HALT["HALTED_LOOP_GUARD"]
+    end
+
+    ESCALATE --> HUMAN["Human investigation<br/>(full attempt history attached)"]
+    HALT --> HUMAN
+    DONE --> DEPLOY["Deployer — Gate 8<br/>release / change / rollback plan (plan only)"]
+```
+
+Two things this diagram makes explicit that the table doesn't: Gate 4's "Project Init" is real (git, scaffold, CI) but runs **once per Task per discipline**, not once for the whole Epic — an Epic with both a Frontend and a Backend Task runs Gate 4 twice. And "test infrastructure" (a dedicated Playwright config/directory, as opposed to the scenario files themselves) is not a distinct Dev deliverable today — the test directory is created lazily, by QA's own file step (Gate 6) and by Tester's run step (Gate 7), not provisioned upfront at Gate 4.
 
 Rules:
 - A gate only fires when a human asks for that stage; nothing auto-advances
@@ -183,15 +224,23 @@ Rules:
   `<AURA_WORKSPACE_ROOT>/<epicKey>/architecture/` only after Gate 3 approval,
   and are editable by an Architect through the Design Documents page (no
   version history on manual edits).
-- **Dev (Gate 4)** — explains, but does not choose, a fixed scaffold command
-  read from the Task's own discipline field. **Frontend and Backend/NestJS
-  are implemented and verified** (real Docker run, correct file ownership).
-  Backend/Spring Boot, Data, AI, Integration, and Deployment are **not
-  implemented** — the tool fails clearly rather than doing nothing. Runs in
-  an ephemeral, non-root Docker container mounted only to that Task's own
-  workspace directory.
-- **Coding Agent (Gate 5)** — implements the scaffolded Task. Three
-  interchangeable providers behind the same draft/approve/execute flow:
+- **Dev (Gate 4)** — project init for one Task's discipline: explains, but
+  does not choose, a fixed scaffold command read from the Task's own
+  discipline field, then (on approval) runs it in an ephemeral, non-root
+  Docker container mounted only to that Task's own workspace directory, and
+  finishes by writing the CI workflow file, a `.gitignore` if missing, and
+  an automatic `git init` + `chore: initial scaffold` commit. Run once per
+  Task per discipline — an Epic with both a Frontend and a Backend Task
+  runs this gate twice, not once for the whole Epic. **Frontend and
+  Backend/NestJS are implemented and verified** (real Docker run, correct
+  file ownership). Backend/Spring Boot, Data, AI, Integration, and
+  Deployment are **not implemented** — the tool fails clearly rather than
+  doing nothing.
+- **Coding Agent (Gate 5)** — implements the scaffolded Task, and is now
+  also asked to write/update unit and integration tests alongside it, using
+  whatever test runner the scaffold already includes — end-to-end/UI
+  testing stays QA's job (Gate 6), not this agent's. Three interchangeable
+  providers behind the same draft/approve/execute flow:
   - **AURA's own built-in agent** (default, no external account) — three
     file tools only (`list_files`/`read_file`/`write_file`), no shell
     access, every path checked to stay inside the Task's own directory.
@@ -202,18 +251,38 @@ Rules:
     typechecked; **CLI execution has not been verified end-to-end.**
   - No git branch/PR automation at any provider.
 - **QA (Gate 6)** — drafts a test plan and real Playwright spec files from
-  the Epic's approved Stories. Only Frontend and Backend/NestJS are
-  supported (the disciplines Gate 4 can scaffold).
-- **Tester (Gate 7)** — starts the scaffolded app for real and runs the
-  suite in Docker; the pass/failed/skipped counts come from Playwright's
-  own JSON output, read by code. The agent only interprets that result —
-  it never decides pass/fail itself. On failure, it can file a real Jira
-  Bug under the Epic and route the Task back to the developer.
+  the Epic's approved Stories **and, if Frontend/Backend is already
+  scaffolded or implemented, the real code** (`workspace/read-scaffold-
+  context.ts`) — so scenarios prefer real routes/`data-testid`s over
+  guessing when the app exists yet. Only Frontend and Backend/NestJS are
+  supported (the disciplines Gate 4 can scaffold). Can also revise a single
+  failing scenario in isolation (`revise-scenario`) instead of regenerating
+  the whole plan — every scenario carries its own revision counter.
+- **Tester (Gate 7)** — a bounded loop (`workflows/tester-workflow.ts`), not
+  a single pass: starts the scaffolded app for real and runs the suite in
+  Docker; the pass/failed/skipped counts always come from Playwright's own
+  JSON output, read by code, never a model's claim. On failure it collects
+  evidence (the real error, the failing test's own source, the current git
+  commit, the app's own output) and diagnoses each failure through an
+  explicit hierarchy — infra failure? app startup failure? test/env
+  problem? test implementation problem? application defect? requirements
+  ambiguity? — before acting. Only two outcomes route automatically: a test
+  implementation problem back to QA (revising only that one scenario) or an
+  application defect to the Coding Agent (a scoped fix against the same
+  already-scaffolded directory, filing/updating one linked Jira Bug rather
+  than a new one per attempt). Everything else — including any diagnosis
+  the model isn't confident about — routes straight to a human; the loop
+  never guesses. Retries up to 3 attempts, then sets the run to
+  `HALTED_LOOP_GUARD` with the full attempt history attached.
 - **Deployer (Gate 8)** — produces a release note, change plan, and
   rollback plan only. There is no execute mode and no deployment pipeline.
 - **Git tool** — local `init`/`branch`/`commit` (gated) and `status`/`diff`
   (ungated, read-only). No push, no PR, no GitHub/GitLab integration of any
-  kind exists.
+  kind exists. Gate 4's scaffold step also makes its own first commit
+  automatically (`chore: initial <discipline> scaffold`) right after
+  scaffolding, under a fixed `AURA <aura@localhost>` identity (not the
+  host's git config) — so `git diff` after Gate 5 shows exactly what the
+  Coding Agent changed versus the raw scaffold, not every file as untracked.
 - **CI tool** (`delegate_to_ci`) — re-runs a scaffolded project's own local
   checks (not per-Task) inside the same Docker sandbox, and can file a Jira
   Bug on failure. "CI" here means this local run; there is no external CI
@@ -228,10 +297,10 @@ and no Robot Framework.
   copied into the scaffolded project's own test directory.
 - Tester's `execute` starts the app and runs the suite in the same sandbox
   Gates 4–5 use; the JSON result is stored on the draft record, not
-  invented by the model.
-- On `failed > 0`, the Orchestrator can file a Jira Bug with the failure
-  detail and move the Task back for rework. Retesting is manual — nothing
-  re-runs automatically.
+  invented by the model. On `failed > 0`, it no longer just reports and
+  stops — it diagnoses and retests automatically (up to 3 attempts) before
+  ever asking a human, and only files/updates one Jira Bug per genuine
+  application defect it finds (not one per attempt).
 - A developer or QA Engineer can hand-edit scaffolded or QA files directly
   through the web UI (audited as `workspace.file.edit`, no version history).
 
@@ -333,9 +402,11 @@ into a reliable, scalable, enterprise-grade platform.
 - Durable event bus (pg-boss) between API and runtime, so a crashed runtime
   resumes a suspended run instead of losing it — today a process restart
   mid-run drops the run.
-- Loop guards (`max_iterations` → `HALTED_LOOP_GUARD`) and circuit
-  breakers/backoff on Jira, Docker, and LLM calls, so one flaky external
-  call doesn't fail an entire run.
+- Loop guards (`max_iterations` → `HALTED_LOOP_GUARD`) - built for one agent
+  so far (the Tester Agent loop, section 2.4/2.5: 3 attempts, then halts to
+  a human with the full attempt history) - and circuit breakers/backoff on
+  Jira, Docker, and LLM calls generally, so one flaky external call doesn't
+  fail an entire run.
 - Idempotency keys on every write tool, so an at-least-once queue can retry
   safely without duplicate Jira issues.
 
@@ -398,7 +469,7 @@ but a stronger, auditable boundary around the ones that exist.
 - Sandbox isolation beyond Docker (Firecracker/gVisor) — revisit only if AURA runs untrusted, multi-tenant workloads.
 
 **Reliability & observability**
-- Loop guards (`max_iterations` cap → human escalation).
+- Loop guards (`max_iterations` cap → human escalation) beyond the Tester Agent - every other agent still has no cap.
 - Cost budgets enforced in the tool gateway.
 - Circuit breakers, backoff, model fallback for external outages.
 - Approval SLA timers/expiry and "role has zero members" warnings.

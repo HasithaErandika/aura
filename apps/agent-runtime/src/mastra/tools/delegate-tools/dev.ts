@@ -8,7 +8,7 @@ import { DEV_MODEL_ID } from '../../agents/registry';
 import { generateObject, type MastraLike } from '../../lib/generate-object';
 import { devWorkspaceDir } from '../../workspace/dev-workspace';
 import { isDockerAvailable, runInContainer } from '../../lib/docker-exec';
-import { provenance, buildProvenance, disciplineFromTask, type ProvenanceStamp } from './shared';
+import { provenance, buildProvenance, disciplineFromTask, AURA_GIT_IDENTITY, type ProvenanceStamp } from './shared';
 import { mkdir, writeFile, access } from 'node:fs/promises';
 import path from 'node:path';
 import { execFile } from 'node:child_process';
@@ -83,10 +83,14 @@ const DEFAULT_GITIGNORE = ['node_modules/', 'dist/', 'build/', '.env', 'test-res
 // Best-effort, non-blocking finishing touches after a real scaffold succeeds: the CI workflow
 // file (so `.github/workflows/<discipline>-ci.yaml` exists from the start, not bolted on later),
 // a `.gitignore` if the scaffold tool didn't already write one (NestJS's `--skip-git` skips it
-// too), and `git init` (safe/idempotent - see delegate_to_git's own `init` op; the human still
-// owns the first real commit via that same gated tool). None of this touches Jira, and none of
-// it can fail the scaffold itself - a problem here is swallowed, never surfacing as a Gate 4
-// failure, since the scaffold on disk is what actually matters.
+// too), and an initial "chore: scaffold" commit. Committing here, not just `git init`, matters:
+// without a baseline commit, `git diff`/`status` (delegate_to_git's read ops) show every file in
+// the scaffold as untracked once the Coding Agent (Gate 5) starts editing, so there is no way to
+// see what it actually changed versus what the scaffold tool generated. A committed baseline
+// makes that diff real. The human still owns every commit *after* this one, via the gated
+// delegate_to_git `commit` op. None of this touches Jira, and none of it can fail the scaffold
+// itself - a problem here is swallowed, never surfacing as a Gate 4 failure, since the scaffold
+// on disk is what actually matters.
 async function finishScaffold(targetDir: string, discipline: 'Frontend' | 'Backend'): Promise<void> {
   try {
     const workflowsDir = path.join(targetDir, '.github', 'workflows');
@@ -107,8 +111,10 @@ async function finishScaffold(targetDir: string, discipline: 'Frontend' | 'Backe
   }
   try {
     await execFileAsync('git', ['init'], { cwd: targetDir });
+    await execFileAsync('git', ['add', '-A'], { cwd: targetDir });
+    await execFileAsync('git', [...AURA_GIT_IDENTITY, 'commit', '-m', `chore: initial ${discipline.toLowerCase()} scaffold (AURA Dev Agent)`], { cwd: targetDir });
   } catch {
-    // Best-effort - see delegate_to_git's own "init is safe/idempotent" comment.
+    // Best-effort - e.g. a scaffold with nothing to commit (rare, but not fatal here).
   }
 }
 

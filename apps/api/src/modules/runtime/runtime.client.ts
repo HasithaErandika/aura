@@ -141,7 +141,22 @@ const qaWorkspaceFilesCache = createCache<{ files: { path: string; size: number 
 const dockerRunsCache = createCache<{ runs: Record<string, string>[] }>(4_000);
 const testRunsCache = createCache<{
   epicKey: string;
-  runs: { draftId: string; taskKey: string; discipline: string; createdAt: string; passed: number; failed: number; skipped: number; summary: string | null; failureNotes: { name: string; verdict: string; note: string }[] }[];
+  runs: {
+    draftId: string;
+    taskKey: string;
+    discipline: string;
+    createdAt: string;
+    passed: number;
+    failed: number;
+    skipped: number;
+    summary: string | null;
+    failureNotes: { name: string; verdict: string; note: string }[];
+    attempt: number;
+    halted: boolean;
+    haltReason: string | null;
+    bugKey: string | null;
+    history: unknown[];
+  }[];
 }>(15_000);
 
 export const runtimeClient = {
@@ -299,7 +314,25 @@ export const runtimeClient = {
   listTestRuns(
     epicKey: string,
     taskKey?: string,
-  ): Promise<{ epicKey: string; runs: { draftId: string; taskKey: string; discipline: string; createdAt: string; passed: number; failed: number; skipped: number; summary: string | null; failureNotes: { name: string; verdict: string; note: string }[] }[] }> {
+  ): Promise<{
+    epicKey: string;
+    runs: {
+      draftId: string;
+      taskKey: string;
+      discipline: string;
+      createdAt: string;
+      passed: number;
+      failed: number;
+      skipped: number;
+      summary: string | null;
+      failureNotes: { name: string; verdict: string; note: string }[];
+      attempt: number;
+      halted: boolean;
+      haltReason: string | null;
+      bugKey: string | null;
+      history: unknown[];
+    }[];
+  }> {
     return testRunsCache.get(`${epicKey}:${taskKey ?? ""}`, () => {
       const params = taskKey ? new URLSearchParams({ taskKey }) : null;
       return request(`/test-runs/${encodeURIComponent(epicKey)}${params ? `?${params.toString()}` : ""}`);

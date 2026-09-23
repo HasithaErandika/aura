@@ -15,6 +15,12 @@ export const testScenarioSchema = z.object({
   steps: z.array(z.string().min(1)).min(1).describe('Human-readable steps this scenario covers, for the test plan'),
   fileName: z.string().min(3).max(120).describe('Kebab-case file name for this scenario, no extension, e.g. "submit-ticket-with-valid-fields"'),
   playwrightSource: z.string().min(20).describe('Complete, runnable Playwright TypeScript test file content (@playwright/test) for this scenario - imports included'),
+  // Bumped only when the Tester Agent loop (or a human) revises this one scenario after a real
+  // failure - every other scenario in the same draft keeps its own revision untouched, since the
+  // loop is only ever allowed to touch the scenario that actually failed (see
+  // delegate-tools/qa.ts's reviseQaScenario - it never regenerates the whole plan).
+  revision: z.number().int().min(1).default(1).describe('Revision counter for this one scenario file'),
+  revisionNote: z.string().nullable().default(null).describe('Why this scenario was last revised (the failure evidence that triggered it) - null for the original version'),
 });
 export type TestScenario = z.infer<typeof testScenarioSchema>;
 
@@ -56,7 +62,9 @@ export function renderTestPlan(draft: QaDraft): string {
     '',
     ...draft.scenarios.map(
       (s, i) =>
-        `### ${i + 1}. ${s.title} (${s.type.toUpperCase()})\n**Tests:** ${s.storyKeys.join(', ')} · **File:** tests/${s.fileName}.spec.ts\n\n${bullets(s.steps)}\n`,
+        `### ${i + 1}. ${s.title} (${s.type.toUpperCase()})\n**Tests:** ${s.storyKeys.join(', ')} · **File:** tests/${s.fileName}.spec.ts${
+          s.revision > 1 ? ` · **Revision ${s.revision}** (${s.revisionNote ?? 'revised'})` : ''
+        }\n\n${bullets(s.steps)}\n`,
     ),
   ].join('\n');
 }

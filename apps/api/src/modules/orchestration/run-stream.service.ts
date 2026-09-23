@@ -120,6 +120,27 @@ export async function pipeRuntimeStream(context: StreamContext, stream: AsyncGen
           const result = chunk.payload?.result;
           await step("tool-result", { toolName, toolCallId, payload: { result: preview(result) } });
           writer.send("tool", { phase: "result", toolName, toolCallId, result: preview(result), agent: delegatedAgentFromTool(toolName) });
+
+          // The Tester Agent's bounded retry loop (agent-runtime/workflows/tester-workflow.ts)
+          // flags its own tool result when it stopped without passing - the attempt cap was hit,
+          // or a failure couldn't be diagnosed with confidence. This is a flag, not a stream-
+          // ending action: the Orchestrator is expected to follow up with ask_user (the tool's
+          // own description tells it to), and that suspension's SUSPENDED_FOR_APPROVAL status is
+          // free to supersede this one right after - HALTED_LOOP_GUARD's job is only to make sure
+          // the run is never left looking like a plain SUCCEEDED/FAILED if that follow-up doesn't
+          // happen for some reason, and to record the forensic detail in the audit trail either way.
+          if (toolName === "delegate_to_test" && result && typeof result === "object" && (result as Record<string, unknown>).haltedLoopGuard === true) {
+            run = await runsRepository.update(run.id, { status: "HALTED_LOOP_GUARD", last_error: null });
+            await writeAudit({
+              actorId: null,
+              actorRole: null,
+              action: "run.halted_loop_guard",
+              entityType: "workflow_run",
+              entityId: run.id,
+              requestId: context.requestId,
+              metadata: { toolCallId, result: preview(result) },
+            });
+          }
           break;
         }
 

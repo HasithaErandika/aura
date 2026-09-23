@@ -50,6 +50,12 @@ export function fail(error: unknown): DelegateOutput {
   return { ok: false, error: message };
 }
 
+// Committer identity for AURA's own git commits (dev.ts's initial scaffold chore commit, and
+// git.ts's later human-approved commits) - passed as -c flags rather than relying on the host's
+// global git config, which a fresh machine or CI runner may not have set. Not a real person:
+// these commits are code-authored, not a human's, and should read that way in git history/blame.
+export const AURA_GIT_IDENTITY = ['-c', 'user.name=AURA', '-c', 'user.email=aura@localhost'];
+
 // Turns a title into a lowercase, hyphenated, filesystem-safe slug.
 export function slugify(title: string): string {
   return title

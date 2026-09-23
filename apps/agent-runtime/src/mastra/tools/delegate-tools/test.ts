@@ -4,89 +4,11 @@ import type { QaDraft } from '../../contracts/qa-drafts';
 import { draftStore } from '../../store/draft-store';
 import { jira } from '../../mcp/jira-client';
 import { TESTER_MODEL_ID } from '../../agents/registry';
-import { generateObject, type MastraLike } from '../../lib/generate-object';
+import type { MastraLike } from '../../lib/generate-object';
 import { devWorkspaceDir } from '../../workspace/dev-workspace';
-import { qaWorkspaceRoot } from '../../workspace/qa-workspace';
-import { isDockerAvailable, runInContainer } from '../../lib/docker-exec';
-import { readdir, readFile, access } from 'node:fs/promises';
-import path from 'node:path';
-import { provenance, buildProvenance, disciplineFromTask, type ProvenanceStamp } from './shared';
-
-interface TestRunEntry {
-  image: string;
-  port: number;
-  startCommand: string;
-  description: string;
-}
-
-// Fixed per discipline, like SCAFFOLD_COMMANDS (dev.ts) - never chosen by a model. Only the two
-// disciplines Gate 4 actually scaffolds reliably (docs/adr/0001-dev-agent-scaffold-and-template-
-// strategy.md) are supported; anything else fails clearly rather than guessing how to start an
-// app it was never taught to run.
-const TEST_COMMANDS: Partial<Record<'Frontend' | 'Backend', TestRunEntry>> = {
-  Frontend: {
-    image: 'mcr.microsoft.com/playwright:v1.48.0-jammy',
-    port: 4173,
-    startCommand: 'npm run dev -- --port 4173 --strictPort',
-    description: 'npm install, start the Vite dev server on port 4173, wait for it to respond, then run the QA-filed Playwright suite against it.',
-  },
-  Backend: {
-    image: 'mcr.microsoft.com/playwright:v1.48.0-jammy',
-    port: 4000,
-    startCommand: 'PORT=4000 npm run start',
-    description: 'npm install, start the NestJS app on port 4000, wait for it to respond, then run the QA-filed Playwright suite against it.',
-  },
-};
-
-const TEST_RESULTS_FILE = 'test-results.json';
-const TEST_SETUP_FAILED_FILE = 'test-setup-failed.txt';
-
-interface PlaywrightJsonResultRoot {
-  stats?: { expected?: number; unexpected?: number; skipped?: number; duration?: number };
-  suites?: unknown[];
-}
-
-// Builds the fixed shell script run inside the container. Setup (install + start + wait for the
-// port) is separated from the test run itself with its own `|| { ...; exit 0 }` branch, so a
-// real test failure (Playwright's own non-zero exit) is never confused with the app failing to
-// start - only the latter writes TEST_SETUP_FAILED_FILE. The whole script always exits 0; the
-// real result lives in TEST_RESULTS_FILE, read back by delegate-tools.ts after the container
-// exits, never in this exit code (principle 5 - a red suite must never look like an infra crash).
-function buildTestCommand(entry: TestRunEntry): string {
-  return [
-    'npm install --silent',
-    `(${entry.startCommand} > /tmp/app.log 2>&1 &)`,
-    `npx --yes wait-on@7 http://localhost:${entry.port} --timeout 30000 || { echo SETUP_FAILED > /workspace/${TEST_SETUP_FAILED_FILE}; cp /tmp/app.log /workspace/app.log 2>/dev/null; exit 0; }`,
-    `APP_BASE_URL=http://localhost:${entry.port} npx --yes playwright test /qa-tests --reporter=json > /workspace/${TEST_RESULTS_FILE} 2>/workspace/test-stderr.log`,
-    'true',
-  ].join('\n');
-}
-
-// Walks Playwright's JSON reporter shape (suites -> specs -> tests -> results) to pull out each
-// failing test's title path and error message. Best-effort: an unrecognized future shape
-// degrades to an empty list, never a crash - the raw file is still attached to the Jira comment.
-function extractFailures(raw: unknown): { name: string; error: string }[] {
-  const failures: { name: string; error: string }[] = [];
-  function walk(node: unknown, titlePath: string[]): void {
-    if (!node || typeof node !== 'object') return;
-    const n = node as Record<string, unknown>;
-    const nextPath = typeof n.title === 'string' ? [...titlePath, n.title] : titlePath;
-    if (Array.isArray(n.suites)) for (const s of n.suites) walk(s, nextPath);
-    if (Array.isArray(n.specs)) for (const s of n.specs) walk(s, nextPath);
-    if (Array.isArray(n.tests)) {
-      for (const t of n.tests as Record<string, unknown>[]) {
-        const results = Array.isArray(t.results) ? (t.results as Record<string, unknown>[]) : [];
-        const failedResult = results.find((r) => r.status === 'failed' || r.status === 'timedOut');
-        if (failedResult) {
-          const error = (failedResult.error as Record<string, unknown> | undefined)?.message;
-          failures.push({ name: nextPath.join(' > '), error: typeof error === 'string' ? error : 'no error message captured' });
-        }
-      }
-    }
-  }
-  walk(raw, []);
-  return failures;
-}
+import { readdir } from 'node:fs/promises';
+import { provenance, buildProvenance, disciplineFromTask, type ProvenanceStamp, type ToolWriterLike } from './shared';
+import { MAX_ITERATIONS, TEST_COMMANDS, type AttemptState } from '../../workflows/tester-workflow';
 
 interface TestRunDraft {
   epicKey: string;
@@ -108,11 +30,13 @@ const testInputSchema = z
 const testOutputSchema = z.object({
   ok: z.boolean().describe('false means the step failed; read error, tell the user, and stop.'),
   draftId: z.string().optional(),
-  markdown: z.string().optional().describe('Human-readable plan, interpreted real result after execute, or defect confirmation after file-defect. Show it to the user verbatim.'),
+  markdown: z.string().optional().describe('Human-readable plan, final loop summary after execute, or defect confirmation after file-defect. Show it to the user verbatim.'),
   epicKey: z.string().optional(),
   taskKey: z.string().optional(),
   passed: z.number().optional(),
   failed: z.number().optional(),
+  attempts: z.number().optional().describe('execute: how many test/diagnose/route attempts the loop actually ran'),
+  haltedLoopGuard: z.boolean().optional().describe('execute: true when the loop stopped without passing - hit the attempt cap, or escalated an unclear diagnosis - and now needs a human. The Orchestrator MUST call ask_user with the markdown summary when this is true, before doing anything else.'),
   defectKey: z.string().optional().describe('file-defect: the Jira Bug key created for the developer to pick up.'),
   error: z.string().optional(),
   provenance: z.custom<ProvenanceStamp>().optional(),
@@ -122,15 +46,28 @@ function testFail(error: unknown): z.infer<typeof testOutputSchema> {
   return { ok: false, error: error instanceof Error ? error.message : String(error) };
 }
 
-const testerInterpretationSchema = z.object({
-  summary: z.string().min(10),
-  failureNotes: z.array(z.object({ name: z.string(), verdict: z.enum(['likely-real', 'likely-flaky', 'unsure']), note: z.string() })),
-});
+// Runs the Tester workflow (workflows/tester-workflow.ts) to completion, relaying its live
+// container output into this tool's own stream, the same pattern runQaWorkflow (qa.ts) and
+// runArchitectWorkflow (architect.ts) already use for their own workflows.
+async function runTesterWorkflow(mastra: MastraLike, initial: AttemptState, writer: ToolWriterLike | undefined): Promise<AttemptState> {
+  const workflow = (mastra as { getWorkflow?: (id: string) => { createRun: () => Promise<{ stream: (args: { inputData: AttemptState }) => { fullStream: AsyncIterable<{ type: string; payload?: { chunk?: string; attempt?: number } }>; result: Promise<{ status: string; result?: unknown; error?: { message?: string } }> } }> } } | undefined)?.getWorkflow?.('tester-workflow');
+  if (!workflow) throw new Error('tester-workflow is not registered');
+  const run = await workflow.createRun();
+  const streamOutput = run.stream({ inputData: initial });
+  for await (const chunk of streamOutput.fullStream) {
+    if (chunk.type === 'data-test-output' && chunk.payload?.chunk) {
+      await writer?.custom({ type: 'data-test-output', data: { chunk: chunk.payload.chunk, attempt: chunk.payload.attempt }, transient: true });
+    }
+  }
+  const result = await streamOutput.result;
+  if (result.status !== 'success') throw new Error(`test loop failed (${result.status})${result.error?.message ? `: ${result.error.message}` : ''}`);
+  return result.result as AttemptState;
+}
 
 export const delegateToTestTool = createTool({
   id: 'delegate_to_test',
   description:
-    "Tester Agent (Gate 7). draft: epicKey + taskKey -> confirms the Task is scaffolded and its Epic has a filed QA plan, returns the fixed test-run plan (returns draftId + markdown). execute: draftId + approved -> actually starts the scaffolded app and runs the QA Agent's real Playwright suite against it inside a sandboxed Docker container, reads back the real JSON result, and has the Tester Agent interpret it - never fakes, assumes, or rounds a result. Comments the Task with the real pass/fail numbers plus the interpretation, kept visibly separate. Only Frontend and Backend/NestJS are supported (the disciplines Gate 4 actually scaffolds reliably) - fails clearly for anything else. Never execute without an explicit human approval. file-defect: draftId + approved, only after execute produced failed > 0 -> files a real Jira Bug against the Task with the real failure details, comments the Task pointing to it, and moves the Task back for rework - completes the developer<->tester back-and-forth (fix, then re-run Gate 7 to retest) instead of leaving a failure as a comment nobody is assigned to act on. Never file a defect without an explicit human approval, and never for a run with zero failures.",
+    "Tester Agent (Gate 7) - a bounded test -> diagnose -> route -> retest loop, not a single pass. draft: epicKey + taskKey -> confirms the Task is scaffolded and its Epic has a filed QA plan, returns the fixed test-run plan (returns draftId + markdown). execute: draftId + approved -> runs the QA Agent's real Playwright suite in a sandboxed Docker container; on failure it diagnoses each failure from real evidence and routes automatically to the Coding Agent (an application defect) or back to QA (a bad test, revising only that one scenario) and retests - up to 3 attempts total. Comments the Task after every attempt. If it still hasn't passed after 3 attempts, or a failure can't be diagnosed with confidence, it stops and returns haltedLoopGuard=true - you MUST then call ask_user with the returned markdown so a human can decide; never re-run execute again on your own to try to force it past this. Only Frontend and Backend/NestJS are supported. Never execute without an explicit human approval to START the loop - the loop's own internal retries do not ask for further approval, by design. file-defect: draftId + approved, manual escalation only - creates/points at a Jira Bug for the current state (the loop already auto-files one when it diagnoses a code defect itself; use this mainly after a haltedLoopGuard escalation).",
   inputSchema: testInputSchema,
   outputSchema: testOutputSchema,
   execute: async (input, { mastra, agent, writer }) => {
@@ -182,123 +119,71 @@ export const delegateToTestTool = createTool({
           const record = await draftStore.get<TestRunDraft>(input.draftId);
           if (!record || record.kind !== 'test-run') return testFail(`unknown test draft ${input.draftId}`);
 
-          if (record.filed.status === 'done') {
+          if (record.filed.status === 'done' || record.filed.status === 'halted') {
+            const attempts = Number(record.filed.attempt ?? '1');
             return {
-              ok: true,
+              ok: record.filed.status === 'done',
               draftId: record.id,
               epicKey: record.content.epicKey,
               taskKey: record.content.taskKey,
               passed: Number(record.filed.passed ?? '0'),
               failed: Number(record.filed.failed ?? '0'),
-              markdown: 'Already ran. Nothing was run twice.',
+              attempts,
+              haltedLoopGuard: record.filed.status === 'halted',
+              markdown: `Already ${record.filed.status === 'halted' ? `halted after ${attempts} attempt(s): ${record.filed.summary ?? ''}` : 'ran'}. Nothing was run twice.`,
             };
           }
 
-          const entry = TEST_COMMANDS[record.content.discipline];
-          if (!entry) return testFail(`No test runner is configured for ${record.content.discipline}`);
-          if (!(await isDockerAvailable())) return testFail('Docker is not available - install/start Docker to run tests');
+          if (!TEST_COMMANDS[record.content.discipline]) return testFail(`No test runner is configured for ${record.content.discipline}`);
 
-          const qaTestsDir = path.resolve(qaWorkspaceRoot, record.content.epicKey, 'qa', 'tests');
+          let finalState: AttemptState;
           try {
-            await access(qaTestsDir);
-          } catch {
-            return testFail(`No Playwright test files found at ${qaTestsDir} - re-run delegate_to_qa's file step for ${record.content.epicKey}`);
-          }
-
-          try {
-            await runInContainer({
-              image: entry.image,
-              hostDir: record.content.targetDir,
-              command: buildTestCommand(entry),
-              mounts: [{ hostPath: qaTestsDir, containerPath: '/qa-tests', readOnly: true }],
-              timeoutMs: 15 * 60_000,
-              name: `aura-test-${record.id}`,
-              labels: { 'aura.epic': record.content.epicKey, 'aura.task': record.content.taskKey, 'aura.kind': 'test' },
-              onOutput: (chunk) => {
-                void writer?.custom({ type: 'data-test-output', data: { chunk }, transient: true });
+            finalState = await runTesterWorkflow(
+              mastra as MastraLike,
+              {
+                epicKey: record.content.epicKey,
+                taskKey: record.content.taskKey,
+                targetDir: record.content.targetDir,
+                discipline: record.content.discipline,
+                testRunDraftId: record.id,
+                attempt: 1,
+                done: false,
+                passed: 0,
+                failed: 0,
+                skipped: 0,
+                haltReason: null,
+                bugKey: null,
+                history: [],
               },
-            });
+              writer,
+            );
           } catch (error) {
             return testFail(error);
           }
 
-          const setupFailedPath = path.join(record.content.targetDir, TEST_SETUP_FAILED_FILE);
-          const resultsPath = path.join(record.content.targetDir, TEST_RESULTS_FILE);
-          try {
-            await access(setupFailedPath);
-            const appLog = await readFile(path.join(record.content.targetDir, 'app.log'), 'utf-8').catch(() => '(no app log captured)');
-            return testFail(`The app never started listening on its port within 30s, so no tests ran. Last app output:\n${appLog.slice(-2000)}`);
-          } catch {
-            // No setup-failed marker - proceed to read the real result.
-          }
-
-          let raw: PlaywrightJsonResultRoot;
-          try {
-            raw = JSON.parse(await readFile(resultsPath, 'utf-8')) as PlaywrightJsonResultRoot;
-          } catch (error) {
-            return testFail(`Neither a result nor a setup-failure marker was found after the run - something unexpected happened. ${error instanceof Error ? error.message : String(error)}`);
-          }
-
-          const passed = raw.stats?.expected ?? 0;
-          const failed = raw.stats?.unexpected ?? 0;
-          const skipped = raw.stats?.skipped ?? 0;
-          const failures = extractFailures(raw);
-
-          let interpretation = { summary: `${passed} passed, ${failed} failed, ${skipped} skipped. No failures to interpret.`, failureNotes: [] as z.infer<typeof testerInterpretationSchema>['failureNotes'] };
-          if (failures.length) {
-            const prompt = `Interpret this real Playwright result for Task ${record.content.taskKey} - ${passed} passed, ${failed} failed, ${skipped} skipped.\n\nFailures:\n${failures.map((f) => `- ${f.name}: ${f.error}`).join('\n')}\n\nReturn only the JSON the schema describes.`;
-            interpretation = await generateObject(mastra as MastraLike, 'tester', prompt, testerInterpretationSchema);
-          }
-
+          const lastAttempt = finalState.history[finalState.history.length - 1];
+          const attemptLines = finalState.history.map((r) => `- Attempt ${r.attempt}: ${r.passed} passed, ${r.failed} failed, ${r.skipped} skipped - ${r.action}`);
           const markdown = [
             `# Test result for ${record.content.taskKey} (${record.content.epicKey})`,
             '',
-            `**Real result:** ${passed} passed, ${failed} failed, ${skipped} skipped.`,
+            finalState.haltReason === 'passed'
+              ? `**Passed** after ${finalState.history.length} attempt(s).`
+              : `**Still failing** after ${finalState.history.length} attempt(s) - ${finalState.haltReason === 'cap_reached' ? `hit the ${MAX_ITERATIONS}-attempt cap` : 'a failure could not be diagnosed with confidence, or the app never started'}. A human needs to decide next.`,
             '',
-            '## AI interpretation',
-            interpretation.summary,
-            ...(interpretation.failureNotes.length ? ['', ...interpretation.failureNotes.map((f) => `- **${f.name}** (${f.verdict}): ${f.note}`)] : []),
+            '## Attempt history',
+            ...attemptLines,
+            ...(lastAttempt?.diagnoses.length ? ['', '## Latest diagnosis', ...lastAttempt.diagnoses.map((d) => `- **${d.name}** — ${d.classification} (${d.confidence} confidence, ${d.stage}): ${d.reasoning}`)] : []),
           ].join('\n');
 
-          await draftStore.markFiled(record.id, {
-            status: 'done',
-            passed: String(passed),
-            failed: String(failed),
-            skipped: String(skipped),
-            summary: interpretation.summary,
-            failureNotes: JSON.stringify(interpretation.failureNotes),
-          });
-          const stamp = provenance('tester-agent', TESTER_MODEL_ID, record, `${record.content.taskKey} (Task)`);
-          try {
-            await jira.addComment(
-              record.content.taskKey,
-              [
-                `AURA Tester Agent ran the Gate 6 Playwright suite: ${passed} passed, ${failed} failed, ${skipped} skipped (machine result).`,
-                '',
-                '**AI interpretation:**',
-                interpretation.summary,
-                ...(interpretation.failureNotes.length ? ['', ...interpretation.failureNotes.map((f) => `- **${f.name}** (${f.verdict}): ${f.note}`)] : []),
-                '',
-                '----',
-                stamp,
-              ].join('\n'),
-            );
-            if (failed === 0) {
-              const transitions = await jira.getTransitions(record.content.taskKey);
-              const ready = transitions.find((t) => t.name.toLowerCase() === 'ready for release');
-              if (ready) await jira.transitionIssue(record.content.taskKey, ready.id);
-            }
-          } catch {
-            // Best-effort; the real result and interpretation are already returned to the human.
-          }
-
           return {
-            ok: true,
+            ok: finalState.haltReason === 'passed',
             draftId: record.id,
             epicKey: record.content.epicKey,
             taskKey: record.content.taskKey,
-            passed,
-            failed,
+            passed: finalState.passed,
+            failed: finalState.failed,
+            attempts: finalState.history.length,
+            haltedLoopGuard: finalState.haltReason !== 'passed',
             markdown,
             provenance: buildProvenance('tester-agent', TESTER_MODEL_ID, record, `${record.content.taskKey} (Task)`),
           };
@@ -308,11 +193,24 @@ export const delegateToTestTool = createTool({
           if (input.approved !== true) return testFail('file-defect requires approved=true, which is only set after the human approved via ask_user');
           const record = await draftStore.get<TestRunDraft>(input.draftId);
           if (!record || record.kind !== 'test-run') return testFail(`unknown test draft ${input.draftId}`);
-          if (record.filed.status !== 'done') return testFail('execute has not produced a real result for this draft yet - run execute before filing a defect');
+          if (record.filed.status !== 'done' && record.filed.status !== 'halted') return testFail('execute has not produced a real result for this draft yet - run execute before filing a defect');
           const failed = Number(record.filed.failed ?? '0');
           if (failed === 0) return testFail('The real result had 0 failures - there is nothing to file a defect for');
           if (record.filed.defectFiled === 'done') {
             return { ok: true, draftId: record.id, epicKey: record.content.epicKey, taskKey: record.content.taskKey, defectKey: record.filed.defectKey, markdown: `Already filed as ${record.filed.defectKey}. Nothing was filed twice.` };
+          }
+          if (record.filed.bugKey) {
+            // The loop itself already auto-filed a Bug when it diagnosed a code defect - point at
+            // that one instead of creating a second Bug for the same failure.
+            await draftStore.markFiled(record.id, { ...record.filed, defectFiled: 'done', defectKey: record.filed.bugKey });
+            return {
+              ok: true,
+              draftId: record.id,
+              epicKey: record.content.epicKey,
+              taskKey: record.content.taskKey,
+              defectKey: record.filed.bugKey,
+              markdown: `The Tester Agent loop already filed ${record.filed.bugKey} for this while it was running. Nothing new was created.`,
+            };
           }
 
           const failureNotes = JSON.parse(record.filed.failureNotes || '[]') as { name: string; verdict: string; note: string }[];
