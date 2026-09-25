@@ -1,10 +1,11 @@
 import { vscode } from "../../shared/lib/vscodeTheme.ts";
+import type { PanelTab } from "./access.ts";
 
-// VS Code's bottom-panel tab strip (TERMINAL · RUNNERS), rendered inside whichever panel is
-// active so the tabs and that panel's own controls share one header row.
-export type PanelTab = "terminal" | "runners";
+// VS Code's bottom-panel tab strip (TERMINAL · TEST RUNS · RUNNERS), rendered inside whichever
+// panel is active so the tabs and that panel's own controls share one header row. Which tabs
+// exist is decided by the role (access.ts panelTabs).
 
-const LABELS: Record<PanelTab, string> = { terminal: "Terminal", runners: "Runners" };
+const LABELS: Record<PanelTab, string> = { terminal: "Terminal", tests: "Test runs", runners: "Runners" };
 
 export function PanelTabs({ tabs, active, onChange }: { tabs: PanelTab[]; active: PanelTab; onChange: (tab: PanelTab) => void }) {
   return (
@@ -16,7 +17,7 @@ export function PanelTabs({ tabs, active, onChange }: { tabs: PanelTab[]; active
           role="tab"
           aria-selected={tab === active}
           onClick={() => onChange(tab)}
-          className="pb-px text-[11px] font-semibold tracking-wide uppercase transition-colors"
+          className="pb-px text-[11px] font-semibold tracking-wide whitespace-nowrap uppercase transition-colors"
           style={{ color: tab === active ? vscode.text : vscode.mutedText, borderBottom: `1px solid ${tab === active ? vscode.accent : "transparent"}` }}
         >
           {LABELS[tab]}

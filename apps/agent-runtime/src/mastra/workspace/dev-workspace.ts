@@ -1,4 +1,4 @@
-import { mkdir, access, readdir, symlink } from 'node:fs/promises';
+import { mkdir, access, appendFile, readdir, readFile, symlink } from 'node:fs/promises';
 import path from 'node:path';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
@@ -24,9 +24,12 @@ export async function devWorkspaceDir(epicKey: string, discipline: string): Prom
   return dir;
 }
 
-// Where a specific Task's isolated git worktree lives, off the base repo above.
+// Where a specific Task's isolated git worktree lives: <EPIC>/dev/.worktrees/<discipline>/<TASK>,
+// a SIBLING of the discipline's base repo, never inside it. Nested inside the base (the earlier
+// layout), every tool run in the base - the scaffold's own `npm test`, tsc, lint, a base CI run -
+// walked into every Task's worktree and ran/compiled all of their code too.
 export function taskWorktreeDir(baseDir: string, taskKey: string): string {
-  return path.resolve(baseDir, '.worktrees', taskKey);
+  return path.resolve(path.dirname(baseDir), '.worktrees', path.basename(baseDir), taskKey);
 }
 
 export function taskBranchName(taskKey: string): string {
@@ -40,6 +43,25 @@ async function pathExists(p: string): Promise<boolean> {
   } catch {
     return false;
   }
+}
+
+// Paths AURA creates inside a discipline's repo that must never show up as changes or be
+// committed: Task worktrees nested in the base (.worktrees/), the council's transcripts (.aura/),
+// the coding prompt file, and the node_modules SYMLINK each worktree gets (a scaffold's
+// "node_modules/" ignore rule only matches directories, not a symlink). Written to the repo's
+// shared info/exclude - local to this machine, never a tracked .gitignore change - so the base
+// stays clean and every worktree's `git status` shows only that Task's real changes.
+const AURA_LOCAL_PATHS = ['.worktrees/', '.aura/', '.aura-task-prompt.txt', 'node_modules'];
+
+export async function ensureAuraExcludes(repoDir: string): Promise<void> {
+  const { stdout } = await execFileAsync('git', ['rev-parse', '--git-common-dir'], { cwd: repoDir });
+  const excludeFile = path.join(path.resolve(repoDir, stdout.trim()), 'info', 'exclude');
+  const current = await readFile(excludeFile, 'utf8').catch(() => '');
+  const lines = current.split('\n');
+  const missing = AURA_LOCAL_PATHS.filter((p) => !lines.includes(p));
+  if (missing.length === 0) return;
+  await mkdir(path.dirname(excludeFile), { recursive: true });
+  await appendFile(excludeFile, `${current && !current.endsWith('\n') ? '\n' : ''}# AURA local paths (workspace/dev-workspace.ts)\n${missing.join('\n')}\n`);
 }
 
 export interface TaskWorktree {
@@ -68,6 +90,7 @@ export async function ensureTaskWorktree(baseDir: string, taskKey: string): Prom
 
   // A worktree's own working directory has a `.git` FILE (pointing back at the base repo's real
   // .git), not a `.git` directory - either way, its presence means the worktree already exists.
+  await ensureAuraExcludes(baseDir);
   if (await pathExists(path.join(workDir, '.git'))) {
     return { baseDir, workDir, branch, created: false };
   }
@@ -104,8 +127,8 @@ export interface LocatedTaskWorktree {
   branch: string;
 }
 
-// Finds a Task's worktree from its key alone by scanning <root>/<epic>/dev/<discipline>/
-// .worktrees/<TASK>. A Task only ever has one worktree (delegate_to_dev creates it under the
+// Finds a Task's worktree from its key alone by scanning <root>/<epic>/dev/.worktrees/<discipline>/
+// <TASK>. A Task only ever has one worktree (delegate_to_dev creates it under the
 // discipline read off the Task itself), so the first match is the answer; null if Gate 4 has not
 // created one yet. Used by the `aura` CLI's lookup route and the web terminal.
 export async function findTaskWorktree(taskKey: string): Promise<LocatedTaskWorktree | null> {
@@ -116,7 +139,8 @@ export async function findTaskWorktree(taskKey: string): Promise<LocatedTaskWork
     const devDir = path.join(root, epic.name, 'dev');
     const disciplines = await readdir(devDir, { withFileTypes: true }).catch(() => []);
     for (const discipline of disciplines) {
-      if (!discipline.isDirectory()) continue;
+      // dev/.worktrees/ holds the Task worktrees, not a discipline.
+      if (!discipline.isDirectory() || discipline.name.startsWith('.')) continue;
       const workDir = taskWorktreeDir(path.join(devDir, discipline.name), taskKey);
       if (await pathExists(path.join(workDir, '.git'))) {
         return { taskKey, epicKey: epic.name, discipline: discipline.name, path: workDir, branch: taskBranchName(taskKey) };

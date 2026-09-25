@@ -220,7 +220,7 @@ branch, so `aura diff`, `aura commit` and so on need no arguments.
 ## 6. The web terminal (Project Files)
 
 Developers get a VS Code-style terminal under the CodeMirror editor on **Project
-Files**. It opens a shell in the loaded Task's worktree (or the base scaffold), with `aura`,
+Files** (the one workspace for an Epic's design docs, tests and code). It opens a shell in the loaded Task's worktree (or the base scaffold), with `aura`,
 `git`, `npm` and everything else on your PATH, and `aura` already signed in as you.
 
 Enable it once:

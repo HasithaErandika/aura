@@ -87,13 +87,14 @@ function bytes(value: string | undefined): number | null {
   return Math.round(Number(match[1]) * base ** power);
 }
 
-// Where a directory sits under the workspace root: "<EPIC>/dev/<discipline>[/.worktrees/<TASK>]".
+// Where a directory sits under the workspace root: "<EPIC>/dev/<discipline>" (a base repo) or
+// "<EPIC>/dev/.worktrees/<discipline>/<TASK>" (a Task worktree - workspace/dev-workspace.ts).
 function locate(dir: string): { epicKey: string | null; discipline: string | null; taskKey: string | null; label: string } {
   const rel = path.relative(path.resolve(devWorkspaceRoot), dir);
   const parts = rel.split(path.sep);
-  if (rel.startsWith('..') || parts.length < 3) return { epicKey: null, discipline: null, taskKey: null, label: path.basename(dir) };
-  const taskKey = parts[3] === '.worktrees' ? (parts[4] ?? null) : null;
-  return { epicKey: parts[0] ?? null, discipline: parts[2] ?? null, taskKey, label: taskKey ?? `${parts[0]}/${parts[2]} base` };
+  if (rel.startsWith('..') || parts.length < 3 || parts[1] !== 'dev') return { epicKey: null, discipline: null, taskKey: null, label: path.basename(dir) };
+  if (parts[2] === '.worktrees') return { epicKey: parts[0] ?? null, discipline: parts[3] ?? null, taskKey: parts[4] ?? null, label: parts[4] ?? path.basename(dir) };
+  return { epicKey: parts[0] ?? null, discipline: parts[2] ?? null, taskKey: null, label: `${parts[0]}/${parts[2]} base` };
 }
 
 async function dockerSnapshot(epic: string | undefined) {

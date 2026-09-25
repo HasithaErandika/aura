@@ -1,6 +1,6 @@
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { appendFile, mkdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import type { Agent } from '@mastra/core/agent';
 import { createImplementer, createPlanner, createReviewer } from '../agents/council-agents';
@@ -10,6 +10,7 @@ import { runAllChecks, type CheckResult } from '../lib/sandbox';
 import { takeCouncilNotes } from '../store/council-notes';
 import { recordModelUsage } from '../store/usage-store';
 import { AURA_GIT_IDENTITY, type ToolWriterLike } from '../tools/delegate-tools/shared';
+import { ensureAuraExcludes } from '../workspace/dev-workspace';
 
 const execFileAsync = promisify(execFile);
 
@@ -65,7 +66,6 @@ const MAX_DIFF_CHARS = 60_000;
 const MAX_WAIT_MS = 30_000;
 const MAX_PROVIDER_RETRIES = 2;
 const PROVIDER_ERROR_WAIT_MS = 20_000;
-const AURA_LOCAL_FILES = ['.aura/', '.aura-task-prompt.txt'];
 
 class BudgetExhausted extends Error {
   constructor() {
@@ -76,17 +76,6 @@ class BudgetExhausted extends Error {
 async function git(cwd: string, args: string[]): Promise<string> {
   const { stdout } = await execFileAsync('git', args, { cwd, maxBuffer: 32 * 1024 * 1024 });
   return stdout;
-}
-
-// Keeps AURA's own working files (the prompt file, council transcripts) out of every commit.
-async function ensureExcluded(cwd: string): Promise<void> {
-  const commonDir = path.resolve(cwd, (await git(cwd, ['rev-parse', '--git-common-dir'])).trim());
-  const excludeFile = path.join(commonDir, 'info', 'exclude');
-  const current = await readFile(excludeFile, 'utf8').catch(() => '');
-  const missing = AURA_LOCAL_FILES.filter((p) => !current.split('\n').includes(p));
-  if (missing.length === 0) return;
-  await mkdir(path.dirname(excludeFile), { recursive: true });
-  await appendFile(excludeFile, `${current && !current.endsWith('\n') ? '\n' : ''}# AURA working files\n${missing.join('\n')}\n`);
 }
 
 async function checkpoint(cwd: string, round: number): Promise<string | null> {
@@ -263,7 +252,7 @@ async function runCouncil(input: CouncilInput): Promise<CouncilResult> {
   const planner = createPlanner(cwd);
   const implementer = createImplementer(cwd);
 
-  await ensureExcluded(cwd);
+  await ensureAuraExcludes(cwd);
   const startSha = (await git(cwd, ['rev-parse', 'HEAD'])).trim();
 
   let approved = false;

@@ -8,3 +8,6 @@ build/
 .DS_Store
 coverage/
 *.tsbuildinfo
+
+# AURA workspaces (Epic design docs, QA specs, scaffolded code) - generated, never committed
+.workspaces/

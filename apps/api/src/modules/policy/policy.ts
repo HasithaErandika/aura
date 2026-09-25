@@ -65,7 +65,9 @@ export const ROLE_AGENT_GRANTS: Record<Role, Record<string, AgentAccess>> = {
   },
   // "coding-council" is the Coding Agent's multi-agent provider (Gate 5, provider "council"):
   // run = may start it through the Coding Agent and steer it with notes (council.router.ts).
-  developer: { orchestrator: "run", "dev-agent": "run", "coding-agent": "run", "coding-council": "run", "git-tool": "run", "architect-agent": "read" },
+  // qa-agent "read": developers see the test plan, the Playwright specs and the test-run history
+  // their code has to pass, next to the code on Project Files (they cannot edit or run them).
+  developer: { orchestrator: "run", "dev-agent": "run", "coding-agent": "run", "coding-council": "run", "git-tool": "run", "architect-agent": "read", "qa-agent": "read" },
   // "QA Engineer | QA, Tester, Dev (read) | Approves test plans; verifies results" - QA Engineer
   // runs both QA and Tester agents and is the sole approver of both their gates (6 and 7). There
   // is no separate Tester role (removed - see supabase/migrations/0005_remove_tester_role.sql):
@@ -181,8 +183,9 @@ export function canEditDevWorkspace(role: Role): boolean {
 }
 
 // Who may view the QA workspace (Gate 6's test plan + Playwright source) and test-run history
-// (Gate 7's real results) - the same audience as qa-agent itself: qa_engineer and tester (both
-// have a grant on it - ROLE_AGENT_GRANTS above), architect (read, RACI oversight), admin.
+// (Gate 7's real results) - the same audience as qa-agent itself (ROLE_AGENT_GRANTS above):
+// qa_engineer (run), and read for business_analyst, architect (RACI oversight), developer (the
+// tests their code must pass) and deployer, plus admin.
 export function canViewQaWorkspace(role: Role): boolean {
   return canReadAgent(role, "qa-agent");
 }

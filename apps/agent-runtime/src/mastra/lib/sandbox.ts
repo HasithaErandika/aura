@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process';
-import { access, readFile } from 'node:fs/promises';
+import { access, lstat, readFile, readlink, rm } from 'node:fs/promises';
 import path from 'node:path';
 import { runInContainer } from './docker-exec';
 
@@ -15,9 +15,11 @@ import { runInContainer } from './docker-exec';
 // project's own scripts, which the Implementer can edit - acceptable for AURA's local, single-user
 // deployment, not for hosted use (set SANDBOX_MODE=docker there).
 //
-// There is deliberately no `install` check: a Task worktree's node_modules is a symlink to the
-// discipline's shared base repo (workspace/dev-workspace.ts), so installing from one Task would
-// change every other Task's dependencies underneath them.
+// Dependencies: a Task worktree starts with node_modules as a symlink to the discipline's base
+// repo (workspace/dev-workspace.ts) - fast, and correct while the Task uses only the scaffold's
+// dependencies. Once a Task changes package.json's dependencies, ensureTaskDependencies swaps the
+// symlink for the worktree's OWN node_modules and installs there before any check runs - never
+// in the base, so no other Task's dependencies change underneath it.
 
 export const CHECK_IDS = ['typecheck', 'build', 'test', 'lint'] as const;
 export type CheckId = (typeof CHECK_IDS)[number];
@@ -81,16 +83,16 @@ function cap(text: string): string {
   return text.length > OUTPUT_CAP ? `…(truncated)\n${text.slice(-OUTPUT_CAP)}` : text;
 }
 
-function runOnHost(dir: string, check: ResolvedCheck): Promise<CheckResult> {
+function runOnHost(dir: string, check: ResolvedCheck, timeoutMs = TIMEOUT_MS[check.id]): Promise<CheckResult> {
   const [program, ...args] = check.argv as [string, ...string[]];
   // Only what a Node toolchain needs. No API keys, tokens, or AURA configuration leak into
   // project scripts. CI=1 keeps test runners (vitest, jest) out of watch mode.
   const env = { PATH: process.env.PATH ?? '', HOME: process.env.HOME ?? dir, CI: '1', FORCE_COLOR: '0', LANG: process.env.LANG ?? 'C.UTF-8' };
   return new Promise((resolve) => {
-    execFile(program, args, { cwd: dir, env, timeout: TIMEOUT_MS[check.id], maxBuffer: 16 * 1024 * 1024, killSignal: 'SIGKILL' }, (error, stdout, stderr) => {
+    execFile(program, args, { cwd: dir, env, timeout: timeoutMs, maxBuffer: 16 * 1024 * 1024, killSignal: 'SIGKILL' }, (error, stdout, stderr) => {
       const output = cap(`${stdout}${stderr}`.trim());
       if (!error) return resolve({ id: check.id, ok: true, output });
-      const reason = error.killed ? `timed out after ${Math.round(TIMEOUT_MS[check.id] / 1000)}s` : `exit code ${typeof error.code === 'number' ? error.code : String(error.code)}`;
+      const reason = error.killed ? `timed out after ${Math.round(timeoutMs / 1000)}s` : `exit code ${typeof error.code === 'number' ? error.code : String(error.code)}`;
       resolve({ id: check.id, ok: false, output: cap(`${output}\n[${check.id} failed: ${reason}]`.trim()) });
     });
   });
@@ -101,6 +103,45 @@ async function runInDocker(dir: string, check: ResolvedCheck): Promise<CheckResu
   // the container's `sh -c` string is safe for the same reason docker-exec.ts's commands are.
   const result = await runInContainer({ image: DOCKER_IMAGE, hostDir: dir, command: check.argv.join(' '), timeoutMs: TIMEOUT_MS[check.id], env: { CI: '1' } });
   return { id: check.id, ok: result.exitCode === 0, output: cap(result.output.trim()) };
+}
+
+const INSTALL_TIMEOUT_MS = 10 * 60_000;
+
+function depsOf(pkg: { dependencies?: Record<string, string>; devDependencies?: Record<string, string> }): string {
+  const sorted = (o: Record<string, string> = {}) => Object.fromEntries(Object.entries(o).sort(([a], [b]) => a.localeCompare(b)));
+  return JSON.stringify([sorted(pkg.dependencies), sorted(pkg.devDependencies)]);
+}
+
+async function readPackage(dir: string) {
+  return JSON.parse(await readFile(path.join(dir, 'package.json'), 'utf8')) as { dependencies?: Record<string, string>; devDependencies?: Record<string, string> };
+}
+
+// Gives a Task worktree its own installed dependencies when its package.json no longer matches
+// the base it symlinks to. No-op for a base repo, a worktree already on its own node_modules, or
+// a Task that did not touch dependencies. Returns what it did, for the check output.
+export async function ensureTaskDependencies(dir: string): Promise<string | null> {
+  const nm = path.join(dir, 'node_modules');
+  let linkTarget: string;
+  try {
+    if (!(await lstat(nm)).isSymbolicLink()) return null;
+    linkTarget = path.resolve(dir, await readlink(nm));
+  } catch {
+    return null;
+  }
+  const baseDir = path.dirname(linkTarget);
+  let changed: boolean;
+  try {
+    changed = depsOf(await readPackage(dir)) !== depsOf(await readPackage(baseDir));
+  } catch {
+    return null;
+  }
+  if (!changed) return null;
+
+  await rm(nm, { force: true });
+  const install = await runOnHost(dir, { id: 'build', argv: ['npm', 'install', '--no-audit', '--no-fund'] }, INSTALL_TIMEOUT_MS);
+  return install.ok
+    ? 'package.json dependencies differ from the base scaffold - installed them into this Task\'s own node_modules.'
+    : `Installing this Task's dependencies failed:\n${install.output}`;
 }
 
 // Checks running right now, for the Runners view (server/runners-routes.ts). Observational only.
@@ -120,6 +161,8 @@ export function listActiveChecks(): ActiveCheck[] {
 }
 
 export async function runCheck(dir: string, id: CheckId): Promise<CheckResult> {
+  const installed = SANDBOX_MODE === 'host' ? await ensureTaskDependencies(dir) : null;
+  if (installed?.startsWith('Installing')) return { id, ok: false, output: installed };
   const check = (await availableChecks(dir)).find((c) => c.id === id);
   if (!check) return { id, ok: true, output: `(no ${id} step in this project - skipped)` };
   const key = `check-${++checkSeq}`;

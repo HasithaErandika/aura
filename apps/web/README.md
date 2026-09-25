@@ -16,7 +16,7 @@ src/
     ui/           neutral component kit (Button, Card, Table, Badge, Field, Menu, Markdown, ...)
     icons/ brand/ hooks/ lib/
   features/
-    landing/ auth/ dashboard/ workspace/ approvals/ runs/ registry/ dev-files/ audit/ admin/users/
+    landing/ auth/ dashboard/ workspace/ approvals/ runs/ registry/ project-files/ audit/ admin/users/
 ```
 
 Each feature owns its API calls (`api.ts`), hooks, and components. Nothing renders placeholder data; every list, count, and status comes from `apps/api`.
@@ -44,7 +44,7 @@ Each feature owns its API calls (`api.ts`), hooks, and components. Nothing rende
 | `/app/approvals`, `/app/approvals/:id` | approver roles, requesters, admin | Approval Inbox and decision screen |
 | `/app/runs`, `/app/runs/:id` | requesters, approver roles, admin | runs and step timeline |
 | `/app/agents` | any role with a read grant | Agent Registry (live from the runtime) |
-| `/app/dev-files` | every pipeline role, admin | Project Files - an Epic's design documents (Architect edits, PO/BA/Architect send feedback) and a Task's code (Developer/Architect/QA/admin; Developer edits), CodeMirror + terminal (Developer). `/app/design-docs` redirects here |
+| `/app/project-files` | every pipeline role, admin | Project Files - one workspace per Epic: design docs, test plan/specs + test runs, a Task's code; Terminal / Test runs / Runners panel. Who sees and edits what: `features/project-files/access.ts`. `/app/dev-files`, `/app/design-docs`, `/app/qa-files` redirect here |
 | `/app/audit` | admin | Audit Explorer |
 | `/app/admin/users` | admin | User Management |
 
