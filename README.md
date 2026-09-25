@@ -7,21 +7,24 @@ See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the full architecture basel
 ## Layout
 
 ```
-apps/            web, api, agent-runtime
-docs/            architecture, srs, adr, security, runbooks, workflows, logs
+apps/            web, api, agent-runtime, cli (the `aura` command)
+packages/        aura-client (typed API client shared by the apps)
+patches/         pnpm dependency patches
+docs/            architecture, plans, srs, adr, security, runbooks, workflows, logs
 ```
 
-Each app under `apps/` is a standalone project with its own `package.json`/lockfile and is run independently — there is no shared workspace tooling (pnpm workspaces/Turborepo) at the root. `packages/`, `tests/`, and `infra/` from the architecture baseline (see [docs/ARCHITECTURE.md §13](docs/ARCHITECTURE.md#13-monorepo-layout)) are deferred until there's real cross-app duplication to factor out; Mastra manages agent/workflow code inside `apps/agent-runtime` for now.
+A **pnpm workspace**: `apps/` holds the runnable apps (`web`, `api`, `agent-runtime`, and the `aura` CLI in `cli`), `packages/` holds code shared between them (`aura-client`, the typed API client). One `pnpm install` at the root, one `pnpm-lock.yaml`. See [SETUP.md](SETUP.md) for what each part is and how to run it.
 
 ## Getting started
 
-Each app is installed and run on its own:
-
 ```bash
-cd apps/web && npm install && npm run dev
-cd apps/api && npm install && npm run dev
-cd apps/agent-runtime && npm install && npm run dev
+pnpm install      # or: make install
+make env          # create .env files from the examples, then fill them in
+make dev          # agent-runtime + api + web together (or: pnpm dev)
+make cli          # optional: put the `aura` developer CLI on your PATH
 ```
+
+Full walkthrough: [SETUP.md](SETUP.md). `make help` lists every shortcut.
 
 ## Docs
 

@@ -1,7 +1,7 @@
 import { registerApiRoute } from '@mastra/core/server';
 import { readdir, readFile, writeFile, stat, access } from 'node:fs/promises';
 import path from 'node:path';
-import { devWorkspaceRoot, taskWorktreeDir } from '../workspace/dev-workspace';
+import { devWorkspaceRoot, findTaskWorktree, taskWorktreeDir } from '../workspace/dev-workspace';
 
 // Read/write file viewer for a discipline's base scaffold, or (with ?taskKey=) one Task's own
 // isolated git worktree ("Concurrent Task Execution" milestone - real code lives in worktrees
@@ -118,6 +118,24 @@ export const writeDevWorkspaceFileRoute = registerApiRoute('/dev-workspace/:epic
       }
       await writeFile(filePath, body.content, 'utf-8');
       return c.json({ path: relPath, content: body.content });
+    } catch (error) {
+      return c.json({ error: error instanceof Error ? error.message : String(error) }, 400);
+    }
+  },
+});
+
+// Finds a Task's isolated worktree without the caller knowing its Epic or discipline - the
+// `aura` CLI and the VS Code extension only have a Task key (docs/plans/aura-code-cli-council.md
+// section 4.3). Returns the absolute path because the caller runs on the same machine and opens
+// it directly (local mode - remote mode is a later phase).
+export const findTaskWorktreeRoute = registerApiRoute('/dev-workspace/tasks/:taskKey', {
+  method: 'GET',
+  handler: async (c) => {
+    try {
+      const taskKey = segmentParam(c.req.param('taskKey'), 'taskKey').toUpperCase();
+      const worktree = await findTaskWorktree(taskKey);
+      if (!worktree) return c.json({ error: `${taskKey} has no worktree yet - approve its Dev scaffold (Gate 4) first` }, 404);
+      return c.json(worktree);
     } catch (error) {
       return c.json({ error: error instanceof Error ? error.message : String(error) }, 400);
     }

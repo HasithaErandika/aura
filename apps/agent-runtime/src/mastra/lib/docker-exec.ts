@@ -7,7 +7,10 @@ import { spawn } from 'node:child_process';
 // Jira content, a model's output, or any other untrusted input. tools/delegate-tools.ts's
 // SCAFFOLD_COMMANDS table is the only place commands are chosen, and it is not agent-authored.
 
-const RESOURCE_LIMITS = ['--memory=2g', '--cpus=2', '--pids-limit=512'];
+// Every AURA container gets the same ceiling. Structured so the Runners view
+// (server/runners-routes.ts) can show usage against it, not just raw numbers.
+export const CONTAINER_LIMITS = { memory: '2g', memoryBytes: 2 * 1024 ** 3, cpus: 2, pids: 512 } as const;
+const RESOURCE_LIMITS = [`--memory=${CONTAINER_LIMITS.memory}`, `--cpus=${CONTAINER_LIMITS.cpus}`, `--pids-limit=${CONTAINER_LIMITS.pids}`];
 
 // Cap on the output buffer kept for the tool's own return value; live progress still streams
 // through onOutput regardless of this cap.

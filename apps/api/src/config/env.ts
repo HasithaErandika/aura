@@ -40,6 +40,14 @@ export const env = {
   runTurnTimeoutMs: optionalNumber("RUN_TURN_TIMEOUT_MS", 10 * 60_000),
   approvalSlaHours: optionalNumber("APPROVAL_SLA_HOURS", 72),
   
+  // Web terminal (modules/terminal): shared with apps/agent-runtime, which verifies the tickets
+  // this API signs. Unset = terminal disabled.
+  terminalTicketSecret: optionalString("TERMINAL_TICKET_SECRET"),
+  terminalWsUrl: (process.env.TERMINAL_WS_URL ?? "ws://localhost:4112").replace(/\/+$/, ""),
+  // The API URL the `aura` CLI inside the web terminal talks to (the shell runs on the runtime's
+  // machine, which in local mode is this one).
+  terminalCliApiUrl: (process.env.TERMINAL_CLI_API_URL ?? `http://localhost:${optionalNumber("PORT", 4000)}`).replace(/\/+$/, ""),
+
   jiraUrl: optionalString("JIRA_URL")?.replace(/\/+$/, ""),
   jiraUsername: optionalString("JIRA_USERNAME"),
   jiraApiToken: optionalString("JIRA_API_TOKEN"),

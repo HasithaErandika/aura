@@ -260,6 +260,18 @@ export async function pipeRuntimeStream(context: StreamContext, stream: AsyncGen
           break;
         }
 
+        // The Coding Council (agent-runtime workflows/coding-council.ts) streams one chunk per
+        // agent turn - who spoke, in which round/phase, what they said, the Reviewer's verdict,
+        // check results. Mirrored as a progress step (source "council") so the Run Console keeps
+        // the whole discussion, and forwarded as its own SSE event so clients (the aura CLI, the
+        // web Council panel) can render it as a conversation rather than raw output.
+        case "data-council-turn": {
+          const data = (chunk as unknown as { data?: Record<string, unknown> }).data ?? {};
+          await step("progress", { payload: { source: "council", ...data } });
+          writer.send("council", data);
+          break;
+        }
+
         case "finish": {
           finished = true;
           // An error chunk arrives before finish; only a still-running turn completes here.

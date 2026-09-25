@@ -22,8 +22,9 @@ const url = process.env.AURA_DRAFTS_DB_URL || 'file:./aura-drafts.db';
 let client: Client | null = null;
 let ready: Promise<void> | null = null;
 
-// Lazily opens the libSQL connection and ensures the drafts table exists.
-async function db(): Promise<Client> {
+// Lazily opens the libSQL connection and ensures the drafts table exists. Exported so other
+// small AURA-owned tables (store/usage-store.ts) share the same database and connection.
+export async function db(): Promise<Client> {
   if (!client) client = createClient({ url, authToken: process.env.AURA_DRAFTS_DB_TOKEN || undefined });
   if (!ready) {
     ready = client

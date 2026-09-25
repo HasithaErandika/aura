@@ -82,3 +82,16 @@ export interface AskUserSuspendPayload {
   options?: AskUserOption[];
   selectionMode?: "single_select" | "multi_select";
 }
+
+// apps/agent-runtime server/runners-routes.ts - only the parts the API itself touches are typed
+// closely; the rest is passed through to the web client as-is.
+export interface RunnersSnapshot {
+  generatedAt: string;
+  epicKey: string | null;
+  host: Record<string, unknown>;
+  docker: Record<string, unknown>;
+  sandboxMode: "host" | "docker";
+  councils: Record<string, unknown>[];
+  checks: Record<string, unknown>[];
+  terminals: { id: number; userId: string; label: string; mode: string; startedAt: string }[];
+}

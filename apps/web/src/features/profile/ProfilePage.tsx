@@ -2,6 +2,7 @@ import { PageHeader } from "../../shared/ui/PageHeader.tsx";
 import { Card, CardHeader, CardBody } from "../../shared/ui/Card.tsx";
 import { Badge } from "../../shared/ui/Badge.tsx";
 import { BrainIcon, CodeIcon, SparkleIcon } from "../../shared/icons/index.tsx";
+import { AccessTokensCard } from "./AccessTokensCard.tsx";
 
 interface CliProviderMeta {
   name: string;
@@ -27,6 +28,9 @@ export function ProfilePage() {
           <CliProviderCard key={meta.name} meta={meta} />
         ))}
         <BuiltInCard />
+      </div>
+      <div className="mt-4">
+        <AccessTokensCard />
       </div>
     </>
   );

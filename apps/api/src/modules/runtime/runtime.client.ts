@@ -1,7 +1,7 @@
 import { env } from "../../config/env.js";
 import { runtimeUnavailable, upstreamError } from "../../lib/http/errors.js";
 import { errorMessage } from "../../lib/logger.js";
-import type { RuntimeAgentSummary, RuntimeChunk, RuntimeThread, RuntimeThreadList, SuspendedRunsResponse } from "./runtime.types.js";
+import type { RunnersSnapshot, RuntimeAgentSummary, RuntimeChunk, RuntimeThread, RuntimeThreadList, SuspendedRunsResponse } from "./runtime.types.js";
 
 interface StreamBody {
   messages: Array<{ role: "user"; content: string }>;
@@ -138,6 +138,7 @@ const workspaceEpicsCache = createCache<{ epics: string[] }>(15_000);
 const workspaceFilesCache = createCache<{ files: { path: string; size: number | null }[] }>(15_000);
 const qaWorkspaceEpicsCache = createCache<{ epics: string[] }>(15_000);
 const qaWorkspaceFilesCache = createCache<{ files: { path: string; size: number | null }[] }>(15_000);
+const registryExtrasCache = createCache<Record<string, RuntimeAgentSummary>>(15_000);
 const dockerRunsCache = createCache<{ runs: Record<string, string>[] }>(4_000);
 const testRunsCache = createCache<{
   epicKey: string;
@@ -278,6 +279,34 @@ export const runtimeClient = {
   // pattern as writeWorkspaceFile above.
   writeDevWorkspaceFile(epicKey: string, discipline: string, path: string, content: string, taskKey?: string): Promise<{ path: string; content: string }> {
     return request(`/dev-workspace/${encodeURIComponent(epicKey)}/${encodeURIComponent(discipline)}/file`, { method: "PUT", body: JSON.stringify({ path, content, taskKey }) });
+  },
+
+  // Locates a Task's own worktree from its key alone (the CLI / VS Code extension only know the
+  // Task key). 404 from the runtime means Gate 4 has not created it yet.
+  findTaskWorktree(taskKey: string): Promise<{ taskKey: string; epicKey: string; discipline: string; path: string; branch: string }> {
+    return request(`/dev-workspace/tasks/${encodeURIComponent(taskKey)}`);
+  },
+
+  // Custom routes registered in apps/agent-runtime/src/mastra/server/council-routes.ts.
+  addCouncilNote(draftId: string, text: string): Promise<{ queued: number; taskKey: string }> {
+    return request(`/council/${encodeURIComponent(draftId)}/notes`, { method: "POST", body: JSON.stringify({ text }) });
+  },
+
+  // The Coding Council as a registry entry (agent-runtime server/council-routes.ts) - its
+  // agents are built per run, so /api/agents cannot list them.
+  councilRegistry(): Promise<Record<string, RuntimeAgentSummary>> {
+    return registryExtrasCache.get("council", () => request(`/council/registry`, { timeoutMs: 4000 }));
+  },
+
+  councilUsage(): Promise<{ date: string; providers: Record<string, { requests: number; tokens: number; dailyRequestLimit: number | null }> }> {
+    return request(`/council/usage`);
+  },
+
+  // Custom route registered in apps/agent-runtime/src/mastra/server/runners-routes.ts - a live
+  // snapshot, so no cache: the Runners tab polls it every few seconds while visible.
+  runners(epicKey?: string): Promise<RunnersSnapshot> {
+    const params = epicKey ? `?${new URLSearchParams({ epic: epicKey }).toString()}` : "";
+    return request(`/runners${params}`, { timeoutMs: 12_000 });
   },
 
   // Custom route registered in apps/agent-runtime/src/mastra/server/docker-runs-routes.ts -

@@ -22,14 +22,18 @@ import { testerWorkflow } from './workflows/tester-workflow';
 import { printManifest, type AgentId } from './agents/registry';
 import { jiraMcp } from './mcp/jira-client';
 import { getArchitectThreadRoute, listEpicsRoute, listWorkspaceFilesRoute, readWorkspaceFileRoute, writeWorkspaceFileRoute } from './server/workspace-routes';
-import { listDevWorkspaceFilesRoute, readDevWorkspaceFileRoute, writeDevWorkspaceFileRoute } from './server/dev-workspace-routes';
+import { findTaskWorktreeRoute, listDevWorkspaceFilesRoute, readDevWorkspaceFileRoute, writeDevWorkspaceFileRoute } from './server/dev-workspace-routes';
 import { listDockerRunsRoute } from './server/docker-runs-routes';
 import { listQaEpicsRoute, listQaWorkspaceFilesRoute, readQaWorkspaceFileRoute, writeQaWorkspaceFileRoute } from './server/qa-workspace-routes';
 import { listTestRunsRoute } from './server/test-runs-routes';
+import { addCouncilNoteRoute, councilRegistryRoute, councilUsageRoute } from './server/council-routes';
+import { createImplementer, createPlanner, createReviewer } from './agents/council-agents';
+import { startTerminalServer } from './terminal/server';
+import { runnersRoute } from './server/runners-routes';
 
 // Prints each agent's real tool wiring at startup, read live from the agent itself - there is no
 // separate declared list to keep in sync (see agents/registry.ts).
-const [orchestratorTools, poTools, baTools, architectTools, devTools, qaTools, testerTools, deployerTools] = await Promise.all([
+const [orchestratorTools, poTools, baTools, architectTools, devTools, qaTools, testerTools, deployerTools, councilTools] = await Promise.all([
   orchestrator.listTools().then((tools) => Object.keys(tools)),
   poAgent.listTools().then((tools) => Object.keys(tools)),
   baAgent.listTools().then((tools) => Object.keys(tools)),
@@ -38,6 +42,9 @@ const [orchestratorTools, poTools, baTools, architectTools, devTools, qaTools, t
   qaAgent.listTools().then((tools) => Object.keys(tools)),
   testerAgent.listTools().then((tools) => Object.keys(tools)),
   deployerAgent.listTools().then((tools) => Object.keys(tools)),
+  // The Coding Council's agents are built per run (bound to one worktree); instances on a dummy
+  // root are enough to read their real tool wiring - listing tools never touches the filesystem.
+  Promise.all([createPlanner(process.cwd()), createImplementer(process.cwd()), createReviewer()].map((a) => a.listTools())).then((sets) => [...new Set(sets.flatMap((t) => Object.keys(t)))]),
 ]);
 printManifest({
   orchestrator: orchestratorTools,
@@ -52,11 +59,16 @@ printManifest({
   // entry. It holds no tools of its own either way (Claude Code/Codex/file-tools aren't
   // Orchestrator-visible tools, the same way dev-agent's Docker command isn't).
   'coding-agent': [],
+  'coding-council': councilTools,
   // Same reasoning as coding-agent - delegate_to_git and delegate_to_ci are entirely
   // deterministic, no model call.
   'git-tool': [],
   'ci-tool': [],
 } satisfies Record<AgentId, readonly string[]>);
+
+// The web terminal's WebSocket server (terminal/server.ts) - its own port, off unless
+// TERMINAL_TICKET_SECRET is set.
+startTerminalServer();
 
 export const mastra = new Mastra({
   bundler: {
@@ -76,12 +88,17 @@ export const mastra = new Mastra({
       listDevWorkspaceFilesRoute,
       readDevWorkspaceFileRoute,
       writeDevWorkspaceFileRoute,
+      findTaskWorktreeRoute,
       listDockerRunsRoute,
       listQaEpicsRoute,
       listQaWorkspaceFilesRoute,
       readQaWorkspaceFileRoute,
       writeQaWorkspaceFileRoute,
       listTestRunsRoute,
+      addCouncilNoteRoute,
+      councilUsageRoute,
+      councilRegistryRoute,
+      runnersRoute,
     ],
   },
   mcpServers: {

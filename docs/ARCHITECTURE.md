@@ -55,13 +55,17 @@ person a project assigns.
 
 | Service | Stack | Owns |
 |---|---|---|
-| `apps/web` | React + Vite + TS | UI: approval inbox, run console, Jira browser, Design Documents editor, scaffolded-project file viewer |
-| `apps/api` | Node + Express + TS | Auth, policy engine, approvals, Jira read/write, audit log |
-| `apps/agent-runtime` | Mastra (TS) | Agents, workflows, delegate tools, draft store, workspace files |
+| `apps/web` | React + Vite + TS | UI: approval inbox, run console, Jira browser, **Project Files** - one VS Code-style workspace per Epic: Explorer with the Epic's design documents (every pipeline role reads; Architect edits; PO/BA/Architect send feedback to the Architect agent) and the Task's code (Developer/Architect/QA/admin; Developer edits), CodeMirror editor, integrated terminal (Developer) - and access tokens |
+| `apps/api` | Node + Express + TS | Auth (Supabase sessions and personal access tokens), policy engine, approvals, Jira read/write, audit log, terminal tickets |
+| `apps/agent-runtime` | Mastra (TS) | Agents, workflows (incl. the Coding Council), delegate tools, draft store, workspace files, the web terminal's WebSocket server |
+| `apps/cli` | Node + TS (`aura`) | The developer's terminal client: Tasks, worktrees, coding runs, gate decisions, commits/pushes as the developer |
+| `packages/aura-client` | TS library | Typed REST + SSE client for `apps/api`, shared by the CLI (and later the web app / VS Code extension) |
 
-Flow: browser → `apps/web` → `apps/api` (authorizes) → `apps/agent-runtime`
+Flow: browser or `aura` CLI → `apps/api` (authorizes) → `apps/agent-runtime`
 (runs the agent) → external systems (Jira, Docker, filesystem), all behind
-the same approval gate.
+the same approval gate. The CLI gets no privilege the web app doesn't have:
+starting a coding run is a chat turn, deciding a gate is the same
+`POST /approvals/:id/decide`.
 
 There is **no event bus / queue yet** — API and runtime talk directly.
 
@@ -70,12 +74,17 @@ There is **no event bus / queue yet** — API and runtime talk directly.
 ```mermaid
 flowchart TD
     ROLES(["PO · BA · Architect · Developer<br/>QA Engineer · Deployer"]) --> WEB
+    DEVS(["Developer"]) --> CLI
 
     subgraph WEB["apps/web — React"]
-        UI["Approval Inbox · Run Console · Jira Browser<br/>Design Documents · Scaffolded Files"]
+        UI["Approval Inbox · Run Console · Jira Browser<br/>Project Files: design docs · code · terminal"]
     end
 
-    WEB <-->|"JWT / REST"| API
+    CLI["apps/cli — aura<br/>(packages/aura-client)"]
+
+    WEB <-->|"JWT / REST + SSE"| API
+    CLI <-->|"access token / REST + SSE"| API
+    WEB <-->|"WebSocket + API-signed ticket"| TERM
 
     subgraph API["apps/api — Express"]
         AUTH[Auth]
@@ -99,7 +108,8 @@ flowchart TD
             DP_A[Deployer]
         end
 
-        CODE["Coding Agent<br/>built-in / Claude Code / Codex"]
+        CODE["Coding Agent<br/>Coding Council / built-in / Claude Code / Codex"]
+        TERM["Terminal server<br/>PTY in a Task worktree"]
         GITT["Git tool"]
         CI["CI tool"]
         MEM[("Agent memory<br/>libSQL threads")]
@@ -121,9 +131,10 @@ flowchart TD
 
     EXEC --> JIRA[("Jira<br/>Epics · Stories · Tasks · Bugs")]
     EXEC --> DOCKER[("Docker sandbox<br/>scaffold · coding CLI · Playwright")]
+    EXEC --> CHECKS[("Host checks, allowlisted<br/>typecheck · build · test · lint")]
     EXEC --> FILES[("Workspace files<br/>architecture.md · ADRs · SRS · QA specs")]
 
-    API --> SUPA[("Supabase<br/>profiles · workflow_runs · run_steps<br/>approval_requests/decisions · audit_logs")]
+    API --> SUPA[("Supabase<br/>profiles · access_tokens · workflow_runs · run_steps<br/>approval_requests/decisions · audit_logs")]
     AUD --> SUPA
 ```
 
@@ -137,7 +148,7 @@ not a prompt:
 | Project Owner | PO | Gate 1 (Epic) |
 | Business Analyst | BA | Gate 2 (Stories) |
 | Architect | Architect | Gate 3 (design) |
-| Developer | Dev, Coding Agent, Git | Gates 4–5 |
+| Developer | Dev, Coding Agent (incl. Coding Council), Git | Gates 4–5 |
 | QA Engineer | QA, Tester | Gates 6–7 (sole approver of both; starts and oversees the Tester Agent loop) |
 | Deployer | Deployer | Gate 8 |
 
@@ -157,6 +168,23 @@ single-use, payload-bound approval token → execute → audit record.
 
 The runtime never holds user credentials or raw Jira/DB access; it only
 calls its own gated tools.
+
+**Personal access tokens** (`access_tokens`, migration 0006) let the `aura`
+CLI authenticate without a browser: `aura_pat_…`, stored only as a SHA-256
+hash, expiring (default 90 days), revocable from the Profile page, audited
+on create/revoke. `middleware/auth.ts` resolves a token to its owner and then
+applies exactly the same profile/role checks as a Supabase session — a token
+never grants more than its owner's role. A token cannot mint another token
+(creation is browser-session-only). Opening the web terminal mints a
+short-lived (8h) token of kind `terminal`, hidden from the Profile list, so
+`aura` inside it works without `aura login`; it reaches the shell encrypted
+inside the terminal ticket (AES-256-GCM), never in plain text in the browser.
+
+**Web terminal tickets**: `POST /terminal/tickets` (Developer role only,
+audited as `terminal.session.start`) signs a 60-second, single-use ticket
+(HMAC-SHA256, `TERMINAL_TICKET_SECRET` shared with the runtime). The
+runtime's terminal server only verifies tickets; it never decides who may
+connect.
 
 ### 2.3 Human approval gates
 
@@ -233,8 +261,9 @@ Rules:
   picks the backend (NestJS or Spring Boot) before drafting starts. Design
   docs (`architecture.md`, `plan.md`, ADRs, SRS) are written to
   `<AURA_WORKSPACE_ROOT>/<epicKey>/architecture/` only after Gate 3 approval,
-  and are editable by an Architect through the Design Documents page (no
-  version history on manual edits).
+  and are editable by an Architect in the web app's Project Files page, where
+  every pipeline role reads them next to the code (no version history on
+  manual edits).
 - **Dev (Gate 4)** — project init, per Task: explains, but does not choose,
   a fixed scaffold command read from the Task's own discipline field. On
   approval: if this is the *first* Task of that discipline in the Epic, it
@@ -257,7 +286,36 @@ Rules:
   using whatever test runner the scaffold already includes — end-to-end/UI
   testing stays QA's job (Gate 6), not this agent's. Three interchangeable
   providers behind the same draft/approve/execute flow:
-  - **AURA's own built-in agent** (default, no external account) — three
+  - **AURA Coding Council** (`provider: "council"`,
+    `workflows/coding-council.ts`, the default for the `aura` CLI) — three
+    agents discuss the work inside one approved Gate 5 execute: a **Planner**
+    (read-only file tools) writes a file-by-file plan, a **Reviewer** (no
+    tools; structured JSON verdict) critiques it, an **Implementer** (the
+    only role with write/edit tools and allowlisted checks) implements it,
+    the project's own typecheck/build/test/lint run on the host
+    (`lib/sandbox.ts`, fixed check ids, no shell, no Docker needed), and the
+    Reviewer reviews the real diff + real check output → APPROVE or
+    CHANGES → the Implementer fixes only the listed issues, for a bounded
+    number of rounds. A failing check forces CHANGES regardless of the
+    Reviewer. Each round ends in a checkpoint commit (`council: round N`,
+    AURA identity) on the Task branch; every turn streams live as SSE event
+    `council` and is persisted in `run_steps`; the transcript is written to
+    `<worktree>/.aura/council/<draftId>.md` (git-excluded). If the Reviewer
+    never approves, the Task is **not** moved to In Review. Runs on
+    free-tier models: an ordered Groq/Gemini fallback chain per role, set in
+    `agents/registry.ts` (`COUNCIL_*_MODEL_IDS`) like every other agent's
+    model; moving to Claude means putting `anthropic/claude-sonnet-5` first
+    in each list.
+    It has its own Agent Registry entry and policy row (`coding-council`:
+    Developer runs it and approves Gate 5; Architect and admin read), reported
+    live by the runtime (`GET /council/registry`: real tools per role and the
+    registry's model chains), and council runs carry their own provenance
+    stamp (`coding-council`).
+    **Partially verified:** plan → plan review → build → checks → checkpoint
+    ran end-to-end with real models; the code-review step then failed on an
+    expired Groq key, and the retry behavior added in response has not been
+    re-run yet.
+  - **AURA's own built-in agent** (single agent, no external account) — three
     file tools only (`list_files`/`read_file`/`write_file`), no shell
     access, every path checked to stay inside the Task's own worktree.
     Verified end-to-end with a real model and file.
@@ -265,8 +323,9 @@ Rules:
     developer's own CLI login on the host (no API key stored by AURA), run
     non-interactively inside the same Docker sandbox as Gate 4. Built and
     typechecked; **CLI execution has not been verified end-to-end.**
-  - No git branch/PR automation at any provider — the worktree/branch Gate 4
-    creates is local only; nothing pushes it anywhere.
+  - No server-side git push/PR at any provider. Pushing is done by the
+    developer from their own machine with `aura push [--pr]`, using their
+    own git credentials and `gh`; AURA never holds a GitHub credential.
 - **QA (Gate 6)** — drafts a test plan and real Playwright spec files from
   the Epic's approved Stories **and, if Frontend/Backend is already
   scaffolded or implemented, the real code** (`workspace/read-scaffold-
@@ -297,8 +356,8 @@ Rules:
 - **Git tool** — local `init`/`branch`/`commit` (gated) and `status`/`diff`
   (ungated, read-only), always against the Task's own worktree — `status`/
   `diff` show exactly this Task's changes, never another Task's sharing the
-  same discipline. No push, no PR, no GitHub/GitLab integration of any kind
-  exists; the worktree/branch Gate 4 creates is local only. `init` is close
+  same discipline. The Git tool itself never pushes; the only push path is
+  the developer's own `aura push` (section 2.9). `init` is close
   to a no-op now (a worktree is already a real git checkout from creation).
   Gate 4's scaffold step also makes its own first commit automatically
   (`chore: initial <discipline> scaffold`) in the **base repo** right after
@@ -336,13 +395,17 @@ and no Robot Framework.
 ### 2.6 Data
 
 Built, in Supabase Postgres:
-`profiles`, `workflow_runs`, `run_steps`, `approval_requests`,
-`approval_decisions`, `audit_logs` (append-only — a DB trigger blocks
-`UPDATE`/`DELETE`, including for the service role).
+`profiles` (incl. `git_name`/`git_email`), `access_tokens`, `workflow_runs`,
+`run_steps`, `approval_requests`, `approval_decisions`, `audit_logs`
+(append-only — a DB trigger blocks `UPDATE`/`DELETE`, including for the
+service role).
 
 Owned by the runtime, not Supabase:
 - Memory threads/messages — Mastra libSQL.
-- Drafts — a local `aura-drafts.db` (libSQL) file.
+- Drafts — a local `aura-drafts.db` (libSQL) file; the same file holds
+  `aura_model_usage` (per-day, per-model request/token counts for the
+  Coding Council, shown by `aura status`).
+- Council transcripts — `<worktree>/.aura/council/*.md`, excluded from git.
 - Design docs, scaffolds, QA specs — plain files under
   `<AURA_WORKSPACE_ROOT>/<epicKey>/...`, referenced by path from Jira.
 
@@ -377,18 +440,62 @@ and the export itself is audited (`audit.exported`).
 ```
 aura/
 ├── apps/
-│   ├── web/            React + Vite + TS
+│   ├── web/             React + Vite + TS
 │   ├── api/             Express + TS (+ supabase/migrations)
-│   └── agent-runtime/   Mastra: agents/ tools/ contracts/ store/ workflows/ workspace/ server/
-└── docs/
-    ├── ARCHITECTURE.md  this file
-    ├── srs/ adr/ security/ runbooks/ workflows/
-    └── logs/            one file per working day
+│   ├── agent-runtime/   Mastra: agents/ tools/ contracts/ store/ workflows/ workspace/ server/ terminal/
+│   └── cli/             the `aura` command
+├── packages/
+│   └── aura-client/     typed API + SSE client (@aura/client)
+├── patches/             pnpm patches (Groq fix for @mastra/schema-compat)
+├── docs/                ARCHITECTURE.md · plans/ · srs/ adr/ security/ runbooks/ workflows/ · logs/
+├── package.json         workspace root (scripts only)
+├── pnpm-workspace.yaml  workspace members, patches, overrides, allowed build scripts
+├── pnpm-lock.yaml       the single lockfile
+├── Makefile             `make help` - install, dev, build, typecheck, cli, doctor…
+└── SETUP.md             how to set up and run everything
 ```
 
-Each app is a standalone npm project; there is no root workspace tooling
-and no `packages/` directory yet (Zod contracts live next to their
-consumers).
+A **pnpm workspace**: every folder under `apps/` and `packages/` keeps its
+own `package.json`, with one root lockfile. `apps/cli` depends on
+`@aura/client` via `workspace:*`. Zod contracts still live next to their
+consumers; `packages/` only holds code more than one app actually shares.
+
+### 2.9 Developer surfaces: `aura` CLI and the web terminal
+
+- **`aura` CLI** (`apps/cli`) — `login` (access token), `tasks`, `open`
+  (prints or opens the Task's worktree, `--code` for VS Code), `code` (asks
+  the Orchestrator for a Gate 5 draft with every argument spelled out, then
+  streams the turn), `approve`/`reject`/`revise` (the same governed decision
+  endpoint as the web inbox, pinned with the gate's snapshot hash), `say`
+  (a note for the council's next round), `status` (pending gates and today's
+  model usage), `diff`, `commit`, `push [--pr]`. `commit` runs locally, so the
+  commit is authored by the **developer** (their git config and signing); it
+  folds the council's AURA-authored checkpoint commits into that one commit
+  and adds `Co-authored-by: AURA Coding Council`, `AURA-Task:` and `AURA-Run:`
+  trailers. It never rewrites the developer's own commits.
+- **Web terminal** — an xterm.js panel under the Project Files
+  editor (Developer role only). The runtime's terminal server
+  (`terminal/server.ts`, port 4112, loopback by default) opens a shell in the
+  Task's worktree: `full` mode is a real PTY via a small Python 3 `pty`
+  bridge (no native Node module), and is only allowed on a loopback bind;
+  `restricted` mode runs allowlisted commands only (`aura`, `git`
+  read/commit subcommands, `npm test/run`, `ls`, `cat`, `pwd`) with argv and
+  path containment, no shell. The shell's environment is an allowlist (no
+  LLM keys, Jira token or ticket secret), plus `AURA_TOKEN`/`AURA_API_URL`
+  for the CLI. Origin-checked, at most 3 sessions per user, closed after 30
+  minutes idle.
+- **Runners tab** — next to the terminal (Developer, Architect, QA, admin):
+  a live snapshot from `GET /runners` (runtime `server/runners-routes.ts`,
+  polled every 5s while visible) of AURA's Docker containers with CPU /
+  memory / process usage against the fixed per-container limits
+  (`CONTAINER_LIMITS` in `lib/docker-exec.ts`), host CPU/memory, Coding
+  Council runs in progress (round, phase, token budget), project checks
+  running on the host, and terminal sessions (other users' shown only as
+  "another user"). Observational only; scoped to the loaded Epic or all.
+- Server-side commits (the Git tool, council checkpoints) still use the
+  fixed `AURA <aura@localhost>` identity; `profiles.git_name/git_email` are
+  stored (`aura login` fills them in) for a later change to make approved
+  server-side commits author as the approving developer.
 
 ---
 
@@ -399,7 +506,7 @@ consumers).
 | 0 — Foundations | Identity/RBAC, policy tables, Supabase schema + RLS trigger, audit log, approval service, run state machine | SSO federation, Jira webhooks, event queue |
 | 1 — PO + BA | PO/BA agents, Gates 1–2, registry view | Evals, rejection-rate tracking |
 | 2 — Architect + QA/Tester | Architect workflow, ADRs, architecture Tasks (Gate 3), QA + real Playwright execution (Gates 6–7) | Robot Framework (out of scope), CI integration |
-| 3 — Dev + Coding + Deployer | Frontend + Backend/NestJS scaffold (Gate 4), Coding Agent (Gate 5), Deployer plan (Gate 8) | Other disciplines, git PR automation, real deploy pipeline |
+| 3 — Dev + Coding + Deployer | Frontend + Backend/NestJS scaffold (Gate 4), Coding Agent + Coding Council (Gate 5), `aura` CLI, web terminal, Deployer plan (Gate 8) | Other disciplines, server-side PR automation, VS Code extension, remote (non-local) worktrees, real deploy pipeline |
 | 4 — Multi-region | — | Everything |
 | 5 — Hardening | — | Everything |
 

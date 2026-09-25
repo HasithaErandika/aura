@@ -16,7 +16,7 @@ src/
     ui/           neutral component kit (Button, Card, Table, Badge, Field, Menu, Markdown, ...)
     icons/ brand/ hooks/ lib/
   features/
-    landing/ auth/ dashboard/ workspace/ approvals/ runs/ registry/ design-docs/ audit/ admin/users/
+    landing/ auth/ dashboard/ workspace/ approvals/ runs/ registry/ dev-files/ audit/ admin/users/
 ```
 
 Each feature owns its API calls (`api.ts`), hooks, and components. Nothing renders placeholder data; every list, count, and status comes from `apps/api`.
@@ -31,7 +31,7 @@ Each feature owns its API calls (`api.ts`), hooks, and components. Nothing rende
 
 1. Copy `.env.example` to `.env`: Supabase URL and anon key (same project as `apps/api`), `VITE_API_URL`, and `VITE_RUNTIME_STUDIO_URL` for the Mastra Studio link.
 2. Make sure `apps/api` is running with both migrations applied and at least one admin bootstrapped. There is no sign-up page.
-3. `npm install && npm run dev`
+3. `pnpm install` at the repo root, then `pnpm --filter web dev` (or `make web`).
 
 ## Routes
 
@@ -44,10 +44,10 @@ Each feature owns its API calls (`api.ts`), hooks, and components. Nothing rende
 | `/app/approvals`, `/app/approvals/:id` | approver roles, requesters, admin | Approval Inbox and decision screen |
 | `/app/runs`, `/app/runs/:id` | requesters, approver roles, admin | runs and step timeline |
 | `/app/agents` | any role with a read grant | Agent Registry (live from the runtime) |
-| `/app/design-docs` | Architect, admin | Design Documents - browse and view the Architect's per-Epic workspace files (read-only CodeMirror) |
+| `/app/dev-files` | every pipeline role, admin | Project Files - an Epic's design documents (Architect edits, PO/BA/Architect send feedback) and a Task's code (Developer/Architect/QA/admin; Developer edits), CodeMirror + terminal (Developer). `/app/design-docs` redirects here |
 | `/app/audit` | admin | Audit Explorer |
 | `/app/admin/users` | admin | User Management |
 
 ## Scripts
 
-`npm run dev`, `npm run build` (typecheck then bundle), `npm run typecheck`, `npm run lint`, `npm run preview`.
+Run with `pnpm --filter web <script>` from the repo root (or `pnpm <script>` in this folder): `dev`, `build` (typecheck then bundle), `typecheck`, `lint`, `preview`.
