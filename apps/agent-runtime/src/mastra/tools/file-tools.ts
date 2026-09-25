@@ -4,7 +4,7 @@ import { mkdir, readFile, readdir, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
 // File tools for the built-in Mastra Coding Agent (agents/mastra-coding-agent.ts). Unlike the
-// Dev agent's scaffold and the Claude Code/Codex path (both Docker-sandboxed), this agent edits
+// Dev agent's scaffold (Docker-sandboxed), this agent edits
 // files directly via Node's fs - spinning up a container per read/write would make an iterative
 // coding loop impractically slow. The safety boundary here is the tool surface itself, not a
 // container: these are the ONLY three tools this agent ever gets (no shell/run-command tool,

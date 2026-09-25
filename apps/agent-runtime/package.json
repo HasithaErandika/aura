@@ -8,7 +8,9 @@
     "dev": "mastra dev",
     "build": "mastra build",
     "start": "mastra start",
-    "typecheck": "tsc --noEmit -p tsconfig.json"
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "keywords": [],
   "author": "",
@@ -32,6 +34,7 @@
     "@types/node": "latest",
     "@types/ws": "^8.18.1",
     "mastra": "1.30.0",
-    "typescript": "^6.0.3"
+    "typescript": "^6.0.3",
+    "vitest": "^5.0.2"
   }
 }

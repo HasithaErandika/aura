@@ -6,12 +6,9 @@ import { jira } from '../../mcp/jira-client';
 import { QA_MODEL_ID } from '../../agents/registry';
 import { generateObject, type MastraLike } from '../../lib/generate-object';
 import { qaWorkspace } from '../../workspace/qa-workspace';
-import { devWorkspaceDir } from '../../workspace/dev-workspace';
 import { readScaffoldContext } from '../../workspace/read-scaffold-context';
 import type { WorkspaceRegistry } from '../../workspace/architect-workspace';
 import { provenance, buildProvenance, type ProvenanceStamp, type ToolWriterLike } from './shared';
-import { mkdir, writeFile, access } from 'node:fs/promises';
-import path from 'node:path';
 
 interface QaWorkflowStreamOutput {
   fullStream: AsyncIterable<{ type: string; id?: string; payload?: { status?: string; id?: string } }>;
@@ -60,7 +57,7 @@ const qaInputSchema = z
 const qaOutputSchema = z.object({
   ok: z.boolean().describe('false means the step failed; read error, tell the user, and stop.'),
   draftId: z.string().optional(),
-  markdown: z.string().optional().describe('draft/revise: the human-readable draft, show it verbatim. file: a note on which scenarios were copied into the scaffolded project(s), if any - show it if present.'),
+  markdown: z.string().optional().describe('draft/revise: the human-readable draft, show it verbatim. file: where the test plan and specs were filed - show it.'),
   epicKey: z.string().optional(),
   scenarioCount: z.number().optional(),
   revisedFile: z.string().optional().describe('revise-scenario: which .spec.ts file was regenerated'),
@@ -72,37 +69,12 @@ function qaFail(error: unknown): z.infer<typeof qaOutputSchema> {
   return { ok: false, error: error instanceof Error ? error.message : String(error) };
 }
 
-// Copies each scenario's spec into the matching scaffolded discipline's own test directory, so a
-// developer's plain `npm test`/CI (Gate 3's addition) run the exact same files this Epic's real
-// QA workspace owns - not a replacement for the canonical copy above (Gate 7 keeps reading from
-// there unchanged), just an extra, best-effort convenience copy. Skipped per-discipline when that
-// discipline hasn't been scaffolded yet (Gate 4 hasn't run) - never blocks or fails the file step
-// itself, and always says plainly which scenarios were and weren't copied.
-async function copyScenariosIntoScaffold(epicKey: string, scenarios: QaDraft['scenarios']): Promise<string> {
-  const notes: string[] = [];
-  for (const discipline of ['Frontend', 'Backend'] as const) {
-    const matching = scenarios.filter((s) => (discipline === 'Frontend' ? s.type === 'ui' : s.type === 'api'));
-    if (!matching.length) continue;
-    const targetDir = await devWorkspaceDir(epicKey, discipline);
-    try {
-      await access(targetDir);
-    } catch {
-      notes.push(`${discipline} not scaffolded yet - its ${matching.length} scenario(s) stay only in the QA workspace until Gate 4 runs for it.`);
-      continue;
-    }
-    const testsDir = discipline === 'Frontend' ? path.join(targetDir, 'tests') : path.join(targetDir, 'test', 'e2e');
-    try {
-      await mkdir(testsDir, { recursive: true });
-      for (const scenario of matching) {
-        await writeFile(path.join(testsDir, `${scenario.fileName}.spec.ts`), scenario.playwrightSource, 'utf8');
-      }
-      notes.push(`${discipline}: copied ${matching.length} scenario(s) into ${discipline === 'Frontend' ? 'tests/' : 'test/e2e/'}.`);
-    } catch (error) {
-      notes.push(`${discipline}: could not copy scenarios in - ${error instanceof Error ? error.message : String(error)}`);
-    }
-  }
-  return notes.join(' ');
-}
+// The QA workspace (<root>/<EPIC>/qa/) is the ONLY home of the test plan and Playwright specs:
+// Gate 7 runs them from there (mounted read-only), and developers read them next to the code on
+// Project Files. They are deliberately not copied into the app repos any more - a copy under
+// dev/backend/test/e2e/ was picked up by the backend's own unit-test runner (vitest's
+// "**/*.spec.ts"), broke `npm test` and the Coding Council's test check, and left the shared base
+// repo dirty for every Task.
 
 export interface QaScenarioRevision {
   record: DraftRecord<QaDraft>;
@@ -150,9 +122,8 @@ export async function reviseQaScenario(mastra: MastraLike, previous: DraftRecord
       const fs = workspaceRegistry?.listWorkspaces && workspaceRegistry.addWorkspace ? qaWorkspace(workspaceRegistry as WorkspaceRegistry, previous.epicKey).filesystem : null;
       if (fs) await fs.writeFile(`tests/${fileName}.spec.ts`, playwrightSource, { recursive: true, overwrite: true });
     } catch {
-      // Best-effort - the scaffold copy below is what Gate 7 actually reads from.
+      // Best-effort; the draft record keeps the revised source either way.
     }
-    await copyScenariosIntoScaffold(previous.epicKey, [revisedScenario]);
   }
 
   return { record, scenario: revisedScenario };
@@ -227,11 +198,6 @@ export const delegateToQaTool = createTool({
             await draftStore.markFiled(record.id, filed);
           }
 
-          if (!filed.scaffoldCopy) {
-            filed.scaffoldCopy = await copyScenariosIntoScaffold(epicKey, record.content.scenarios);
-            await draftStore.markFiled(record.id, filed);
-          }
-
           if (!filed.comment) {
             try {
               const stamp = provenance('qa-agent', QA_MODEL_ID, record, `${epicKey} (Epic)`);
@@ -248,7 +214,7 @@ export const delegateToQaTool = createTool({
             draftId: record.id,
             epicKey,
             scenarioCount: record.content.scenarios.length,
-            markdown: filed.scaffoldCopy || undefined,
+            markdown: `Test plan and ${record.content.scenarios.length} Playwright spec(s) filed to the QA workspace (qa/test-plan.md, qa/tests/). Gate 7 runs them from there.`,
             provenance: buildProvenance('qa-agent', QA_MODEL_ID, record, `${epicKey} (Epic)`),
           };
         }

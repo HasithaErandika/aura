@@ -17,3 +17,12 @@ overrides:
 # binary this way (Vite and Mastra's bundler both need it).
 allowBuilds:
   esbuild: true
+
+minimumReleaseAgeExclude:
+  - '@vitest/mocker@5.0.2'
+  - '@vitest/spy@5.0.2'
+  - vitest@5.0.2
+
+# Never stop to ask before replacing node_modules (e.g. the automatic install pnpm runs before a
+# script when package.json changed) - that prompt hangs `make test`/CI with no terminal.
+confirmModulesPurge: false
