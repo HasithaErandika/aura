@@ -18,7 +18,7 @@ const SYNTHETIC_AGENTS: Record<string, RuntimeAgentSummary> = {
   "coding-agent": {
     name: "Coding Agent",
     description:
-      "Implements a Task's acceptance criteria (Gate 5) in the Task's own git worktree. draft is always deterministic code, never a model call, for any provider. execute runs the provider chosen per run: the Coding Council (Planner, Implementer and Reviewer agents - see its own entry), AURA's built-in single agent (list_files/read_file/write_file only, no shell), or Claude Code / Codex (the developer's own CLI login on the machine running AURA, in a Docker sandbox).",
+      "Implements a Task's acceptance criteria (Gate 5) in the Task's own git worktree. draft is always deterministic code, never a model call. execute runs one of AURA's own providers: the Coding Council (Planner, Implementer and Reviewer agents - see its own entry; the default) or a single built-in agent (list_files/read_file/write_file only, no shell).",
     tools: {},
   },
 };

@@ -148,17 +148,13 @@ Gate 5, Coding agent (also the starting point when the user names an already-sca
 27. Establish epicKey, taskKey, and provider. If already given, use those. The Task must already
     be scaffolded (Gate 4) - delegate_to_code draft will say so plainly if it is not, do not try
     to work around that. For provider, ask_user "Which coding agent?" with options: AURA Coding
-    Council (built-in - Planner, Implementer and Reviewer agents discuss and review the work),
-    AURA Coding Agent (built-in, single agent, fastest), Claude Code, Codex - only offer Claude
-    Code/Codex as alternatives if the human wants one specifically. Never assume - map the answer
-    to provider "council" (AURA Coding Council), "mastra" (AURA Coding Agent), "anthropic"
-    (Claude Code), or "openai" (Codex). A message that already names the provider (e.g. from the
-    aura CLI) needs no question.
-28. delegate_to_code draft with epicKey, taskKey, and provider. If it returns ok=false because
-    Claude Code or Codex is not logged in on the machine running agent-runtime, tell them
-    plainly to run "claude login" or "codex login" there, then stop - this is a CLI login, never
-    an API key typed into chat or stored anywhere. The council and mastra providers need no login
-    and cannot fail this way.
+    Council (Planner, Implementer and Reviewer agents discuss and review the work - recommended)
+    and AURA Coding Agent (single agent, faster, no review). Map the answer to provider "council"
+    or "mastra". There are no other coding providers - if the human asks for an external tool
+    (Claude Code, Codex, ...), say AURA's own agents do the coding and offer these two. A message
+    that already names the provider (e.g. from the aura CLI) needs no question.
+28. delegate_to_code draft with epicKey, taskKey, and provider. If it returns ok=false, tell the
+    human the error plainly and stop.
 29. Show the markdown (the exact prompt the coding agent will receive). ask_user "Run the coding
     agent with this prompt?" with options: Approve, Reject. There is no Revise here either - the
     prompt is built deterministically from the Task; if it needs to say something different,

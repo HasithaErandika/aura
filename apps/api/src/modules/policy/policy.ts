@@ -105,7 +105,7 @@ export const AGENT_GATE_INFO: Record<string, { gate: number; name: string; outco
   "ba-agent": { gate: 2, name: "Story approval", outcome: "Jira Stories filed, status Ready for Architecture" },
   "architect-agent": { gate: 3, name: "Architecture approval", outcome: "Jira Tasks filed, status Ready for Development" },
   "dev-agent": { gate: 4, name: "Dev scaffold approval", outcome: "Scaffold executed in a sandboxed container, Task commented with the result" },
-  "coding-agent": { gate: 5, name: "Coding agent approval", outcome: "The chosen provider (Coding Council, built-in agent, Claude Code or Codex) implemented the Task in its worktree; Task commented and moved toward In Review" },
+  "coding-agent": { gate: 5, name: "Coding agent approval", outcome: "The chosen AURA provider (Coding Council or the single built-in agent) implemented the Task in its worktree; Task commented and moved toward In Review" },
   "coding-council": { gate: 5, name: "Coding agent approval (Coding Council)", outcome: "Planner, Implementer and Reviewer implemented and reviewed the Task over bounded rounds; Task moved toward In Review only if the Reviewer approved" },
   "qa-agent": { gate: 6, name: "QA test plan approval", outcome: "Test plan and Playwright source filed to the QA workspace, Epic commented" },
   "tester-agent": { gate: 7, name: "Test result verification", outcome: "Real Playwright suite executed in a sandbox, Task commented with the real result and AI interpretation" },

@@ -1,6 +1,6 @@
 # AURA — points to clarify with the mentor
 
-Date: 2026-09-25 · Status: **open, for mentor review**
+Date: 2026-09-25 · Status: **answered** - decisions recorded in [ADR-3](adr/0003-git-workflow.md), plan in [plans/aura-git-control-plane.md](plans/aura-git-control-plane.md)
 Related: [ARCHITECTURE.md](ARCHITECTURE.md) · [ADR-2 team-scale deployment](adr/0002-team-scale-deployment.md) · [plan: CLI + Coding Council](plans/aura-code-cli-council.md)
 
 AURA is a governed AI-agent harness for the software delivery lifecycle. Specialised agents (PO, BA,
@@ -234,5 +234,24 @@ on shared runners, or is stronger isolation (gVisor/Firecracker) required by com
 
 ---
 
-*After the mentor's answers, the agreed decisions go into **ADR-3 (Git workflow)** and ADR-2 is
-updated to match.*
+## 6. Answers (mentor review, 2026-09-25)
+
+Overall assessment: **760/1000**. The governance core ("agents propose, deterministic infrastructure
+authorizes, executes, verifies and records") is the part to protect; the missing points are remote
+Git + PRs + CI, durable execution, enterprise identity and observability, not more agents.
+
+| Q | Answer | Recorded as |
+|---|---|---|
+| Q1 | **Yes** - one repository per product; scaffold only when a repository is new | ADR-3 D1 |
+| Q2 | Merged = code complete → *Ready for Release*; *Done* after release | ADR-3 D3 |
+| Q3 | Explicit `dependsOn`; dependencies merge first; stacked branches only by explicit choice; Architect decomposes for independence | ADR-3 D4 |
+| Q4 | Don't rely on Tester - a **shared API contract** (OpenAPI) for Coding and QA, plus a contract check | ADR-3 D5 |
+| Q5 | **GitHub App**, not personal tokens | ADR-3 D2 |
+| Q6 | Split: engineering artifacts in the repo, operational evidence in AURA | ADR-3 D8 |
+| Q7 | Don't design around one provider - a **model gateway**; each run records provider, model, versions, tokens, cost | Plan Phase 4; ADR-3 D6 |
+| Q8 | Docker is fine now, behind a **sandbox abstraction**; stronger isolation by policy later | ADR-2; plan Phase 2 |
+| Q9 | Web terminal **optional**, not central; the developer's IDE is primary | ADR-3 D9 |
+| Q10 | Git becomes real → durable execution → identity/security → AI control plane → more agents last | Plan §4–§8 |
+
+Also from the review: remove Claude Code/Codex as coding providers (ADR-3 D6), and run CI and QA in
+parallel on the PR (ADR-3 D7).

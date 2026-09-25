@@ -102,7 +102,7 @@ A framework-free typed client: `me`, `setGitIdentity`, `jira.epic/issue`, `devWo
 | `tasks [--epic]` | `GET /jira/epics/:key` |
 | `open [TASK] [--code\|--path]` | `GET /dev-workspace/tasks/:taskKey` |
 | `status [TASK]` | `GET /approvals`, `GET /council/usage` |
-| `code [TASK] [--epic] [--provider council\|mastra\|anthropic\|openai] [--note] [--new-thread]` | `POST /threads`, `POST /threads/:id/messages` |
+| `code [TASK] [--epic] [--provider council\|mastra] [--note] [--new-thread]` | `POST /threads`, `POST /threads/:id/messages` |
 | `approve [ID] [--answer]` · `reject [ID] -r` · `revise "<feedback>"` | `GET /approvals/:id`, `POST /approvals/:id/decide` (with `snapshotHash`) |
 | `say "<text>" [--task\|--draft]` | `POST /council/:draftId/notes` |
 | `diff [--stat] [--uncommitted]` · `commit [-m] [--no-squash]` · `push [--pr] [--remote]` | local `git` / `gh` |
@@ -234,7 +234,7 @@ Reviews are cheap: one request, diff-sized input.
 | **Lean council**: Implementer plans as its first step, Reviewer reviews plan + code | ~70–80% | Loses the separate plan critique; keeps the code review | **Recommended next step** (see below) |
 | LLM-routed agent network / supervisor (Mastra agent networks) | 120–200% | More autonomy, less predictable; the router itself costs calls | Rejected: a deterministic loop in code is cheaper and auditable |
 | Best-of-N parallel implementers + judge | 200–400% | Higher on hard Tasks | Rejected for free tiers (per-minute limits) |
-| Claude Code / Agent SDK headless | Paid; fewest wasted steps | Highest | Already available as provider `anthropic` (needs Docker + `claude login`) |
+| Claude Code / Agent SDK headless | Paid; fewest wasted steps | Highest | Was provider `anthropic`; **removed** (ADR-3 D6) - Claude models stay available to AURA's own agents via the registry |
 
 ### Cheap improvements (not yet implemented)
 

@@ -108,7 +108,7 @@ flowchart TD
             DP_A[Deployer]
         end
 
-        CODE["Coding Agent<br/>Coding Council / built-in / Claude Code / Codex"]
+        CODE["Coding Agent<br/>Coding Council / single built-in agent"]
         TERM["Terminal server<br/>PTY in a Task worktree"]
         GITT["Git tool"]
         CI["CI tool"]
@@ -319,10 +319,9 @@ Rules:
     file tools only (`list_files`/`read_file`/`write_file`), no shell
     access, every path checked to stay inside the Task's own worktree.
     Verified end-to-end with a real model and file.
-  - **Claude Code** / **Codex** — external CLIs, authenticated via the
-    developer's own CLI login on the host (no API key stored by AURA), run
-    non-interactively inside the same Docker sandbox as Gate 4. Built and
-    typechecked; **CLI execution has not been verified end-to-end.**
+  - The former **Claude Code / Codex** providers (external CLIs on the
+    developer's personal login, run in Docker) were **removed** (ADR-3 D6):
+    all coding runs on AURA's own agents and AURA-governed models.
   - No server-side git push/PR at any provider. Pushing is done by the
     developer from their own machine with `aura push [--pr]`, using their
     own git credentials and `gh`; AURA never holds a GitHub credential.
@@ -446,6 +445,7 @@ aura/
 │   └── cli/             the `aura` command
 ├── packages/
 │   └── aura-client/     typed API + SSE client (@aura/client)
+├── .github/workflows/   CI: install → typecheck → lint → test on every push/PR
 ├── patches/             pnpm patches (Groq fix for @mastra/schema-compat)
 ├── docs/                ARCHITECTURE.md · plans/ · srs/ adr/ security/ runbooks/ workflows/ · logs/
 ├── package.json         workspace root (scripts only)
@@ -683,7 +683,6 @@ but a stronger, auditable boundary around the ones that exist.
 **Agents**
 - Dev/Coding: Backend/Spring Boot, Data, AI, Integration, Deployment disciplines.
 - Git branch/PR automation; any GitHub/GitLab integration (push, PAT, Actions status).
-- Claude Code / Codex execution verified end-to-end (built, not yet run for real).
 - Deployer: an actual execute mode against a real deployment pipeline.
 - Test-management integration (Xray/Zephyr) — defects are plain Jira Bugs today.
 - Sandbox isolation beyond Docker (Firecracker/gVisor) — revisit only if AURA runs untrusted, multi-tenant workloads.

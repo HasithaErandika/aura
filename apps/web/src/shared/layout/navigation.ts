@@ -46,7 +46,7 @@ export const navigation: NavGroup[] = [
     label: "Platform",
     items: [
       { label: "Agent Registry", to: paths.registry, icon: RegistryIcon, visible: (me) => Object.keys(me.grants.agents).length > 0 || isAdmin(me) },
-      { label: "Profile & Connected Accounts", to: paths.profile, icon: SettingsIcon, visible: (me) => me.role === "developer" },
+      { label: "Profile & Access Tokens", to: paths.profile, icon: SettingsIcon, visible: (me) => me.role === "developer" },
       { label: "Audit Explorer", to: paths.audit, icon: AuditIcon, visible: isAdmin },
       { label: "User Management", to: paths.users, icon: UsersIcon, visible: isAdmin },
     ],

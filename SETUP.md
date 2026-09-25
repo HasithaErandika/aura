@@ -77,7 +77,7 @@ script); after changing its source, run `pnpm --filter @aura/client build`.
 | **Groq API key** | primary LLM for all agents | free: https://console.groq.com/keys |
 | **Google AI Studio key** | fallback LLM, Coding Council Reviewer | free: https://aistudio.google.com |
 | **Jira Cloud** + API token | the system of record for Epics/Stories/Tasks | https://id.atlassian.com/manage-profile/security/api-tokens |
-| Docker *(optional)* | Dev scaffolds (Gate 4), Playwright tests (Gate 7), Claude Code/Codex providers, `SANDBOX_MODE=docker` | The Coding Council itself **does not need Docker** |
+| Docker *(optional)* | Dev scaffolds (Gate 4), Playwright tests (Gate 7), `SANDBOX_MODE=docker` | The Coding Council itself **does not need Docker** |
 | `gh` *(optional)* | `aura push --pr` | https://cli.github.com |
 | VS Code `code` command *(optional)* | `aura open --code` | VS Code → "Shell Command: Install 'code' command in PATH" |
 
@@ -163,6 +163,7 @@ Check that it's up: `curl http://localhost:4000/health`, then sign in at http://
 |---|---|---|
 | `make typecheck` | `pnpm -r run typecheck` | TypeScript check of every app and package |
 | `make lint` | `pnpm --filter web lint` | ESLint (web) |
+| `make test` | `pnpm -r run test` | unit tests of every app (Vitest) - CI runs the same (`.github/workflows/ci.yml`) |
 | `make build` | `pnpm -r run build` | production build of everything |
 | `make cli` | see §5 | build the CLI and put `aura` on your PATH |
 | `make terminal-secret` | — | print a random `TERMINAL_TICKET_SECRET` |

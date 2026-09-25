@@ -10,6 +10,7 @@
     "dev": "pnpm --parallel --filter agent-runtime --filter api --filter web run dev",
     "build": "pnpm -r run build",
     "typecheck": "pnpm -r run typecheck",
-    "lint": "pnpm --filter web run lint"
+    "lint": "pnpm --filter web run lint",
+    "test": "pnpm -r --no-bail run test"
   }
 }

@@ -38,10 +38,7 @@ export interface RunInContainerInput {
   // Extra environment for the container - passed as `-e` args to `docker run`, never
   // interpolated into `command`'s shell string. Values are not logged.
   env?: Record<string, string>;
-  // Extra read-only-by-default bind mounts beyond hostDir (e.g. a coding CLI's own login
-  // credentials from the host, so it runs authenticated as whoever is running AURA - see
-  // delegate-tools.ts's CODING_COMMANDS. Claude Code and Codex use a browser/CLI login, not an
-  // API key; there is nothing to inject as an env var).
+  // Extra read-only-by-default bind mounts beyond hostDir.
   mounts?: ContainerMount[];
   // Names and labels this run so `docker ps --filter label=aura=true` can list it while it's
   // running (server/docker-runs-routes.ts) - purely observational, never read back by this

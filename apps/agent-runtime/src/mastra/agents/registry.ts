@@ -100,11 +100,11 @@ export const AGENT_MANIFEST: Record<AgentId, AgentManifestEntry> = {
   },
   'coding-agent': {
     label: 'Coding Agent',
-    modelId: `varies by provider (AURA built-in: ${MASTRA_CODING_MODEL_ID}; Coding Council: planner ${COUNCIL_PLANNER_MODEL_IDS.join(' → ')}, implementer ${COUNCIL_IMPLEMENTER_MODEL_IDS.join(' → ')}, reviewer ${COUNCIL_REVIEWER_MODEL_IDS.join(' → ')}; Claude Code/Codex: the developer's own CLI login on this machine)`,
+    modelId: `varies by provider (Coding Council: planner ${COUNCIL_PLANNER_MODEL_IDS.join(' → ')}, implementer ${COUNCIL_IMPLEMENTER_MODEL_IDS.join(' → ')}, reviewer ${COUNCIL_REVIEWER_MODEL_IDS.join(' → ')}; single agent: ${MASTRA_CODING_MODEL_ID})`,
     delegatesTo: [],
-    note: 'Implements a Task, invoked through delegate_to_code. draft is always deterministic code, never a model call, for any provider - no Mastra Agent object backs this entry, unlike every other row here (docs/ARCHITECTURE.md section 6.5). execute runs one of three providers per run: AURA\'s own built-in agent (agents/mastra-coding-agent.ts - list_files/read_file/write_file only, no shell tool, contained by path checks rather than a container, the main option) or, if asked for, Claude Code or Codex (Docker-sandboxed, authenticated via the developer\'s own CLI login, not a key). Also asked to write/update unit and integration tests alongside the implementation (E2E stays QA\'s job). Now always targets the Task\'s own isolated git worktree, never the shared base repo (agentVersion 2.1.0). Adds the Coding Council provider (workflows/coding-council.ts): Planner, Implementer and Reviewer agents plan, implement, run the project\'s own allowlisted checks (lib/sandbox.ts, no Docker needed) and review over bounded rounds, with checkpoint commits and a streamed transcript (agentVersion 2.2.0).',
-    agentVersion: '2.2.0',
-    promptVersion: '2.1.0',
+    note: 'Implements a Task, invoked through delegate_to_code. draft is always deterministic code, never a model call - no Mastra Agent object backs this entry (docs/ARCHITECTURE.md section 6.5). execute runs one of two AURA-owned providers against the Task\'s own git worktree: the Coding Council (default, see its own entry) or a single built-in agent (agents/mastra-coding-agent.ts - list_files/read_file/write_file only, no shell). Also asked to write/update unit and integration tests (E2E stays QA\'s job). The external Claude Code / Codex CLI providers, which ran on developers\' personal logins in Docker, were removed (ADR-3 D6, agentVersion 3.0.0).',
+    agentVersion: '3.0.0',
+    promptVersion: '2.2.0',
   },
   'coding-council': {
     label: 'Coding Council',

@@ -1,60 +1,21 @@
 import { createTool } from '@mastra/core/tools';
 import { z } from 'zod';
-import { codingFiledComment, codingProviderLabel, codingProviders, renderCodingPlan, type CodingProvider, type CodingTaskDraft } from '../../contracts/coding-drafts';
+import { codingFiledComment, codingProviderLabel, codingProviders, renderCodingPlan, type CodingTaskDraft } from '../../contracts/coding-drafts';
 import { draftStore, type DraftRecord } from '../../store/draft-store';
 import { jira } from '../../mcp/jira-client';
-import { isDockerAvailable, runInContainer } from '../../lib/docker-exec';
 import { createCodingAgent } from '../../agents/mastra-coding-agent';
 import { runCodingCouncil } from '../../workflows/coding-council';
 import { devWorkspaceDir, taskWorktreeDir } from '../../workspace/dev-workspace';
-import { writeFile, access } from 'node:fs/promises';
+import { access } from 'node:fs/promises';
 import path from 'node:path';
-import os from 'node:os';
 import { provenance, buildProvenance, disciplineFromTask, type ProvenanceStamp, type ToolWriterLike } from './shared';
-
-// Filename the coding prompt is written to inside the target directory before the container
-// starts, so it only ever exists as file content - never interpolated into a shell string
-// built from Task text (see CODING_COMMANDS' "$(cat ...)" below, a safe, non-recursive shell
-// substitution: it captures the file's bytes as one literal argument, it does not re-evaluate
-// anything inside them).
-const PROMPT_FILE = '.aura-task-prompt.txt';
-
-// Fixed, code-defined invocations per coding CLI - never chosen or written by a model. Flags
-// verified against each tool's real `--help` output, not assumed. Both already run inside
-// AURA's own Docker sandbox, so each is told not to layer its own interactive approval on top:
-// Claude Code's `--dangerously-skip-permissions` bypasses its prompt-per-edit flow; Codex's
-// `--sandbox workspace-write --ask-for-approval never` is the less blunt equivalent - Codex
-// offers a tiered sandbox rather than only an all-or-nothing bypass, so that is preferred here
-// over its own `--dangerously-bypass-approvals-and-sandbox`.
-// Claude Code and Codex authenticate via their own CLI login (a browser/OAuth flow run once,
-// interactively, outside AURA - `claude login` / `codex login`), not an API key. AURA never
-// asks for or stores a key for either: it mounts the developer's own already-logged-in
-// credential file from the host running agent-runtime (read-only) into the sandbox, so the CLI
-// inside the container is authenticated as whoever is running AURA - the same "runs as the
-// host user" trust boundary docker-exec.ts already uses for file ownership.
-const CODING_COMMANDS: Record<Exclude<CodingProvider, 'mastra' | 'council'>, { image: string; command: string; hostCredential: string; containerCredential: string; loginHint: string }> = {
-  anthropic: {
-    image: 'node:22-slim',
-    command: `npm install -g @anthropic-ai/claude-code --silent && claude -p --dangerously-skip-permissions --output-format json "$(cat ${PROMPT_FILE})"`,
-    hostCredential: path.join(os.homedir(), '.claude', '.credentials.json'),
-    containerCredential: '/tmp/.claude/.credentials.json',
-    loginHint: 'Run `claude login` on this machine (the one running agent-runtime), then approve this again.',
-  },
-  openai: {
-    image: 'node:22-slim',
-    command: `npm install -g @openai/codex --silent && codex exec --sandbox workspace-write --ask-for-approval never --json "$(cat ${PROMPT_FILE})"`,
-    hostCredential: path.join(os.homedir(), '.codex', 'auth.json'),
-    containerCredential: '/tmp/.codex/auth.json',
-    loginHint: 'Run `codex login` on this machine (the one running agent-runtime), then approve this again.',
-  },
-};
 
 const codingInputSchema = z
   .object({
     mode: z.enum(['draft', 'execute']),
     epicKey: z.string().optional().describe('draft: the Epic this Task belongs to'),
     taskKey: z.string().optional().describe('draft: the Jira Task key to implement (must already be scaffolded via delegate_to_dev)'),
-    provider: z.enum(codingProviders).optional().describe('draft: which coding agent to use - "council" (AURA Coding Council: Planner, Implementer and Reviewer agents that discuss the work) and "mastra" (AURA\'s single built-in agent) are built in; "anthropic" (Claude Code) and "openai" (Codex) are available if the human specifically wants them. Ask the human, never assume - unless the request already names one.'),
+    provider: z.enum(codingProviders).optional().describe('draft: which coding agent to use - "council" (AURA Coding Council: Planner, Implementer and Reviewer agents that discuss the work; the default) or "mastra" (AURA\'s single built-in agent, faster, no review). Ask the human, never assume - unless the request already names one.'),
     draftId: z.string().optional().describe('execute: the draftId returned by draft'),
     approved: z.boolean().optional().describe('execute: must be true; set only after ask_user returned an approval'),
   })
@@ -79,12 +40,12 @@ function codeFail(error: unknown): z.infer<typeof codingOutputSchema> {
 // Runs one prompt against an already-scaffolded targetDir with the drafted provider - the
 // provider-dispatch logic shared by delegate_to_code's own `execute` case and runCodingFix below
 // (the Tester Agent loop's automatic retry, tools/tester-workflow.ts), so there is exactly one
-// place that knows how to actually invoke mastra/council/anthropic/openai against a directory.
+// place that knows how to actually invoke a provider against a directory. Coding runs only
+// through AURA's own agents on AURA-governed models (ADR-3 D6) - the Claude Code / Codex CLI
+// providers, which ran on developers' personal logins, were removed.
 // `approved` is only set by the council: false means it finished without its Reviewer approving,
 // so the Task is not moved to In Review.
 async function runCodingProviderPrompt(content: CodingTaskDraft, prompt: string, draftId: string, writer: ToolWriterLike | undefined): Promise<{ exitCode: number; output: string; approved?: boolean }> {
-  await writeFile(path.join(content.targetDir, PROMPT_FILE), prompt, 'utf8');
-
   if (content.provider === 'council') {
     try {
       const result = await runCodingCouncil({ draftId, taskKey: content.taskKey, targetDir: content.targetDir, taskPrompt: prompt, writer });
@@ -108,25 +69,8 @@ async function runCodingProviderPrompt(content: CodingTaskDraft, prompt: string,
     }
   }
 
-  const cli = CODING_COMMANDS[content.provider];
-  try {
-    await access(cli.hostCredential);
-  } catch {
-    throw new Error(`${codingProviderLabel[content.provider]} is not logged in on this machine. ${cli.loginHint}`);
-  }
-  if (!(await isDockerAvailable())) throw new Error('Docker is not available - install/start Docker to run the coding agent');
-  return runInContainer({
-    image: cli.image,
-    hostDir: content.targetDir,
-    command: cli.command,
-    mounts: [{ hostPath: cli.hostCredential, containerPath: cli.containerCredential, readOnly: true }],
-    timeoutMs: 20 * 60_000,
-    name: `aura-code-${draftId}`,
-    labels: { 'aura.epic': content.epicKey, 'aura.task': content.taskKey, 'aura.kind': 'code' },
-    onOutput: (chunk) => {
-      void writer?.custom({ type: 'data-code-output', data: { chunk }, transient: true });
-    },
-  });
+  // A draft filed before the external CLI providers were removed.
+  throw new Error(`Coding provider "${String(content.provider)}" is no longer supported - draft this Task again with provider "council" (or "mastra").`);
 }
 
 export interface CodingFixResult {
@@ -173,7 +117,7 @@ export async function runCodingFix(original: DraftRecord<CodingTaskDraft>, feedb
 export const delegateToCodeTool = createTool({
   id: 'delegate_to_code',
   description:
-    "Coding Agent. Built in and always available: 'council' (AURA Coding Council - a Planner, an Implementer and a Reviewer agent plan, implement, run the project's own checks and review each other's work over a few rounds, streaming their discussion live) and 'mastra' (a single built-in agent). 'anthropic' (Claude Code) and 'openai' (Codex) only if the human asks for them. draft: epicKey + taskKey + provider ('council', 'mastra', 'anthropic' for Claude Code, 'openai' for Codex) -> a deterministic plan built from the Task's own content, no model call (returns draftId + markdown with the exact prompt). execute: draftId + approved -> for council, runs the whole Coding Council (can take many minutes; its result says whether the Reviewer approved); for mastra, runs AURA's own agent directly against the scaffolded directory (list_files/read_file/write_file only, no shell access); for anthropic/openai, runs that CLI inside the sandboxed container using the developer's own CLI login on this machine (claude login / codex login - not an API key). Either way it then comments the Task and moves it toward In Review. Never execute without an explicit human approval. Fails clearly if the Task has not been scaffolded yet (run delegate_to_dev first) or, for anthropic/openai, if that CLI has not been logged into on this machine.",
+    "Coding Agent. Two built-in providers: 'council' (AURA Coding Council - a Planner, an Implementer and a Reviewer agent plan, implement, run the project's own checks and review each other's work over a few rounds, streaming their discussion live - the default) and 'mastra' (a single built-in agent, faster, no review). draft: epicKey + taskKey + provider -> a deterministic plan built from the Task's own content, no model call (returns draftId + markdown with the exact prompt). execute: draftId + approved -> runs the provider against the Task's own worktree (council can take many minutes; its result says whether the Reviewer approved), then comments the Task and moves it toward In Review. Never execute without an explicit human approval. Fails clearly if the Task has no worktree yet (run delegate_to_dev first).",
   inputSchema: codingInputSchema,
   outputSchema: codingOutputSchema,
   execute: async (input, { agent, writer }) => {
@@ -186,7 +130,7 @@ export const delegateToCodeTool = createTool({
           const epicKey = input.epicKey?.trim().toUpperCase();
           const taskKey = input.taskKey?.trim().toUpperCase();
           if (!epicKey || !taskKey) return codeFail('draft needs epicKey, taskKey, and provider');
-          if (!input.provider) return codeFail('draft needs a provider - ask the human "Claude Code" (anthropic) or "Codex" (openai) before drafting');
+          if (!input.provider) return codeFail('draft needs a provider - "council" (default) or "mastra"');
           const task = await jira.getIssue(taskKey);
           if (task.issueType && task.issueType.toLowerCase() !== 'task') return codeFail(`${taskKey} is a ${task.issueType}, not a Task`);
           const discipline = disciplineFromTask(task.description || '');

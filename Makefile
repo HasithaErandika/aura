@@ -4,7 +4,7 @@
 PNPM ?= pnpm
 .DEFAULT_GOAL := help
 
-.PHONY: help install env dev runtime api web build typecheck lint cli cli-unlink terminal-secret clean doctor
+.PHONY: help install env dev runtime api web build typecheck lint test cli cli-unlink terminal-secret clean doctor
 
 help: ## Show this list
 	@awk 'BEGIN {FS = ":.*## "} /^[a-zA-Z_-]+:.*## / {printf "  \033[36m%-16s\033[0m %s\n", $$1, $$2}' $(MAKEFILE_LIST)
@@ -38,6 +38,9 @@ typecheck: ## TypeScript check of every app and package
 
 lint: ## Lint apps/web
 	$(PNPM) --filter web run lint
+
+test: ## Run every app's unit tests (Vitest)
+	$(PNPM) -r --no-bail run test
 
 cli: ## Build the aura CLI and put `aura` on your PATH
 	$(PNPM) --filter @aura/client --filter aura-cli run build
