@@ -1,4 +1,3 @@
-import { createCipheriv, createHash, createHmac, randomBytes } from "node:crypto";
 import { Router } from "express";
 import { z } from "zod";
 import { env } from "../../config/env.js";
@@ -9,6 +8,7 @@ import { currentUser } from "../../middleware/auth.js";
 import { canEditDevWorkspace } from "../policy/policy.js";
 import { writeAudit } from "../audit/audit.service.js";
 import { createToken } from "../identity/tokens.service.js";
+import { encryptForRuntime, signTerminalTicket } from "./ticket.js";
 
 // The web terminal under Scaffolded Project Files (docs/plans/aura-code-cli-council.md section
 // 4.8). The shell itself runs in apps/agent-runtime (terminal/server.ts); this API decides who
@@ -22,16 +22,6 @@ const TICKET_TTL_MS = 60_000;
 // for a working day, short enough that a forgotten one expires on its own.
 const TERMINAL_TOKEN_TTL_MS = 8 * 3_600_000;
 
-// The ticket travels through the browser (in the WebSocket URL), so the CLI token inside it is
-// encrypted (AES-256-GCM, key derived from the shared secret) - only the runtime can read it.
-// agent-runtime terminal/ticket.ts decryptCliToken is the other half.
-function encryptForRuntime(plaintext: string, secret: string): string {
-  const key = createHash("sha256").update(`aura-terminal-cli-token:${secret}`).digest();
-  const iv = randomBytes(12);
-  const cipher = createCipheriv("aes-256-gcm", key, iv);
-  const body = Buffer.concat([cipher.update(plaintext, "utf8"), cipher.final()]);
-  return [iv, cipher.getAuthTag(), body].map((b) => b.toString("base64url")).join(".");
-}
 const key = z.string().trim().min(1).max(40).regex(/^[A-Za-z0-9_-]+$/);
 const ticketSchema = z
   .object({
@@ -56,19 +46,18 @@ terminalRouter.post(
     const { token: cliToken } = await createToken(user.id, "Web terminal session", TERMINAL_TOKEN_TTL_MS, "terminal");
 
     const expiresAt = Date.now() + TICKET_TTL_MS;
-    const payload = Buffer.from(
-      JSON.stringify({
+    const ticket = signTerminalTicket(
+      {
         userId: user.id,
         role: user.role,
         epicKey: body.epicKey.toUpperCase(),
         discipline: body.discipline,
         taskKey: body.taskKey?.toUpperCase() ?? null,
         exp: expiresAt,
-        nonce: randomBytes(16).toString("hex"),
         cli: { apiUrl: env.terminalCliApiUrl, token: encryptForRuntime(cliToken, env.terminalTicketSecret) },
-      }),
-    ).toString("base64url");
-    const ticket = `${payload}.${createHmac("sha256", env.terminalTicketSecret).update(payload).digest("base64url")}`;
+      },
+      env.terminalTicketSecret,
+    );
 
     await writeAudit({
       actorId: user.id,

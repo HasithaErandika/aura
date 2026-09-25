@@ -1,6 +1,6 @@
 import type { ReactElement, SVGProps } from "react";
 import { cn } from "../lib/cn.ts";
-import { PALETTE } from "./agentLive.tsx";
+import { PALETTE } from "./palette.ts";
 
 // One badge per agent for the Agent Registry page, built from the same low-poly "crystal" facets
 // and warm palette as agentLive.tsx's running-agent icon, so this reads as the same icon family

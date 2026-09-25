@@ -6,10 +6,10 @@ import { draftStore } from '../../store/draft-store';
 import { jira } from '../../mcp/jira-client';
 import { DEV_MODEL_ID } from '../../agents/registry';
 import { generateObject, type MastraLike } from '../../lib/generate-object';
-import { devWorkspaceDir, ensureTaskWorktree, taskWorktreeDir, taskBranchName } from '../../workspace/dev-workspace';
+import { devWorkspaceDir, ensureAuraExcludes, ensureTaskWorktree, taskWorktreeDir, taskBranchName } from '../../workspace/dev-workspace';
 import { isDockerAvailable, runInContainer } from '../../lib/docker-exec';
 import { provenance, buildProvenance, disciplineFromTask, AURA_GIT_IDENTITY, type ProvenanceStamp } from './shared';
-import { mkdir, writeFile, access, readdir } from 'node:fs/promises';
+import { mkdir, writeFile, access, readdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
@@ -109,12 +109,28 @@ async function finishScaffold(targetDir: string, discipline: 'Frontend' | 'Backe
       // Informational convenience only.
     }
   }
+  if (discipline === 'Backend') await fixNestScaffoldTypes(targetDir);
   try {
     await execFileAsync('git', ['init'], { cwd: targetDir });
+    await ensureAuraExcludes(targetDir);
     await execFileAsync('git', ['add', '-A'], { cwd: targetDir });
     await execFileAsync('git', [...AURA_GIT_IDENTITY, 'commit', '-m', `chore: initial ${discipline.toLowerCase()} scaffold (AURA Dev Agent)`], { cwd: targetDir });
   } catch {
     // Best-effort - e.g. a scaffold with nothing to commit (rare, but not fatal here).
+  }
+}
+
+// The current NestJS template's e2e test imports `supertest/types` without an extension, which
+// does not resolve under the template's own `moduleResolution: "nodenext"` - so a fresh scaffold
+// fails `tsc --noEmit`, and with it every Task's typecheck (the Coding Council's first check).
+// Fixed before the baseline commit so the base scaffold typechecks from the start.
+async function fixNestScaffoldTypes(targetDir: string): Promise<void> {
+  const file = path.join(targetDir, 'test', 'app.e2e-spec.ts');
+  try {
+    const source = await readFile(file, 'utf8');
+    if (source.includes("from 'supertest/types';")) await writeFile(file, source.replace("from 'supertest/types';", "from 'supertest/types.js';"), 'utf8');
+  } catch {
+    // Not present in this template version - nothing to fix.
   }
 }
 

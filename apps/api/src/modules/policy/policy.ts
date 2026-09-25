@@ -65,7 +65,9 @@ export const ROLE_AGENT_GRANTS: Record<Role, Record<string, AgentAccess>> = {
   },
   // "coding-council" is the Coding Agent's multi-agent provider (Gate 5, provider "council"):
   // run = may start it through the Coding Agent and steer it with notes (council.router.ts).
-  developer: { orchestrator: "run", "dev-agent": "run", "coding-agent": "run", "coding-council": "run", "git-tool": "run", "architect-agent": "read" },
+  // qa-agent "read": developers see the test plan, the Playwright specs and the test-run history
+  // their code has to pass, next to the code on Project Files (they cannot edit or run them).
+  developer: { orchestrator: "run", "dev-agent": "run", "coding-agent": "run", "coding-council": "run", "git-tool": "run", "architect-agent": "read", "qa-agent": "read" },
   // "QA Engineer | QA, Tester, Dev (read) | Approves test plans; verifies results" - QA Engineer
   // runs both QA and Tester agents and is the sole approver of both their gates (6 and 7). There
   // is no separate Tester role (removed - see supabase/migrations/0005_remove_tester_role.sql):
@@ -103,7 +105,7 @@ export const AGENT_GATE_INFO: Record<string, { gate: number; name: string; outco
   "ba-agent": { gate: 2, name: "Story approval", outcome: "Jira Stories filed, status Ready for Architecture" },
   "architect-agent": { gate: 3, name: "Architecture approval", outcome: "Jira Tasks filed, status Ready for Development" },
   "dev-agent": { gate: 4, name: "Dev scaffold approval", outcome: "Scaffold executed in a sandboxed container, Task commented with the result" },
-  "coding-agent": { gate: 5, name: "Coding agent approval", outcome: "The chosen provider (Coding Council, built-in agent, Claude Code or Codex) implemented the Task in its worktree; Task commented and moved toward In Review" },
+  "coding-agent": { gate: 5, name: "Coding agent approval", outcome: "The chosen AURA provider (Coding Council or the single built-in agent) implemented the Task in its worktree; Task commented and moved toward In Review" },
   "coding-council": { gate: 5, name: "Coding agent approval (Coding Council)", outcome: "Planner, Implementer and Reviewer implemented and reviewed the Task over bounded rounds; Task moved toward In Review only if the Reviewer approved" },
   "qa-agent": { gate: 6, name: "QA test plan approval", outcome: "Test plan and Playwright source filed to the QA workspace, Epic commented" },
   "tester-agent": { gate: 7, name: "Test result verification", outcome: "Real Playwright suite executed in a sandbox, Task commented with the real result and AI interpretation" },
@@ -181,8 +183,9 @@ export function canEditDevWorkspace(role: Role): boolean {
 }
 
 // Who may view the QA workspace (Gate 6's test plan + Playwright source) and test-run history
-// (Gate 7's real results) - the same audience as qa-agent itself: qa_engineer and tester (both
-// have a grant on it - ROLE_AGENT_GRANTS above), architect (read, RACI oversight), admin.
+// (Gate 7's real results) - the same audience as qa-agent itself (ROLE_AGENT_GRANTS above):
+// qa_engineer (run), and read for business_analyst, architect (RACI oversight), developer (the
+// tests their code must pass) and deployer, plus admin.
 export function canViewQaWorkspace(role: Role): boolean {
   return canReadAgent(role, "qa-agent");
 }

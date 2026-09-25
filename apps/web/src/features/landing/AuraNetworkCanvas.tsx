@@ -195,7 +195,7 @@ export function AuraNetworkCanvas() {
 
       // Rotate vertices
       const transformedVerts: Vec3[] = subVertices.map((v) => {
-        let x = v.x * cosY - v.z * sinY;
+        const x = v.x * cosY - v.z * sinY;
         let z = v.x * sinY + v.z * cosY;
         let y = v.y;
 

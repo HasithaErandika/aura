@@ -55,7 +55,7 @@ person a project assigns.
 
 | Service | Stack | Owns |
 |---|---|---|
-| `apps/web` | React + Vite + TS | UI: approval inbox, run console, Jira browser, **Project Files** - one VS Code-style workspace per Epic: Explorer with the Epic's design documents (every pipeline role reads; Architect edits; PO/BA/Architect send feedback to the Architect agent) and the Task's code (Developer/Architect/QA/admin; Developer edits), CodeMirror editor, integrated terminal (Developer) - and access tokens |
+| `apps/web` | React + Vite + TS | UI: approval inbox, run console, Jira browser, **Project Files** - one VS Code-style workspace per Epic (Explorer sections Architecture · QA · Code, CodeMirror editor, Terminal · Test runs · Runners panel, status bar; who sees/edits what follows the policy grants - `features/project-files/access.ts`), access tokens |
 | `apps/api` | Node + Express + TS | Auth (Supabase sessions and personal access tokens), policy engine, approvals, Jira read/write, audit log, terminal tickets |
 | `apps/agent-runtime` | Mastra (TS) | Agents, workflows (incl. the Coding Council), delegate tools, draft store, workspace files, the web terminal's WebSocket server |
 | `apps/cli` | Node + TS (`aura`) | The developer's terminal client: Tasks, worktrees, coding runs, gate decisions, commits/pushes as the developer |
@@ -77,7 +77,7 @@ flowchart TD
     DEVS(["Developer"]) --> CLI
 
     subgraph WEB["apps/web — React"]
-        UI["Approval Inbox · Run Console · Jira Browser<br/>Project Files: design docs · code · terminal"]
+        UI["Approval Inbox · Run Console · Jira Browser<br/>Project Files: design · QA · code · terminal · test runs · runners"]
     end
 
     CLI["apps/cli — aura<br/>(packages/aura-client)"]
@@ -108,7 +108,7 @@ flowchart TD
             DP_A[Deployer]
         end
 
-        CODE["Coding Agent<br/>Coding Council / built-in / Claude Code / Codex"]
+        CODE["Coding Agent<br/>Coding Council / single built-in agent"]
         TERM["Terminal server<br/>PTY in a Task worktree"]
         GITT["Git tool"]
         CI["CI tool"]
@@ -319,10 +319,9 @@ Rules:
     file tools only (`list_files`/`read_file`/`write_file`), no shell
     access, every path checked to stay inside the Task's own worktree.
     Verified end-to-end with a real model and file.
-  - **Claude Code** / **Codex** — external CLIs, authenticated via the
-    developer's own CLI login on the host (no API key stored by AURA), run
-    non-interactively inside the same Docker sandbox as Gate 4. Built and
-    typechecked; **CLI execution has not been verified end-to-end.**
+  - The former **Claude Code / Codex** providers (external CLIs on the
+    developer's personal login, run in Docker) were **removed** (ADR-3 D6):
+    all coding runs on AURA's own agents and AURA-governed models.
   - No server-side git push/PR at any provider. Pushing is done by the
     developer from their own machine with `aura push [--pr]`, using their
     own git credentials and `gh`; AURA never holds a GitHub credential.
@@ -446,6 +445,7 @@ aura/
 │   └── cli/             the `aura` command
 ├── packages/
 │   └── aura-client/     typed API + SSE client (@aura/client)
+├── .github/workflows/   CI: install → typecheck → lint → test on every push/PR
 ├── patches/             pnpm patches (Groq fix for @mastra/schema-compat)
 ├── docs/                ARCHITECTURE.md · plans/ · srs/ adr/ security/ runbooks/ workflows/ · logs/
 ├── package.json         workspace root (scripts only)
@@ -484,6 +484,24 @@ consumers; `packages/` only holds code more than one app actually shares.
   LLM keys, Jira token or ticket secret), plus `AURA_TOKEN`/`AURA_API_URL`
   for the CLI. Origin-checked, at most 3 sessions per user, closed after 30
   minutes idle.
+- **Project Files** replaced the Design Documents, Scaffolded Files and QA Files & Test Runs
+  pages (old URLs redirect). Access, derived from the policy grants
+  (`features/project-files/access.ts`; developers gained read on `qa-agent` so
+  they see the tests their code must pass):
+
+  |  | Design docs | QA plan/specs | Test runs | Code | Terminal | Runners |
+  |---|---|---|---|---|---|---|
+  | PO | read + comment | – | – | – | – | – |
+  | BA | read + comment | read | read | – | – | – |
+  | Architect | edit + comment | read | read | read | – | read |
+  | Developer | read | read | read | edit | ✓ | read |
+  | QA Engineer | read | edit | read | read | – | read |
+  | Deployer | read | read | read | – | – | – |
+  | Admin | read | read | read | read | – | read |
+
+  Actions: Run CI (Developer, QA), Run tests (QA), Code this Task (Developer),
+  all through a governed Orchestrator conversation. Each role opens on its own
+  section and panel tab; location and open file live in the URL.
 - **Runners tab** — next to the terminal (Developer, Architect, QA, admin):
   a live snapshot from `GET /runners` (runtime `server/runners-routes.ts`,
   polled every 5s while visible) of AURA's Docker containers with CPU /
@@ -610,6 +628,9 @@ into a reliable, scalable, enterprise-grade platform.
   safely without duplicate Jira issues.
 
 **2. Scalability — beyond one runtime process**
+(Target shape and rollout order for a 30+ developer company:
+[ADR-2](adr/0002-team-scale-deployment.md) — Git-backed workspaces, a queued
+runner pool of ephemeral sandboxes, all state in Postgres.)
 - Move the Draft store and agent memory off local libSQL files onto shared
   Postgres/pgvector, so `apps/agent-runtime` can run as multiple horizontally
   scaled workers instead of one process holding local state.
@@ -662,7 +683,6 @@ but a stronger, auditable boundary around the ones that exist.
 **Agents**
 - Dev/Coding: Backend/Spring Boot, Data, AI, Integration, Deployment disciplines.
 - Git branch/PR automation; any GitHub/GitLab integration (push, PAT, Actions status).
-- Claude Code / Codex execution verified end-to-end (built, not yet run for real).
 - Deployer: an actual execute mode against a real deployment pipeline.
 - Test-management integration (Xray/Zephyr) — defects are plain Jira Bugs today.
 - Sandbox isolation beyond Docker (Firecracker/gVisor) — revisit only if AURA runs untrusted, multi-tenant workloads.

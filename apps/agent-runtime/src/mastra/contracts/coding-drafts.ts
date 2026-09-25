@@ -3,26 +3,19 @@ import { scaffoldDisciplines } from './dev-drafts';
 
 // The Coding Agent's plan (Gate 5). The draft itself is never model-authored, for any
 // provider: `prompt` is built deterministically from the Task's own Jira content by
-// delegate-tools.ts. What differs per provider is *who does the actual implementation* -
-// "mastra" (AURA's own built-in agent, agents/mastra-coding-agent.ts, three file tools) is the
-// main option and always available; Claude Code / Codex are external CLIs a human can pick
-// instead, authenticated via their own CLI login on the machine running agent-runtime
-// (`claude login` / `codex login` - not an API key), run in Docker via
-// delegate-tools.ts's CODING_COMMANDS.
+// delegate-tools/code.ts. The provider decides *who does the implementation*, and both are
+// AURA's own agents on models chosen in agents/registry.ts (ADR-3 D6):
+//   - "council": the Coding Council (workflows/coding-council.ts) - Planner, Implementer and
+//     Reviewer with project checks; the default.
+//   - "mastra":  a single built-in agent (agents/mastra-coding-agent.ts) - faster, no review.
 
-export const codingProviders = ['anthropic', 'openai', 'mastra', 'council'] as const;
+export const codingProviders = ['council', 'mastra'] as const;
 export type CodingProvider = (typeof codingProviders)[number];
 
 export const codingProviderLabel: Record<CodingProvider, string> = {
-  anthropic: 'Claude Code',
-  openai: 'Codex',
-  mastra: 'AURA Coding Agent',
   council: 'AURA Coding Council',
+  mastra: 'AURA Coding Agent',
 };
-
-// Providers that run inside agent-runtime itself on AURA's own configured models - no external
-// CLI login, no Docker.
-export const builtInCodingProviders: readonly CodingProvider[] = ['mastra', 'council'];
 
 export const codingTaskDraftSchema = z.object({
   epicKey: z.string().min(1),
@@ -44,7 +37,7 @@ export function renderCodingPlan(draft: CodingTaskDraft): string {
     CODING_PERSPECTIVE,
     '',
     `**Discipline:** ${draft.discipline}`,
-    `**Coding agent:** ${codingProviderLabel[draft.provider]}${draft.provider === 'council' ? ' (Planner, Implementer and Reviewer agents discuss the work, built-in)' : builtInCodingProviders.includes(draft.provider) ? ' (built-in, always available)' : ' (your own CLI login on this machine)'}`,
+    `**Coding agent:** ${codingProviderLabel[draft.provider] ?? draft.provider}${draft.provider === 'council' ? ' (Planner, Implementer and Reviewer agents discuss the work)' : ' (single agent, no review)'}`,
     `**Directory:** ${draft.targetDir}`,
     '',
     '## Exact prompt it will receive',
@@ -56,7 +49,7 @@ export function renderCodingPlan(draft: CodingTaskDraft): string {
 
 // Renders the Jira comment posted on the Task after a coding-agent run, success or failure.
 export function codingFiledComment(draft: CodingTaskDraft, exitCode: number, outputTail: string, stamp: string): string {
-  const label = codingProviderLabel[draft.provider];
+  const label = codingProviderLabel[draft.provider] ?? draft.provider;
   const lines = [
     exitCode === 0 ? `AURA Coding Agent (${label}) worked on this Task - ready for human review.` : `AURA Coding Agent (${label}) FAILED on this Task (exit code ${exitCode}).`,
     '',

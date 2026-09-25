@@ -43,7 +43,7 @@ CLI is already signed in.
 | # | Decision | Built as | Differs from the original proposal? |
 |---|---|---|---|
 | D1 | Primary developer interface | `aura` CLI (`apps/cli`) | — |
-| D2 | IDE in the browser | Keep **CodeMirror** and add an **xterm.js terminal** under it, on **Project Files** (the merged design-documents + code page that replaced Design Documents and Scaffolded Files) | Yes: Monaco was proposed; kept CodeMirror per the request "under CodeMirror". Monaco is deferred. |
+| D2 | IDE in the browser | Keep **CodeMirror** and add an **xterm.js terminal** under it, on **Project Files** (the merged design + QA + code workspace that replaced Design Documents, Scaffolded Files and QA Files & Test Runs) | Yes: Monaco was proposed; kept CodeMirror per the request "under CodeMirror". Monaco is deferred. |
 | D3 | CLI auth | Personal access tokens `aura_pat_…` (hashed, expiring, revocable, audited) | Added: a token cannot mint another token (browser-session-only) |
 | D4 | Web-terminal auth for the CLI | An 8h token of kind `terminal`, minted per terminal session and passed **encrypted** in the ticket → `AURA_TOKEN` in the shell | New: no `aura login` needed in the web terminal |
 | D5 | Coding models | Free tier (Groq/Gemini fallback chains per role), defined in the agent registry (`COUNCIL_*_MODEL_IDS`, `agents/registry.ts`) like every other agent's model; Claude = put `anthropic/claude-sonnet-5` first in each list | Yes: env-var overrides were dropped, so all model choices live in one place |
@@ -102,7 +102,7 @@ A framework-free typed client: `me`, `setGitIdentity`, `jira.epic/issue`, `devWo
 | `tasks [--epic]` | `GET /jira/epics/:key` |
 | `open [TASK] [--code\|--path]` | `GET /dev-workspace/tasks/:taskKey` |
 | `status [TASK]` | `GET /approvals`, `GET /council/usage` |
-| `code [TASK] [--epic] [--provider council\|mastra\|anthropic\|openai] [--note] [--new-thread]` | `POST /threads`, `POST /threads/:id/messages` |
+| `code [TASK] [--epic] [--provider council\|mastra] [--note] [--new-thread]` | `POST /threads`, `POST /threads/:id/messages` |
 | `approve [ID] [--answer]` · `reject [ID] -r` · `revise "<feedback>"` | `GET /approvals/:id`, `POST /approvals/:id/decide` (with `snapshotHash`) |
 | `say "<text>" [--task\|--draft]` | `POST /council/:draftId/notes` |
 | `diff [--stat] [--uncommitted]` · `commit [-m] [--no-squash]` · `push [--pr] [--remote]` | local `git` / `gh` |
@@ -166,7 +166,7 @@ DONE     approved | round limit | token budget → summary, open issues, transcr
 | Ticket verify + token decrypt | `terminal/ticket.ts` |
 | Full mode: Python 3 `pty` bridge with resize | `terminal/pty.ts` |
 | Restricted mode: allowlisted argv runner, path containment | `terminal/restricted.ts` |
-| xterm.js panel under the CodeMirror editor; refreshes the file tree after output | `apps/web/src/features/dev-files/TerminalPanel.tsx`, `DevFilesPage.tsx` |
+| xterm.js panel under the CodeMirror editor; refreshes the file tree after output | `apps/web/src/features/project-files/TerminalPanel.tsx`, `BottomPanel.tsx` |
 
 `TERMINAL_MODE` defaults to `full` on a loopback bind and `restricted` otherwise. A full shell on a
 non-loopback bind is refused, and Windows is always restricted. The shell environment is an
@@ -234,7 +234,7 @@ Reviews are cheap: one request, diff-sized input.
 | **Lean council**: Implementer plans as its first step, Reviewer reviews plan + code | ~70–80% | Loses the separate plan critique; keeps the code review | **Recommended next step** (see below) |
 | LLM-routed agent network / supervisor (Mastra agent networks) | 120–200% | More autonomy, less predictable; the router itself costs calls | Rejected: a deterministic loop in code is cheaper and auditable |
 | Best-of-N parallel implementers + judge | 200–400% | Higher on hard Tasks | Rejected for free tiers (per-minute limits) |
-| Claude Code / Agent SDK headless | Paid; fewest wasted steps | Highest | Already available as provider `anthropic` (needs Docker + `claude login`) |
+| Claude Code / Agent SDK headless | Paid; fewest wasted steps | Highest | Was provider `anthropic`; **removed** (ADR-3 D6) - Claude models stay available to AURA's own agents via the registry |
 
 ### Cheap improvements (not yet implemented)
 

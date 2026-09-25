@@ -1,7 +1,7 @@
 import { Suspense, type ReactNode } from "react";
 import { createBrowserRouter, Navigate } from "react-router-dom";
 import { paths } from "./paths.ts";
-import { DesignDocsRedirect, RequireAuth, RequireRole } from "../shared/auth/guards.tsx";
+import { RedirectKeepingSearch, RequireAuth, RequireRole } from "../shared/auth/guards.tsx";
 import { AppShell } from "../shared/layout/AppShell.tsx";
 import { Spinner } from "../shared/ui/Spinner.tsx";
 
@@ -9,12 +9,11 @@ import {
   ApprovalDetailPage,
   AuditPage,
   DashboardPage,
-  DevFilesPage,
-  QaFilesPage,
   InboxPage,
   JiraPage,
   LandingPage,
   LoginPage,
+  ProjectFilesPage,
   ProfilePage,
   RegistryPage,
   RunDetailPage,
@@ -58,10 +57,12 @@ export const router = createBrowserRouter([
       { path: "runs", element: page(<RunsPage />), handle: { title: "Runs" } },
       { path: "runs/:id", element: page(<RunDetailPage />), handle: { title: "Runs" } },
       { path: "agents", element: page(<RegistryPage />), handle: { title: "Agent Registry" } },
-      // The Design Documents page was merged into Project Files; old links (?epic= included) land there.
-      { path: "design-docs", element: <DesignDocsRedirect /> },
-      { path: "dev-files", element: page(<DevFilesPage />), handle: { title: "Project Files" } },
-      { path: "qa-files", element: page(<QaFilesPage />), handle: { title: "QA Files & Test Runs" } },
+      { path: "project-files", element: page(<ProjectFilesPage />), handle: { title: "Project Files" } },
+      // Design Documents, Scaffolded Files and QA Files & Test Runs were merged into Project Files;
+      // old links (?epic= included) land there.
+      { path: "dev-files", element: <RedirectKeepingSearch to={paths.projectFiles} /> },
+      { path: "design-docs", element: <RedirectKeepingSearch to={paths.projectFiles} /> },
+      { path: "qa-files", element: <RedirectKeepingSearch to={paths.projectFiles} /> },
       { path: "jira", element: page(<JiraPage />), handle: { title: "Jira" } },
       {
         path: "profile",

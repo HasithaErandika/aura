@@ -5,7 +5,7 @@ import { findWorktree, normalizeTaskKey, resolveTask, session, taskFromCwd, type
 import { renderTurn, type TurnOutcome } from "../render.js";
 import { ask, c, out } from "../ui.js";
 
-export const CODING_PROVIDERS = ["council", "mastra", "anthropic", "openai"] as const;
+export const CODING_PROVIDERS = ["council", "mastra"] as const;
 export type CodingProviderArg = (typeof CODING_PROVIDERS)[number];
 
 async function threadFor(s: Session, taskKey: string, fresh: boolean): Promise<string> {

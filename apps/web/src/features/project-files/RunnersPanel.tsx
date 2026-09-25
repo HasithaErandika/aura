@@ -243,7 +243,7 @@ export function RunnersPanel({ epicKey, active, tabs }: { epicKey?: string; acti
 
             <Section title="Docker containers" count={containers.length}>
               {containers.length === 0 ? (
-                <Empty>No AURA containers {scope === "epic" && epicKey ? `for ${epicKey} ` : ""}yet - Gate 4 scaffolds, Claude Code/Codex coding runs, Gate 7 tests and CI runs appear here.</Empty>
+                <Empty>No AURA containers {scope === "epic" && epicKey ? `for ${epicKey} ` : ""}yet - Gate 4 scaffolds, Gate 7 tests and CI runs appear here.</Empty>
               ) : (
                 <div className="space-y-1.5">
                   {[...containers]

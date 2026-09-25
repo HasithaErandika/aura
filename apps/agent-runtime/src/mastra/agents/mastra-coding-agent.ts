@@ -3,10 +3,8 @@ import { withGeminiFallback } from '../config/models';
 import { buildFileTools } from '../tools/file-tools';
 import { MASTRA_CODING_MODEL_ID } from './registry';
 
-// The built-in Coding Agent - a third option alongside Claude Code and Codex
-// (contracts/coding-drafts.ts, provider "mastra"), using AURA's own configured model rather
-// than a developer's own connected key. Unlike Claude Code/Codex (full external agents run
-// inside Docker), this one gets exactly three tools - list_files, read_file, write_file
+// The single built-in Coding Agent (contracts/coding-drafts.ts, provider "mastra") - the fast
+// alternative to the Coding Council, on AURA's own configured model. It gets exactly three tools - list_files, read_file, write_file
 // (tools/file-tools.ts) - and nothing else: no shell/run-command tool, so there is no way for
 // it to execute arbitrary code even under prompt injection from Jira content. Path containment
 // inside every tool call is the safety boundary here, not a container.

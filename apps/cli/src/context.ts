@@ -24,7 +24,8 @@ export function normalizeTaskKey(raw: string): string {
 // checked out on feature/<TASK> (agent-runtime workspace/dev-workspace.ts taskBranchName).
 export async function taskFromCwd(): Promise<string | null> {
   try {
-    const branch = (await git(process.cwd(), ["rev-parse", "--abbrev-ref", "HEAD"])).trim();
+    // symbolic-ref (not rev-parse) also works on a branch with no commits yet.
+    const branch = (await git(process.cwd(), ["symbolic-ref", "--short", "-q", "HEAD"])).trim();
     const match = /^feature\/([A-Z][A-Z0-9]+-\d+)$/.exec(branch);
     return match?.[1] ?? null;
   } catch {

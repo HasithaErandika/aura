@@ -16,7 +16,7 @@ Inside the web terminal (Project Files) `aura` is already signed in - no login.
 |---|---|
 | `aura tasks --epic KAN-36` | the Epic's Tasks and status |
 | `aura open [TASK] [--code\|--path]` | the Task's worktree - print it, `cd "$(aura open KAN-45 --path)"`, or open in VS Code |
-| `aura code [TASK] [--epic E] [-p council\|mastra\|anthropic\|openai] [-n note]` | draft the coding run → Gate 5 (offers to decide it right there) |
+| `aura code [TASK] [--epic E] [-p council\|mastra] [-n note]` | draft the coding run → Gate 5 (offers to decide it right there) |
 | `aura approve [ID]` · `aura reject [ID] -r "why"` · `aura revise "feedback"` | decide the pending gate; an approved council run streams its discussion live |
 | `aura say "text"` | a note for the Coding Council's next round |
 | `aura status [TASK]` | gates waiting on you, today's model usage |
