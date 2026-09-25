@@ -31,14 +31,14 @@ The Orchestrator in the runtime decides the workflow. The API observes its strea
 
 ## Setup
 
-1. Create a Supabase project and run `supabase/migrations/0001_identity.sql`, then `0002_runs_approvals_audit.sql`, then `0003_run_step_progress_kind.sql`, in the SQL editor.
+1. Create a Supabase project and run every file in `supabase/migrations/` in order (`0001` … `0006`) in the SQL editor.
 2. Copy `.env.example` to `.env` and fill in the Supabase URL, anon key, service role key, and the runtime URL.
-3. `npm install`
+3. `pnpm install` at the repo root.
 4. Create the first admin (no self-serve signup):
    ```bash
-   npm run bootstrap-admin -- --email you@company.com --name "Your Name" --password "a-strong-password"
+   pnpm --filter api bootstrap-admin -- --email you@company.com --name "Your Name" --password "a-strong-password"
    ```
-5. Start `apps/agent-runtime` (`npm run dev` there, port 4111), then `npm run dev` here (port 4000).
+5. Start `apps/agent-runtime` (`make runtime`, port 4111), then this API (`make api`, port 4000) - or both plus the web app with `make dev`.
 
 ## Security controls
 

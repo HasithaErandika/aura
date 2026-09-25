@@ -1,3 +1,4 @@
+import type { CouncilTurnEvent } from "../shared/lib/council.ts";
 import type { Role } from "../shared/lib/roles.ts";
 
 export type AgentAccess = "run" | "read";
@@ -270,5 +271,6 @@ export type StreamEvent =
     }
   | { event: "decision"; data: { approvalId: string; status: ApprovalStatus; decision: Decision } }
   | { event: "progress"; data: { stepId?: string; phase?: string; status?: string; source?: "dev" | "code"; chunk?: string } }
+  | { event: "council"; data: CouncilTurnEvent }
   | { event: "error"; data: { message: string } }
   | { event: "done"; data: { runId: string; status: RunStatus; approvalId: string | null } };

@@ -38,3 +38,10 @@ export function RequireRole({ roles, children }: { roles: Role[]; children: Reac
   if (!profile || !roles.includes(profile.role)) return <Navigate to={paths.dashboard} replace />;
   return <>{children}</>;
 }
+
+// The Design Documents page was merged into Project Files (features/dev-files); old links,
+// including ?epic=KEY, land on the same Epic there.
+export function DesignDocsRedirect() {
+  const { search } = useLocation();
+  return <Navigate to={`${paths.devFiles}${search}`} replace />;
+}

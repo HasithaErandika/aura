@@ -19,7 +19,7 @@ export const designDocsApi = {
   thread: (epicKey: string) => api.get<{ epicKey: string; threadId: string | null }>(`/workspace/${encodeURIComponent(epicKey)}/thread`),
 };
 
-// Shared with the Jira page's embedded Documents section, so both surfaces classify and order
+// Shared with the Jira page's embedded Documents section and Project Files, so both classify and order
 // a design workspace's files identically.
 
 // Classifies a workspace file path into the kind of document the Architect Workflow produces

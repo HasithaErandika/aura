@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { z } from "zod";
 import { asyncHandler } from "../../lib/http/async-handler.js";
-import { forbidden, notFound } from "../../lib/http/errors.js";
+import { HttpError, forbidden, notFound } from "../../lib/http/errors.js";
 import { idParam, parseOrThrow } from "../../lib/http/validate.js";
 import { currentUser } from "../../middleware/auth.js";
 import { canEditDevWorkspace, canViewDevWorkspace } from "../policy/policy.js";
@@ -22,6 +22,24 @@ const filePathSchema = z
 
 const disciplineSchema = z.enum(["Frontend", "Backend", "Data", "AI", "Integration"]);
 const taskKeySchema = z.string().trim().max(40).optional();
+
+// GET /dev-workspace/tasks/:taskKey - where a Task's isolated worktree lives (Epic, discipline,
+// absolute path, branch). Used by the `aura` CLI and the VS Code extension to open the code in
+// the developer's own editor; AURA runs on the developer's machine, so the path is directly
+// usable there (docs/plans/aura-code-cli-council.md section 3).
+devWorkspaceRouter.get(
+  "/tasks/:taskKey",
+  asyncHandler(async (req, res) => {
+    const user = currentUser(req);
+    if (user.role !== "admin" && !canViewDevWorkspace(user.role)) throw forbidden("Your role cannot view scaffolded project files");
+    const taskKey = idParam(req.params.taskKey, "Task").toUpperCase();
+    try {
+      res.json(await runtimeClient.findTaskWorktree(taskKey));
+    } catch {
+      throw new HttpError(404, "not_found", `${taskKey} has no worktree yet - approve its Dev scaffold (Gate 4) first`);
+    }
+  }),
+);
 
 // GET /dev-workspace/:epicKey/:discipline/files?taskKey=... - lists a Task's own isolated
 // worktree files, or the shared base scaffold if taskKey is omitted (Gate 4/5 output).

@@ -11,6 +11,31 @@
 // fallback for the Orchestrator or the Coding Agent. OpenRouter is intentionally not used here.
 export const GEMINI_FALLBACK_MODEL = 'google/gemini-3.5-flash-lite';
 
+type ProviderOptions = Record<string, string | number | boolean>;
+
+/**
+ * Builds a fallback model list for an Agent's `model` field from any ordered list of model ids -
+ * the first is tried first, each later one only when the one before it errors, times out, or is
+ * rate limited. Provider-agnostic on purpose, so moving an agent onto Claude later is a change to
+ * the id list (or its env var), not to code.
+ *
+ * @param modelIds  ordered model router ids, e.g. ['groq/openai/gpt-oss-120b', 'google/gemini-3.5-flash-lite']
+ * @param groqProviderOptions  Groq-only provider options (e.g. reasoningFormat), attached only to
+ *   Groq entries - they mean nothing to other providers.
+ */
+export function modelChain(modelIds: readonly string[], groqProviderOptions?: ProviderOptions) {
+  if (modelIds.length === 0) throw new Error('modelChain needs at least one model id');
+  return modelIds.map((model, index) => {
+    const provider = model.split('/')[0] ?? 'model';
+    return {
+      id: `${provider}-${index}`,
+      model,
+      maxRetries: 1,
+      ...(provider === 'groq' && groqProviderOptions ? { providerOptions: { groq: groqProviderOptions } } : {}),
+    };
+  });
+}
+
 /**
  * Builds a Groq-primary, Gemini-fallback model list for an Agent's `model` field.
  *
@@ -19,21 +44,16 @@ export const GEMINI_FALLBACK_MODEL = 'google/gemini-3.5-flash-lite';
  *   Groq entry only, since they mean nothing to Gemini and Gemini would just ignore an unknown
  *   provider key anyway, but keeping it explicit avoids relying on that.
  */
-export function withGeminiFallback(groqModelId: string, groqProviderOptions?: Record<string, string | number | boolean>) {
-  return [
-    {
-      id: 'groq',
-      model: groqModelId,
-      maxRetries: 1,
-      ...(groqProviderOptions ? { providerOptions: { groq: groqProviderOptions } } : {}),
-    },
-    {
-      id: 'gemini',
-      model: GEMINI_FALLBACK_MODEL,
-      maxRetries: 1,
-    },
-  ];
+export function withGeminiFallback(groqModelId: string, groqProviderOptions?: ProviderOptions) {
+  return modelChain([groqModelId, GEMINI_FALLBACK_MODEL], groqProviderOptions);
 }
+
+// Known free-tier daily request ceilings, shown next to the day's usage in `aura status`. Only
+// what this codebase has verified (see GEMINI_FALLBACK_MODEL's note); unknown models show no limit.
+export const KNOWN_DAILY_REQUEST_LIMITS: Record<string, number> = {
+  [GEMINI_FALLBACK_MODEL]: 500,
+  'google/gemini-3.5-flash': 20,
+};
 
 // If an Anthropic API subscription is ever added, the recommended wiring is a third tier in the
 // same shape as withGeminiFallback above, not a wholesale provider switch:

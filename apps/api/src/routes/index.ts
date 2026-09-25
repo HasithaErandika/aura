@@ -14,6 +14,9 @@ import { qaWorkspaceRouter } from "../modules/qa-workspace/qa-workspace.router.j
 import { testRunsRouter } from "../modules/test-runs/test-runs.router.js";
 import { dockerRouter } from "../modules/docker/docker.router.js";
 import { jiraRouter } from "../modules/jira/jira.router.js";
+import { councilRouter } from "../modules/council/council.router.js";
+import { terminalRouter } from "../modules/terminal/terminal.router.js";
+import { runnersRouter } from "../modules/runners/runners.router.js";
 import { requireAuth } from "../middleware/auth.js";
 import { perUserLimit } from "../middleware/limits.js";
 
@@ -36,3 +39,6 @@ apiRouter.use("/qa-workspace", qaWorkspaceRouter);
 apiRouter.use("/test-runs", testRunsRouter);
 apiRouter.use("/docker", dockerRouter);
 apiRouter.use("/jira", jiraRouter);
+apiRouter.use("/council", councilRouter);
+apiRouter.use("/terminal", terminalRouter);
+apiRouter.use("/runners", runnersRouter);

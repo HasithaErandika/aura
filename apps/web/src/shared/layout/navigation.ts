@@ -2,7 +2,7 @@ import type { ComponentType, SVGProps } from "react";
 import type { Role } from "../lib/roles.ts";
 import type { Me } from "../../types/api.ts";
 import { paths } from "../../app/paths.ts";
-import { AuditIcon, ChatIcon, ClipboardCheckIcon, CodeIcon, DashboardIcon, DocumentIcon, ListIcon, RegistryIcon, SettingsIcon, TicketIcon, UsersIcon } from "../icons/index.tsx";
+import { AuditIcon, ChatIcon, ClipboardCheckIcon, CodeIcon, DashboardIcon, ListIcon, RegistryIcon, SettingsIcon, TicketIcon, UsersIcon } from "../icons/index.tsx";
 
 export interface NavItem {
   label: string;
@@ -22,8 +22,6 @@ const isAdmin = (me: Me) => me.role === "admin";
 const decides = (me: Me) => me.grants.approves.length > 0 || hasRunGrant(me);
 // Matches the API's canViewJira: anyone with at least one agent grant, plus admins.
 const hasAnyGrant = (me: Me) => Object.keys(me.grants.agents).length > 0 || isAdmin(me);
-// Matches the API's canViewDevWorkspace: same audience as dev-agent itself.
-const canViewDevFiles = (me: Me) => Boolean(me.grants.agents["dev-agent"]) || isAdmin(me);
 // Matches the API's canViewQaWorkspace: same audience as qa-agent itself.
 const canViewQaFiles = (me: Me) => Boolean(me.grants.agents["qa-agent"]) || isAdmin(me);
 
@@ -40,8 +38,9 @@ export const navigation: NavGroup[] = [
       { label: "Agent Workspace", to: paths.workspace, icon: ChatIcon, visible: hasRunGrant },
       { label: "Approval Inbox", to: paths.approvals, icon: ClipboardCheckIcon, visible: (me) => decides(me) || isAdmin(me) },
       { label: "Runs", to: paths.runs, icon: ListIcon, visible: (me) => decides(me) || isAdmin(me) },
-      { label: "Design Documents", to: paths.designDocs, icon: DocumentIcon, visible: hasAnyGrant },
-      { label: "Scaffolded Files", to: paths.devFiles, icon: CodeIcon, visible: canViewDevFiles },
+      // Project Files holds the Epic's design documents (every pipeline role, like the API's
+      // canViewArchitectWorkspace) and, for roles the API lets view it, the Task's code.
+      { label: "Project Files", to: paths.devFiles, icon: CodeIcon, visible: hasAnyGrant },
       { label: "QA Files & Test Runs", to: paths.qaFiles, icon: ClipboardCheckIcon, visible: canViewQaFiles },
       { label: "Jira", to: paths.jira, icon: TicketIcon, visible: hasAnyGrant },
     ],

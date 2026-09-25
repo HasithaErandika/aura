@@ -10,14 +10,19 @@ import { scaffoldDisciplines } from './dev-drafts';
 // (`claude login` / `codex login` - not an API key), run in Docker via
 // delegate-tools.ts's CODING_COMMANDS.
 
-export const codingProviders = ['anthropic', 'openai', 'mastra'] as const;
+export const codingProviders = ['anthropic', 'openai', 'mastra', 'council'] as const;
 export type CodingProvider = (typeof codingProviders)[number];
 
 export const codingProviderLabel: Record<CodingProvider, string> = {
   anthropic: 'Claude Code',
   openai: 'Codex',
   mastra: 'AURA Coding Agent',
+  council: 'AURA Coding Council',
 };
+
+// Providers that run inside agent-runtime itself on AURA's own configured models - no external
+// CLI login, no Docker.
+export const builtInCodingProviders: readonly CodingProvider[] = ['mastra', 'council'];
 
 export const codingTaskDraftSchema = z.object({
   epicKey: z.string().min(1),
@@ -39,7 +44,7 @@ export function renderCodingPlan(draft: CodingTaskDraft): string {
     CODING_PERSPECTIVE,
     '',
     `**Discipline:** ${draft.discipline}`,
-    `**Coding agent:** ${codingProviderLabel[draft.provider]}${draft.provider === 'mastra' ? ' (built-in, always available)' : ' (your own CLI login on this machine)'}`,
+    `**Coding agent:** ${codingProviderLabel[draft.provider]}${draft.provider === 'council' ? ' (Planner, Implementer and Reviewer agents discuss the work, built-in)' : builtInCodingProviders.includes(draft.provider) ? ' (built-in, always available)' : ' (your own CLI login on this machine)'}`,
     `**Directory:** ${draft.targetDir}`,
     '',
     '## Exact prompt it will receive',

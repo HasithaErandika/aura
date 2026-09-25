@@ -1,0 +1,19 @@
+# AURA pnpm workspace (SETUP.md): every runnable app under apps/, shared libraries under
+# packages/. Each keeps its own package.json; one lockfile (pnpm-lock.yaml) at the root.
+packages:
+  - apps/*
+  - packages/*
+
+# Groq tool calling: stop @mastra/schema-compat applying its OpenAI schema rewrite to Groq models
+# (was patch-package in apps/agent-runtime; pnpm applies it natively now).
+patchedDependencies:
+  "@mastra/schema-compat@1.3.10": patches/@mastra__schema-compat@1.3.10.patch
+
+# Keep the patched package at exactly the version the patch was written against.
+overrides:
+  "@mastra/schema-compat": 1.3.10
+
+# pnpm runs no dependency install scripts unless allowed here. esbuild fetches its platform
+# binary this way (Vite and Mastra's bundler both need it).
+allowBuilds:
+  esbuild: true

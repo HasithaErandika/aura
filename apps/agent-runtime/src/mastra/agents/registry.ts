@@ -1,3 +1,5 @@
+import { GEMINI_FALLBACK_MODEL } from '../config/models';
+
 // Defines a central registry for each agent’s drafting model and sub-agents, while keeping tool wiring in each agent’s own file.
 // Startup output shows the actual tool wiring, preventing the registry from becoming inconsistent or outdated.
 //
@@ -23,7 +25,19 @@ export const QA_MODEL_ID = 'groq/openai/gpt-oss-120b'; // heavy - writes real Pl
 export const TESTER_MODEL_ID = 'groq/qwen/qwen3.8-27b'; // light - interprets an already-real result, no tools
 export const DEPLOYER_MODEL_ID = 'groq/openai/gpt-oss-120b'; // heavy
 
-export type AgentId = 'orchestrator' | 'po-agent' | 'ba-agent' | 'architect-agent' | 'dev-agent' | 'coding-agent' | 'qa-agent' | 'tester-agent' | 'deployer-agent' | 'git-tool' | 'ci-tool';
+// Coding Council (workflows/coding-council.ts, agents/council-agents.ts) - an ordered fallback
+// chain per role rather than one id: each later model is tried only when the one before it
+// errors, times out, or is rate limited. Same heavy/light rule as above: the Planner and the
+// Implementer hold tools, so they lead with heavy; the Reviewer holds NO tools (it answers with
+// structured JSON only), which is the one place light qwen is safe - and it deliberately leads
+// with a different model family than the Implementer, since two copies of one model tend to
+// agree with each other. Free tier today; to move onto Claude, set ANTHROPIC_API_KEY and put
+// 'anthropic/claude-sonnet-5' first in each list (see config/models.ts's note on tiers).
+export const COUNCIL_PLANNER_MODEL_IDS = ['groq/openai/gpt-oss-120b', GEMINI_FALLBACK_MODEL] as const; // heavy - read-only tools
+export const COUNCIL_IMPLEMENTER_MODEL_IDS = ['groq/openai/gpt-oss-120b', GEMINI_FALLBACK_MODEL] as const; // heavy - holds write/edit/check tools
+export const COUNCIL_REVIEWER_MODEL_IDS = [GEMINI_FALLBACK_MODEL, 'groq/qwen/qwen3.8-27b'] as const; // no tools - structured verdict only
+
+export type AgentId = 'orchestrator' | 'po-agent' | 'ba-agent' | 'architect-agent' | 'dev-agent' | 'coding-agent' | 'coding-council' | 'qa-agent' | 'tester-agent' | 'deployer-agent' | 'git-tool' | 'ci-tool';
 
 export interface AgentManifestEntry {
   modelId: string;
@@ -86,11 +100,18 @@ export const AGENT_MANIFEST: Record<AgentId, AgentManifestEntry> = {
   },
   'coding-agent': {
     label: 'Coding Agent',
-    modelId: `varies by provider (AURA built-in: ${MASTRA_CODING_MODEL_ID}; Claude Code/Codex: the developer's own CLI login on this machine)`,
+    modelId: `varies by provider (AURA built-in: ${MASTRA_CODING_MODEL_ID}; Coding Council: planner ${COUNCIL_PLANNER_MODEL_IDS.join(' → ')}, implementer ${COUNCIL_IMPLEMENTER_MODEL_IDS.join(' → ')}, reviewer ${COUNCIL_REVIEWER_MODEL_IDS.join(' → ')}; Claude Code/Codex: the developer's own CLI login on this machine)`,
     delegatesTo: [],
-    note: 'Implements a Task, invoked through delegate_to_code. draft is always deterministic code, never a model call, for any provider - no Mastra Agent object backs this entry, unlike every other row here (docs/ARCHITECTURE.md section 6.5). execute runs one of three providers per run: AURA\'s own built-in agent (agents/mastra-coding-agent.ts - list_files/read_file/write_file only, no shell tool, contained by path checks rather than a container, the main option) or, if asked for, Claude Code or Codex (Docker-sandboxed, authenticated via the developer\'s own CLI login, not a key). Also asked to write/update unit and integration tests alongside the implementation (E2E stays QA\'s job). Now always targets the Task\'s own isolated git worktree, never the shared base repo (agentVersion 2.1.0).',
-    agentVersion: '2.1.0',
-    promptVersion: '2.0.0',
+    note: 'Implements a Task, invoked through delegate_to_code. draft is always deterministic code, never a model call, for any provider - no Mastra Agent object backs this entry, unlike every other row here (docs/ARCHITECTURE.md section 6.5). execute runs one of three providers per run: AURA\'s own built-in agent (agents/mastra-coding-agent.ts - list_files/read_file/write_file only, no shell tool, contained by path checks rather than a container, the main option) or, if asked for, Claude Code or Codex (Docker-sandboxed, authenticated via the developer\'s own CLI login, not a key). Also asked to write/update unit and integration tests alongside the implementation (E2E stays QA\'s job). Now always targets the Task\'s own isolated git worktree, never the shared base repo (agentVersion 2.1.0). Adds the Coding Council provider (workflows/coding-council.ts): Planner, Implementer and Reviewer agents plan, implement, run the project\'s own allowlisted checks (lib/sandbox.ts, no Docker needed) and review over bounded rounds, with checkpoint commits and a streamed transcript (agentVersion 2.2.0).',
+    agentVersion: '2.2.0',
+    promptVersion: '2.1.0',
+  },
+  'coding-council': {
+    label: 'Coding Council',
+    modelId: `planner ${COUNCIL_PLANNER_MODEL_IDS.join(' → ')} · implementer ${COUNCIL_IMPLEMENTER_MODEL_IDS.join(' → ')} · reviewer ${COUNCIL_REVIEWER_MODEL_IDS.join(' → ')}`,
+    delegatesTo: [],
+    note: 'Gate 5 provider "council" of the Coding Agent (delegate_to_code), run inside one human-approved execute by workflows/coding-council.ts. Three agents built per run (agents/council-agents.ts), each on its own model chain above: the Planner (read-only list_files/read_file/search_files) writes a Markdown plan; the Reviewer (no tools, structured JSON verdict) critiques the plan and later the real diff plus check output; the Implementer (the only role with write_file/edit_file/run_check) implements and fixes only listed issues. Checks are fixed ids resolved from the project\'s own package.json (lib/sandbox.ts) - a failing check forces CHANGES. Bounded rounds and a token budget; checkpoint commit per round; the Task moves to In Review only when the Reviewer approved. Not registered in mastra.agents (tools are bound to one worktree per run) - GET /council/registry reports it live.',
+    ...V1,
   },
   'qa-agent': {
     label: 'QA Agent',

@@ -44,6 +44,7 @@ export const ROLE_AGENT_GRANTS: Record<Role, Record<string, AgentAccess>> = {
     "architect-agent": "read",
     "dev-agent": "read",
     "coding-agent": "read",
+    "coding-council": "read",
     "qa-agent": "read",
     "tester-agent": "read",
     "deployer-agent": "read",
@@ -57,11 +58,14 @@ export const ROLE_AGENT_GRANTS: Record<Role, Record<string, AgentAccess>> = {
     "ba-agent": "read",
     "dev-agent": "read",
     "coding-agent": "read",
+    "coding-council": "read",
     "qa-agent": "read",
     "tester-agent": "read",
     "deployer-agent": "read",
   },
-  developer: { orchestrator: "run", "dev-agent": "run", "coding-agent": "run", "git-tool": "run", "architect-agent": "read" },
+  // "coding-council" is the Coding Agent's multi-agent provider (Gate 5, provider "council"):
+  // run = may start it through the Coding Agent and steer it with notes (council.router.ts).
+  developer: { orchestrator: "run", "dev-agent": "run", "coding-agent": "run", "coding-council": "run", "git-tool": "run", "architect-agent": "read" },
   // "QA Engineer | QA, Tester, Dev (read) | Approves test plans; verifies results" - QA Engineer
   // runs both QA and Tester agents and is the sole approver of both their gates (6 and 7). There
   // is no separate Tester role (removed - see supabase/migrations/0005_remove_tester_role.sql):
@@ -83,6 +87,7 @@ export const AGENT_APPROVER_ROLE: Record<string, Role> = {
   "architect-agent": "architect",
   "dev-agent": "developer",
   "coding-agent": "developer",
+  "coding-council": "developer",
   // Both test-related gates are approved by QA Engineer ("Approves test plans; verifies
   // results" - docs/ARCHITECTURE.md section 4.2).
   "qa-agent": "qa_engineer",
@@ -98,7 +103,8 @@ export const AGENT_GATE_INFO: Record<string, { gate: number; name: string; outco
   "ba-agent": { gate: 2, name: "Story approval", outcome: "Jira Stories filed, status Ready for Architecture" },
   "architect-agent": { gate: 3, name: "Architecture approval", outcome: "Jira Tasks filed, status Ready for Development" },
   "dev-agent": { gate: 4, name: "Dev scaffold approval", outcome: "Scaffold executed in a sandboxed container, Task commented with the result" },
-  "coding-agent": { gate: 5, name: "Coding agent approval", outcome: "Coding CLI ran in the sandbox, Task commented and moved toward In Review" },
+  "coding-agent": { gate: 5, name: "Coding agent approval", outcome: "The chosen provider (Coding Council, built-in agent, Claude Code or Codex) implemented the Task in its worktree; Task commented and moved toward In Review" },
+  "coding-council": { gate: 5, name: "Coding agent approval (Coding Council)", outcome: "Planner, Implementer and Reviewer implemented and reviewed the Task over bounded rounds; Task moved toward In Review only if the Reviewer approved" },
   "qa-agent": { gate: 6, name: "QA test plan approval", outcome: "Test plan and Playwright source filed to the QA workspace, Epic commented" },
   "tester-agent": { gate: 7, name: "Test result verification", outcome: "Real Playwright suite executed in a sandbox, Task commented with the real result and AI interpretation" },
   "deployer-agent": { gate: 8, name: "Release plan approval", outcome: "Release notes, change plan, and rollback plan commented on the Epic - a human executes the release" },

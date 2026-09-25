@@ -3,6 +3,7 @@ import { describeError } from "../../../shared/api/errors.ts";
 import { usePolling } from "../../../shared/hooks/usePolling.ts";
 import type { Approval, ChatMessage, ChatToolActivity, Decision, Run, RunStatus, StreamEvent, Thread } from "../../../types/api.ts";
 import { workspaceApi } from "../api.ts";
+import { formatCouncilTurn } from "../../../shared/lib/council.ts";
 
 export interface PendingGate {
   approvalId: string;
@@ -183,6 +184,20 @@ export function useConversation(agentId: string, threadId: string | null) {
           const tools = [...streaming.tools];
           const idx = tools.findIndex((t) => t.toolCallId === toolCallId);
           const next: ChatToolActivity = { toolCallId, toolName: `architect_step_${stepId ?? "unknown"}`, state: phase === "start" ? "call" : "result", result: status };
+          if (idx >= 0) tools[idx] = next;
+          else tools.push(next);
+          return { ...s, streaming: { ...streaming, tools } };
+        }
+        case "council": {
+          // The Coding Council's discussion - one growing live-log row, like the Dev/Coding
+          // agents' output above, with each finished turn appended as a block.
+          const toolCallId = `council-${event.data.draftId}`;
+          const tools = [...streaming.tools];
+          const idx = tools.findIndex((t) => t.toolCallId === toolCallId);
+          const soFar = idx >= 0 && typeof tools[idx]!.result === "string" ? (tools[idx]!.result as string) : "";
+          const block = formatCouncilTurn(event.data);
+          const finished = event.data.phase === "done" && event.data.status !== "started";
+          const next: ChatToolActivity = { toolCallId, toolName: "council_discussion", state: finished ? "result" : "call", result: block ? `${soFar}${soFar ? "\n\n" : ""}${block}` : soFar, isError: event.data.status === "error" && finished };
           if (idx >= 0) tools[idx] = next;
           else tools.push(next);
           return { ...s, streaming: { ...streaming, tools } };

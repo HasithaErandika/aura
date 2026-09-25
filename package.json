@@ -1,0 +1,15 @@
+{
+  "name": "aura",
+  "private": true,
+  "description": "AURA - governed AI agent orchestration for the SDLC. pnpm workspace root: apps/* and packages/*.",
+  "packageManager": "pnpm@11.12.0",
+  "engines": {
+    "node": ">=22.13.0"
+  },
+  "scripts": {
+    "dev": "pnpm --parallel --filter agent-runtime --filter api --filter web run dev",
+    "build": "pnpm -r run build",
+    "typecheck": "pnpm -r run typecheck",
+    "lint": "pnpm --filter web run lint"
+  }
+}

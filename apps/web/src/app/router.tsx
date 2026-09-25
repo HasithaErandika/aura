@@ -1,7 +1,7 @@
 import { Suspense, type ReactNode } from "react";
 import { createBrowserRouter, Navigate } from "react-router-dom";
 import { paths } from "./paths.ts";
-import { RequireAuth, RequireRole } from "../shared/auth/guards.tsx";
+import { DesignDocsRedirect, RequireAuth, RequireRole } from "../shared/auth/guards.tsx";
 import { AppShell } from "../shared/layout/AppShell.tsx";
 import { Spinner } from "../shared/ui/Spinner.tsx";
 
@@ -9,7 +9,6 @@ import {
   ApprovalDetailPage,
   AuditPage,
   DashboardPage,
-  DesignDocsPage,
   DevFilesPage,
   QaFilesPage,
   InboxPage,
@@ -59,8 +58,9 @@ export const router = createBrowserRouter([
       { path: "runs", element: page(<RunsPage />), handle: { title: "Runs" } },
       { path: "runs/:id", element: page(<RunDetailPage />), handle: { title: "Runs" } },
       { path: "agents", element: page(<RegistryPage />), handle: { title: "Agent Registry" } },
-      { path: "design-docs", element: page(<DesignDocsPage />), handle: { title: "Design Documents" } },
-      { path: "dev-files", element: page(<DevFilesPage />), handle: { title: "Scaffolded Project Files" } },
+      // The Design Documents page was merged into Project Files; old links (?epic= included) land there.
+      { path: "design-docs", element: <DesignDocsRedirect /> },
+      { path: "dev-files", element: page(<DevFilesPage />), handle: { title: "Project Files" } },
       { path: "qa-files", element: page(<QaFilesPage />), handle: { title: "QA Files & Test Runs" } },
       { path: "jira", element: page(<JiraPage />), handle: { title: "Jira" } },
       {

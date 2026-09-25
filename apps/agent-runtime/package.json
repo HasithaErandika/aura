@@ -8,7 +8,7 @@
     "dev": "mastra dev",
     "build": "mastra build",
     "start": "mastra start",
-    "postinstall": "patch-package"
+    "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "keywords": [],
   "author": "",
@@ -25,12 +25,13 @@
     "@mastra/mcp": "^1.17.3",
     "@mastra/memory": "1.30.0",
     "@mastra/observability": "1.17.8",
+    "ws": "^8.21.3",
     "zod": "^4.4.3"
   },
   "devDependencies": {
     "@types/node": "latest",
+    "@types/ws": "^8.18.1",
     "mastra": "1.30.0",
-    "patch-package": "^8.0.1",
     "typescript": "^6.0.3"
   }
 }
