@@ -1,5 +1,5 @@
-// VS Code's own Dark+ palette, reused wherever a page wants to look like VS Code (Design
-// Documents, Scaffolded Project Files) - both the editor pane (via @uiw/codemirror-theme-vscode)
+// VS Code's own Dark+ palette, reused wherever a page wants to look like VS Code
+// (Project Files, QA Files) - both the editor pane (via @uiw/codemirror-theme-vscode)
 // and the surrounding chrome (explorer sidebar, tab bar) should match, not just the text inside
 // the editor.
 export const vscode = {

@@ -17,7 +17,7 @@ interface TreeNode {
 // Builds a nested folder/file tree from the flat list the API returns (VS Code's own Explorer
 // shape) - folders before files, alphabetical within each, so it reads the same way VS Code's
 // does rather than a flat list of full paths that makes nesting hard to see at a glance. Shared
-// across any read-only file viewer (Scaffolded Files, QA Files) - it only ever needs a path.
+// across any read-only file viewer (Project Files, QA Files) - it only ever needs a path.
 function buildTree(files: TreeFile[]): TreeNode[] {
   const root: TreeNode[] = [];
   for (const file of files) {

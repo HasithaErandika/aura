@@ -172,6 +172,8 @@ const AGENT_VARIANTS: Record<string, AgentVariant> = {
   "architect-agent": { order: [3, 2, 0, 1, 5, 4], Mark: ArchitectMark },
   "dev-agent": { order: [2, 0, 1, 5, 4, 3], Mark: DevMark },
   "coding-agent": { order: [2, 3, 4, 5, 1, 0], Mark: CodingMark },
+  // Same mark as the Coding Agent it is a provider of, in its own colour arrangement.
+  "coding-council": { order: [0, 5, 3, 1, 4, 2], Mark: CodingMark },
   "qa-agent": { order: [3, 4, 5, 1, 0, 2], Mark: QaMark },
   "tester-agent": { order: [4, 5, 1, 0, 2, 3], Mark: TesterMark },
   "deployer-agent": { order: [5, 1, 0, 2, 3, 4], Mark: DeployerMark },

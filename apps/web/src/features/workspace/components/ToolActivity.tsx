@@ -35,6 +35,9 @@ function describe(tool: ChatToolActivity): { title: string; detail: string | nul
     const label = name === "dev_output" ? "Dev Agent" : "Coding Agent";
     return { title: `${label} - live output`, detail: typeof tool.result === "string" ? tool.result : "" };
   }
+  if (name === "council_discussion") {
+    return { title: `Coding Council - ${tool.state === "call" ? "discussing..." : "discussion"}`, detail: typeof tool.result === "string" ? tool.result : "" };
+  }
   if (name.startsWith("architect_step_")) {
     const stepId = name.slice("architect_step_".length);
     const label = ARCHITECT_STEP_NAMES[stepId] ?? stepId;
@@ -57,7 +60,7 @@ function describe(tool: ChatToolActivity): { title: string; detail: string | nul
   return { title: tool.state === "call" ? `Calling ${name}` : `${name} finished`, detail: null };
 }
 
-const LIVE_LOG_NAMES = new Set(["dev_output", "code_output"]);
+const LIVE_LOG_NAMES = new Set(["dev_output", "code_output", "council_discussion"]);
 
 export function ToolActivity({ tool }: { tool: ChatToolActivity }) {
   const isLiveLog = LIVE_LOG_NAMES.has(tool.toolName);

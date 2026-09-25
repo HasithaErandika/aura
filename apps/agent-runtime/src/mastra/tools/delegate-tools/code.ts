@@ -5,6 +5,7 @@ import { draftStore, type DraftRecord } from '../../store/draft-store';
 import { jira } from '../../mcp/jira-client';
 import { isDockerAvailable, runInContainer } from '../../lib/docker-exec';
 import { createCodingAgent } from '../../agents/mastra-coding-agent';
+import { runCodingCouncil } from '../../workflows/coding-council';
 import { devWorkspaceDir, taskWorktreeDir } from '../../workspace/dev-workspace';
 import { writeFile, access } from 'node:fs/promises';
 import path from 'node:path';
@@ -31,7 +32,7 @@ const PROMPT_FILE = '.aura-task-prompt.txt';
 // credential file from the host running agent-runtime (read-only) into the sandbox, so the CLI
 // inside the container is authenticated as whoever is running AURA - the same "runs as the
 // host user" trust boundary docker-exec.ts already uses for file ownership.
-const CODING_COMMANDS: Record<Exclude<CodingProvider, 'mastra'>, { image: string; command: string; hostCredential: string; containerCredential: string; loginHint: string }> = {
+const CODING_COMMANDS: Record<Exclude<CodingProvider, 'mastra' | 'council'>, { image: string; command: string; hostCredential: string; containerCredential: string; loginHint: string }> = {
   anthropic: {
     image: 'node:22-slim',
     command: `npm install -g @anthropic-ai/claude-code --silent && claude -p --dangerously-skip-permissions --output-format json "$(cat ${PROMPT_FILE})"`,
@@ -53,7 +54,7 @@ const codingInputSchema = z
     mode: z.enum(['draft', 'execute']),
     epicKey: z.string().optional().describe('draft: the Epic this Task belongs to'),
     taskKey: z.string().optional().describe('draft: the Jira Task key to implement (must already be scaffolded via delegate_to_dev)'),
-    provider: z.enum(codingProviders).optional().describe('draft: which coding agent to use - "mastra" (AURA\'s own built-in agent) is the main option; "anthropic" (Claude Code) and "openai" (Codex) are available if the human specifically wants them. Ask the human, never assume.'),
+    provider: z.enum(codingProviders).optional().describe('draft: which coding agent to use - "council" (AURA Coding Council: Planner, Implementer and Reviewer agents that discuss the work) and "mastra" (AURA\'s single built-in agent) are built in; "anthropic" (Claude Code) and "openai" (Codex) are available if the human specifically wants them. Ask the human, never assume - unless the request already names one.'),
     draftId: z.string().optional().describe('execute: the draftId returned by draft'),
     approved: z.boolean().optional().describe('execute: must be true; set only after ask_user returned an approval'),
   })
@@ -78,9 +79,22 @@ function codeFail(error: unknown): z.infer<typeof codingOutputSchema> {
 // Runs one prompt against an already-scaffolded targetDir with the drafted provider - the
 // provider-dispatch logic shared by delegate_to_code's own `execute` case and runCodingFix below
 // (the Tester Agent loop's automatic retry, tools/tester-workflow.ts), so there is exactly one
-// place that knows how to actually invoke mastra/anthropic/openai against a directory.
-async function runCodingProviderPrompt(content: CodingTaskDraft, prompt: string, draftId: string, writer: ToolWriterLike | undefined): Promise<{ exitCode: number; output: string }> {
+// place that knows how to actually invoke mastra/council/anthropic/openai against a directory.
+// `approved` is only set by the council: false means it finished without its Reviewer approving,
+// so the Task is not moved to In Review.
+async function runCodingProviderPrompt(content: CodingTaskDraft, prompt: string, draftId: string, writer: ToolWriterLike | undefined): Promise<{ exitCode: number; output: string; approved?: boolean }> {
   await writeFile(path.join(content.targetDir, PROMPT_FILE), prompt, 'utf8');
+
+  if (content.provider === 'council') {
+    try {
+      const result = await runCodingCouncil({ draftId, taskKey: content.taskKey, targetDir: content.targetDir, taskPrompt: prompt, writer });
+      const lines = [result.summary, `Rounds: ${result.rounds} · tokens: ${result.totalTokens.toLocaleString()}`];
+      if (result.transcriptPath) lines.push(`Transcript: ${result.transcriptPath}`);
+      return { exitCode: 0, output: lines.join('\n'), approved: result.approved };
+    } catch (error) {
+      return { exitCode: 1, output: error instanceof Error ? error.message : String(error) };
+    }
+  }
 
   if (content.provider === 'mastra') {
     try {
@@ -159,7 +173,7 @@ export async function runCodingFix(original: DraftRecord<CodingTaskDraft>, feedb
 export const delegateToCodeTool = createTool({
   id: 'delegate_to_code',
   description:
-    "Coding Agent. 'mastra' (AURA's own built-in agent, always available) is the main option - use it unless the human asks for Claude Code or Codex specifically. draft: epicKey + taskKey + provider ('mastra' for AURA's own built-in agent, 'anthropic' for Claude Code, 'openai' for Codex) -> a deterministic plan built from the Task's own content, no model call (returns draftId + markdown with the exact prompt). execute: draftId + approved -> for mastra, runs AURA's own agent directly against the scaffolded directory (list_files/read_file/write_file only, no shell access); for anthropic/openai, runs that CLI inside the sandboxed container using the developer's own CLI login on this machine (claude login / codex login - not an API key). Either way it then comments the Task and moves it toward In Review. Never execute without an explicit human approval. Fails clearly if the Task has not been scaffolded yet (run delegate_to_dev first) or, for anthropic/openai, if that CLI has not been logged into on this machine.",
+    "Coding Agent. Built in and always available: 'council' (AURA Coding Council - a Planner, an Implementer and a Reviewer agent plan, implement, run the project's own checks and review each other's work over a few rounds, streaming their discussion live) and 'mastra' (a single built-in agent). 'anthropic' (Claude Code) and 'openai' (Codex) only if the human asks for them. draft: epicKey + taskKey + provider ('council', 'mastra', 'anthropic' for Claude Code, 'openai' for Codex) -> a deterministic plan built from the Task's own content, no model call (returns draftId + markdown with the exact prompt). execute: draftId + approved -> for council, runs the whole Coding Council (can take many minutes; its result says whether the Reviewer approved); for mastra, runs AURA's own agent directly against the scaffolded directory (list_files/read_file/write_file only, no shell access); for anthropic/openai, runs that CLI inside the sandboxed container using the developer's own CLI login on this machine (claude login / codex login - not an API key). Either way it then comments the Task and moves it toward In Review. Never execute without an explicit human approval. Fails clearly if the Task has not been scaffolded yet (run delegate_to_dev first) or, for anthropic/openai, if that CLI has not been logged into on this machine.",
   inputSchema: codingInputSchema,
   outputSchema: codingOutputSchema,
   execute: async (input, { agent, writer }) => {
@@ -227,7 +241,7 @@ export const delegateToCodeTool = createTool({
             };
           }
 
-          let result: { exitCode: number; output: string };
+          let result: { exitCode: number; output: string; approved?: boolean };
           try {
             result = await runCodingProviderPrompt(record.content, record.content.prompt, record.id, writer);
           } catch (error) {
@@ -235,13 +249,16 @@ export const delegateToCodeTool = createTool({
           }
 
           await draftStore.markFiled(record.id, { status: 'done', exitCode: String(result.exitCode) });
-          const stamp = provenance('coding-agent', codingProviderLabel[record.content.provider], record, `${record.content.taskKey} (Task)`);
+          // A council run is stamped as its own registry entry (its own versions and models),
+          // every other provider as the Coding Agent.
+          const stampAgent = record.content.provider === 'council' ? 'coding-council' : 'coding-agent';
+          const stamp = provenance(stampAgent, codingProviderLabel[record.content.provider], record, `${record.content.taskKey} (Task)`);
           try {
             await jira.addComment(record.content.taskKey, codingFiledComment(record.content, result.exitCode, result.output, stamp));
           } catch {
             // The comment is informational; the code on disk is what matters.
           }
-          if (result.exitCode === 0) {
+          if (result.exitCode === 0 && result.approved !== false) {
             try {
               const transitions = await jira.getTransitions(record.content.taskKey);
               const inReview = transitions.find((t) => t.name.toLowerCase() === 'in review');
@@ -268,8 +285,11 @@ export const delegateToCodeTool = createTool({
             taskKey: record.content.taskKey,
             targetDir: record.content.targetDir,
             exitCode: result.exitCode,
-            markdown: `Coding agent finished at ${record.content.targetDir}. Review the changes before merging.`,
-            provenance: buildProvenance('coding-agent', codingProviderLabel[record.content.provider], record, `${record.content.taskKey} (Task)`),
+            markdown:
+              result.approved === false
+                ? `Coding Council finished at ${record.content.targetDir} WITHOUT its Reviewer approving - the Task stays where it is. ${result.output}`
+                : `Coding agent finished at ${record.content.targetDir}. Review the changes before merging.${record.content.provider === 'council' ? `\n\n${result.output}` : ''}`,
+            provenance: buildProvenance(stampAgent, codingProviderLabel[record.content.provider], record, `${record.content.taskKey} (Task)`),
           };
         }
       }

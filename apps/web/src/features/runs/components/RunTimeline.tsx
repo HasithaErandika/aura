@@ -3,6 +3,7 @@ import type { RunStep } from "../../../types/api.ts";
 import { formatDateTime } from "../../../shared/lib/format.ts";
 import { cn } from "../../../shared/lib/cn.ts";
 import { ChevronRightIcon } from "../../../shared/icons/index.tsx";
+import { councilTurnTitle, formatCouncilTurn, type CouncilTurnEvent } from "../../../shared/lib/council.ts";
 
 const AGENT_NAMES: Record<string, string> = {
   po: "PO Agent",
@@ -35,6 +36,11 @@ function label(step: RunStep): { title: string; tone: "neutral" | "success" | "w
   switch (step.kind) {
     case "progress": {
       const source = step.payload?.source;
+      if (source === "council") {
+        const turn = step.payload as unknown as CouncilTurnEvent;
+        const tone = turn.status === "error" || turn.verdict === "CHANGES" ? (turn.status === "error" ? "danger" : "warning") : turn.verdict === "APPROVE" ? "success" : "neutral";
+        return { title: councilTurnTitle(turn), tone };
+      }
       if (source === "dev" || source === "code") {
         return { title: `${source === "dev" ? "Dev Agent" : "Coding Agent"} output`, tone: "neutral" };
       }
@@ -74,6 +80,7 @@ const dot: Record<string, string> = {
 function payloadText(step: RunStep): string | null {
   if (!step.payload) return null;
   const p = step.payload as Record<string, unknown>;
+  if (p.source === "council") return formatCouncilTurn(p as unknown as CouncilTurnEvent);
   if (typeof p.chunk === "string") return p.chunk;
   if (typeof p.text === "string") return p.text;
   if (typeof p.message === "string") return p.message;

@@ -6,12 +6,16 @@ import { verifyHs256 } from "../lib/auth/jwt.js";
 import { forbidden, unauthenticated } from "../lib/http/errors.js";
 import { asyncHandler } from "../lib/http/async-handler.js";
 import { isRole, type Role } from "../modules/identity/roles.js";
+import { isAccessToken, resolveToken } from "../modules/identity/tokens.service.js";
 
 export interface AuthedUser {
   id: string;
   email: string;
   fullName: string | null;
   role: Role;
+  // "token" for a personal access token (CLI / extension), "session" for a Supabase browser
+  // session. Minting new tokens is session-only, so a leaked token cannot extend itself.
+  via: "session" | "token";
 }
 
 declare global {
@@ -63,7 +67,13 @@ async function resolveUser(token: string): Promise<AuthedUser> {
   let userId: string;
   let email: string | undefined;
 
-  if (env.supabaseJwtSecret) {
+  // Personal access tokens (the `aura` CLI / VS Code extension) resolve to their owner, then go
+  // through exactly the same profile/role checks below as a browser session.
+  if (isAccessToken(token)) {
+    const owner = await resolveToken(token);
+    if (!owner) throw unauthenticated("Invalid, expired, or revoked access token");
+    userId = owner;
+  } else if (env.supabaseJwtSecret) {
     const claims = verifyHs256(token, env.supabaseJwtSecret);
     if (!claims) throw unauthenticated("Invalid or expired session");
     userId = claims.sub;
@@ -80,7 +90,7 @@ async function resolveUser(token: string): Promise<AuthedUser> {
   const profile = await loadProfile(userId);
   if (!profile) throw forbidden("No profile exists for this account");
 
-  return { id: userId, email: email ?? profile.email, fullName: profile.fullName, role: profile.role };
+  return { id: userId, email: email ?? profile.email, fullName: profile.fullName, role: profile.role, via: isAccessToken(token) ? "token" : "session" };
 }
 
 export const requireAuth = asyncHandler(async (req: Request, _res: Response, next: NextFunction) => {

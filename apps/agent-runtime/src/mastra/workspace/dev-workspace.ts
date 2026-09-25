@@ -1,4 +1,4 @@
-import { mkdir, access, symlink } from 'node:fs/promises';
+import { mkdir, access, readdir, symlink } from 'node:fs/promises';
 import path from 'node:path';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
@@ -94,4 +94,34 @@ export async function ensureTaskWorktree(baseDir: string, taskKey: string): Prom
   }
 
   return { baseDir, workDir, branch, created: true };
+}
+
+export interface LocatedTaskWorktree {
+  taskKey: string;
+  epicKey: string;
+  discipline: string;
+  path: string;
+  branch: string;
+}
+
+// Finds a Task's worktree from its key alone by scanning <root>/<epic>/dev/<discipline>/
+// .worktrees/<TASK>. A Task only ever has one worktree (delegate_to_dev creates it under the
+// discipline read off the Task itself), so the first match is the answer; null if Gate 4 has not
+// created one yet. Used by the `aura` CLI's lookup route and the web terminal.
+export async function findTaskWorktree(taskKey: string): Promise<LocatedTaskWorktree | null> {
+  const root = path.resolve(devWorkspaceRoot);
+  const epics = await readdir(root, { withFileTypes: true }).catch(() => []);
+  for (const epic of epics) {
+    if (!epic.isDirectory()) continue;
+    const devDir = path.join(root, epic.name, 'dev');
+    const disciplines = await readdir(devDir, { withFileTypes: true }).catch(() => []);
+    for (const discipline of disciplines) {
+      if (!discipline.isDirectory()) continue;
+      const workDir = taskWorktreeDir(path.join(devDir, discipline.name), taskKey);
+      if (await pathExists(path.join(workDir, '.git'))) {
+        return { taskKey, epicKey: epic.name, discipline: discipline.name, path: workDir, branch: taskBranchName(taskKey) };
+      }
+    }
+  }
+  return null;
 }
