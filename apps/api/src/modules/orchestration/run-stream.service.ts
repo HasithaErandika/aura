@@ -9,7 +9,7 @@ import { canDecide, delegatedAgentFromTool, gateInfoForPause, resolveApprover } 
 import { runsRepository } from "../runs/runs.repository.js";
 import type { RunRow, RunStatus } from "../runs/runs.types.js";
 import { runtimeClient } from "../runtime/runtime.client.js";
-import type { AskUserSuspendPayload, RuntimeChunk } from "../runtime/runtime.types.js";
+import { APPROVER_CONTEXT_KEY, type AskUserSuspendPayload, type RuntimeApprover, type RuntimeChunk } from "../runtime/runtime.types.js";
 
 // Observes one runtime stream (a fresh turn or a resumed one) and mirrors what the
 // Orchestrator decides to do into AURA's governance records:
@@ -382,6 +382,7 @@ export async function resumeTurn(input: {
   runtimeRunId: string;
   toolCallId: string;
   resumeData: string;
+  approver?: RuntimeApprover | null;
   requestId: string;
   writer: SseWriter;
 }): Promise<TurnOutcome> {
@@ -397,6 +398,8 @@ export async function resumeTurn(input: {
         toolCallId: input.toolCallId,
         resumeData: input.resumeData,
         memory: { thread: run.thread_id, resource: run.requested_by },
+        // Read by delegate tools as the commit author (agent-runtime tools/delegate-tools/shared.ts).
+        ...(input.approver ? { requestContext: { [APPROVER_CONTEXT_KEY]: input.approver } } : {}),
       },
       turn.signal,
     );

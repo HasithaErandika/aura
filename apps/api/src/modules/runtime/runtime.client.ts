@@ -14,6 +14,7 @@ interface ResumeBody {
   toolCallId?: string;
   resumeData: unknown;
   memory?: { thread: string; resource: string };
+  requestContext?: Record<string, unknown>;
 }
 
 function baseHeaders(accept: string): Record<string, string> {

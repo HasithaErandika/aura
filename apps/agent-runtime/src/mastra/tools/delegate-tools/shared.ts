@@ -50,11 +50,55 @@ export function fail(error: unknown): DelegateOutput {
   return { ok: false, error: message };
 }
 
-// Committer identity for AURA's own git commits (dev.ts's initial scaffold chore commit, and
-// git.ts's later human-approved commits) - passed as -c flags rather than relying on the host's
-// global git config, which a fresh machine or CI runner may not have set. Not a real person:
-// these commits are code-authored, not a human's, and should read that way in git history/blame.
+// Committer identity for AURA's own git commits (dev.ts's initial scaffold chore commit, and the
+// committer of git.ts's and the council's human-approved commits - see commitIdentity) - passed as
+// -c flags rather than relying on the host's global git config, which a fresh machine or CI runner
+// may not have set. Not a real person: scaffold commits are code-authored, not a human's.
 export const AURA_GIT_IDENTITY = ['-c', 'user.name=AURA', '-c', 'user.email=aura@localhost'];
+
+// The human whose approval resumed this run. apps/api resolves it server-side from the approval
+// decision (approvals.service.ts) and sends it as requestContext on the resume - never taken from
+// the model or the request body. gitName/gitEmail are the profile's git identity, null when unset.
+export interface Approver {
+  userId: string;
+  role: string;
+  name: string | null;
+  email: string | null;
+  gitName: string | null;
+  gitEmail: string | null;
+}
+
+export const APPROVER_CONTEXT_KEY = 'auraApprover';
+
+interface RequestContextLike {
+  get: (key: string) => unknown;
+}
+
+export function approverFrom(requestContext: RequestContextLike | undefined): Approver | null {
+  const value = requestContext?.get(APPROVER_CONTEXT_KEY) as Partial<Approver> | undefined;
+  if (!value || typeof value !== 'object' || typeof value.userId !== 'string') return null;
+  const text = (v: unknown) => (typeof v === 'string' && v.trim() ? v.trim() : null);
+  return { userId: value.userId, role: text(value.role) ?? 'unknown', name: text(value.name), email: text(value.email), gitName: text(value.gitName), gitEmail: text(value.gitEmail) };
+}
+
+// Server-side commits (ADR-3): with the approver's git identity, the approver is the author and
+// AURA the committer; without one, AURA authors and an Approved-by trailer records the human.
+// Always returns the args that go before `commit` plus the ones that go after it.
+export function commitIdentity(approver: Approver | null): { before: string[]; author: string[]; trailers: string[] } {
+  if (approver?.gitName && approver.gitEmail) {
+    return { before: AURA_GIT_IDENTITY, author: [`--author=${approver.gitName} <${approver.gitEmail}>`], trailers: ['Co-authored-by: AURA <aura@localhost>'] };
+  }
+  const who = approver ? [approver.name ?? approver.email ?? approver.userId, approver.email ? `<${approver.email}>` : null].filter(Boolean).join(' ') : null;
+  return { before: AURA_GIT_IDENTITY, author: [], trailers: who ? [`Approved-by: ${who}`] : [] };
+}
+
+// `git commit` arguments for one server-side commit: identity, message, and the trailers that tie
+// it back to the Task and run (same trailer names as the CLI's own commits - apps/cli/src/git.ts).
+export function commitArgs(approver: Approver | null, message: string, trailers: string[], extra: string[] = []): string[] {
+  const id = commitIdentity(approver);
+  const all = [...id.trailers, ...trailers];
+  return [...id.before, 'commit', ...extra, ...id.author, '-m', message, ...(all.length ? ['-m', all.join('\n')] : [])];
+}
 
 // Turns a title into a lowercase, hyphenated, filesystem-safe slug.
 export function slugify(title: string): string {

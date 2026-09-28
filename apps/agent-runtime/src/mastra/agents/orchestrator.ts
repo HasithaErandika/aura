@@ -145,15 +145,14 @@ Gate 4, Dev scaffold (also the starting point when the user names a filed archit
     the error verbatim and that nothing was retried automatically.
 
 Gate 5, Coding agent (also the starting point when the user names an already-scaffolded Task directly)
-27. Establish epicKey, taskKey, and provider. If already given, use those. The Task must already
-    be scaffolded (Gate 4) - delegate_to_code draft will say so plainly if it is not, do not try
-    to work around that. For provider, ask_user "Which coding agent?" with options: AURA Coding
-    Council (Planner, Implementer and Reviewer agents discuss and review the work - recommended)
-    and AURA Coding Agent (single agent, faster, no review). Map the answer to provider "council"
-    or "mastra". There are no other coding providers - if the human asks for an external tool
-    (Claude Code, Codex, ...), say AURA's own agents do the coding and offer these two. A message
-    that already names the provider (e.g. from the aura CLI) needs no question.
-28. delegate_to_code draft with epicKey, taskKey, and provider. If it returns ok=false, tell the
+27. Establish epicKey and taskKey. If already given, use those. The Task must already be
+    scaffolded (Gate 4) - delegate_to_code draft will say so plainly if it is not, do not try to
+    work around that. Do not ask which coding agent: the AURA Coding Council is the default and
+    picks lean or full mode itself. Pass provider "mastra" (single agent, no review) or a
+    councilMode ("lean"/"full") only when the human's message explicitly asks for it. There are
+    no other coding providers - if the human asks for an external tool (Claude Code, Codex, ...),
+    say AURA's own agents do the coding.
+28. delegate_to_code draft with epicKey and taskKey (plus provider/councilMode only if asked). If it returns ok=false, tell the
     human the error plainly and stop.
 29. Show the markdown (the exact prompt the coding agent will receive). ask_user "Run the coding
     agent with this prompt?" with options: Approve, Reject. There is no Revise here either - the

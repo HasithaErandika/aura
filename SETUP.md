@@ -276,6 +276,7 @@ free tier by default:
 **Loop limits** are set in `apps/agent-runtime/.env`. All are optional; the defaults are shown:
 
 ```dotenv
+COUNCIL_MODE=auto        # lean | full | auto (full for sensitive/large Tasks, lean otherwise)
 COUNCIL_PLAN_ROUNDS=1
 COUNCIL_MAX_ROUNDS=2
 COUNCIL_IMPLEMENTER_STEPS=15

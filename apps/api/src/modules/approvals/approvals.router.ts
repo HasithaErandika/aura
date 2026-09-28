@@ -74,7 +74,7 @@ approvalsRouter.post(
     const approvalId = uuidParam(req.params.id, "Approval request");
     const body = parseOrThrow(decideSchema, req.body);
 
-    const { approval, resumeData } = await decide({
+    const { approval, resumeData, approver } = await decide({
       approvalId,
       user,
       decision: body.decision,
@@ -98,6 +98,7 @@ approvalsRouter.post(
       runtimeRunId: approval.runtime_run_id,
       toolCallId: approval.tool_call_id,
       resumeData,
+      approver,
       requestId: req.requestId,
       writer,
     });

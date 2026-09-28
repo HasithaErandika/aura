@@ -95,3 +95,16 @@ export interface RunnersSnapshot {
   checks: Record<string, unknown>[];
   terminals: { id: number; userId: string; label: string; mode: string; startedAt: string }[];
 }
+
+// The human whose approval resumed a run, sent to the runtime as requestContext[APPROVER_CONTEXT_KEY]
+// (mirrors agent-runtime tools/delegate-tools/shared.ts Approver).
+export const APPROVER_CONTEXT_KEY = "auraApprover";
+
+export interface RuntimeApprover {
+  userId: string;
+  role: string;
+  name: string | null;
+  email: string | null;
+  gitName: string | null;
+  gitEmail: string | null;
+}

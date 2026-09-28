@@ -8,7 +8,7 @@ import type { MastraLike } from '../../lib/generate-object';
 import { devWorkspaceDir, taskWorktreeDir } from '../../workspace/dev-workspace';
 import { access } from 'node:fs/promises';
 import path from 'node:path';
-import { provenance, buildProvenance, disciplineFromTask, type ProvenanceStamp, type ToolWriterLike } from './shared';
+import { provenance, buildProvenance, disciplineFromTask, approverFrom, type ProvenanceStamp, type ToolWriterLike } from './shared';
 import { MAX_ITERATIONS, TEST_COMMANDS, type AttemptState } from '../../workflows/tester-workflow';
 
 interface TestRunDraft {
@@ -71,7 +71,7 @@ export const delegateToTestTool = createTool({
     "Tester Agent (Gate 7) - a bounded test -> diagnose -> route -> retest loop, not a single pass. draft: epicKey + taskKey -> confirms the Task is scaffolded and its Epic has a filed QA plan, returns the fixed test-run plan (returns draftId + markdown). execute: draftId + approved -> runs the QA Agent's real Playwright suite in a sandboxed Docker container; on failure it diagnoses each failure from real evidence and routes automatically to the Coding Agent (an application defect) or back to QA (a bad test, revising only that one scenario) and retests - up to 3 attempts total. Comments the Task after every attempt. If it still hasn't passed after 3 attempts, or a failure can't be diagnosed with confidence, it stops and returns haltedLoopGuard=true - you MUST then call ask_user with the returned markdown so a human can decide; never re-run execute again on your own to try to force it past this. Only Frontend and Backend/NestJS are supported. Never execute without an explicit human approval to START the loop - the loop's own internal retries do not ask for further approval, by design. file-defect: draftId + approved, manual escalation only - creates/points at a Jira Bug for the current state (the loop already auto-files one when it diagnoses a code defect itself; use this mainly after a haltedLoopGuard escalation).",
   inputSchema: testInputSchema,
   outputSchema: testOutputSchema,
-  execute: async (input, { mastra, agent, writer }) => {
+  execute: async (input, { mastra, agent, writer, requestContext }) => {
     const threadId = agent?.threadId ?? null;
     try {
       switch (input.mode) {
@@ -158,6 +158,7 @@ export const delegateToTestTool = createTool({
                 skipped: 0,
                 haltReason: null,
                 bugKey: null,
+                approver: approverFrom(requestContext),
                 history: [],
               },
               writer,

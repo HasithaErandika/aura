@@ -67,7 +67,8 @@ export const AGENT_MANIFEST: Record<AgentId, AgentManifestEntry> = {
     modelId: ORCHESTRATOR_MODEL_ID,
     delegatesTo: ['po-agent', 'ba-agent', 'architect-agent', 'dev-agent', 'coding-agent'],
     note: 'Coordinates Gate 1 (Epic), Gate 2 (Stories), Gate 3 (Architecture), Gate 4 (Dev scaffold), and Gate 5 (Coding agent). Never drafts, files, or executes directly - no Jira, memory, filesystem, or shell tool of its own (docs/ARCHITECTURE.md section 6.2).',
-    ...V1,
+    agentVersion: '1.0.0',
+    promptVersion: '1.1.0', // Gate 5: council by default, no provider question
   },
   'po-agent': {
     label: 'PO Agent',
@@ -103,15 +104,16 @@ export const AGENT_MANIFEST: Record<AgentId, AgentManifestEntry> = {
     modelId: `varies by provider (Coding Council: planner ${COUNCIL_PLANNER_MODEL_IDS.join(' → ')}, implementer ${COUNCIL_IMPLEMENTER_MODEL_IDS.join(' → ')}, reviewer ${COUNCIL_REVIEWER_MODEL_IDS.join(' → ')}; single agent: ${MASTRA_CODING_MODEL_ID})`,
     delegatesTo: [],
     note: 'Implements a Task, invoked through delegate_to_code. draft is always deterministic code, never a model call - no Mastra Agent object backs this entry (docs/ARCHITECTURE.md section 6.5). execute runs one of two AURA-owned providers against the Task\'s own git worktree: the Coding Council (default, see its own entry) or a single built-in agent (agents/mastra-coding-agent.ts - list_files/read_file/write_file only, no shell). Also asked to write/update unit and integration tests (E2E stays QA\'s job). The external Claude Code / Codex CLI providers, which ran on developers\' personal logins in Docker, were removed (ADR-3 D6, agentVersion 3.0.0).',
-    agentVersion: '3.0.0',
+    agentVersion: '3.1.0', // council is the default; commits authored by the Gate 5 approver
     promptVersion: '2.2.0',
   },
   'coding-council': {
     label: 'Coding Council',
     modelId: `planner ${COUNCIL_PLANNER_MODEL_IDS.join(' → ')} · implementer ${COUNCIL_IMPLEMENTER_MODEL_IDS.join(' → ')} · reviewer ${COUNCIL_REVIEWER_MODEL_IDS.join(' → ')}`,
     delegatesTo: [],
-    note: 'Gate 5 provider "council" of the Coding Agent (delegate_to_code), run inside one human-approved execute by workflows/coding-council.ts. Three agents built per run (agents/council-agents.ts), each on its own model chain above: the Planner (read-only list_files/read_file/search_files) writes a Markdown plan; the Reviewer (no tools, structured JSON verdict) critiques the plan and later the real diff plus check output; the Implementer (the only role with write_file/edit_file/run_check) implements and fixes only listed issues. Checks are fixed ids resolved from the project\'s own package.json (lib/sandbox.ts) - a failing check forces CHANGES. Bounded rounds and a token budget; checkpoint commit per round; the Task moves to In Review only when the Reviewer approved. Not registered in mastra.agents (tools are bound to one worktree per run) - GET /council/registry reports it live.',
-    ...V1,
+    note: 'Gate 5 provider "council" of the Coding Agent (delegate_to_code), run inside one human-approved execute by workflows/coding-council.ts. Two modes (contracts/council.ts, chosen per Task at draft time): lean skips the Planner and plan review, full runs them. Agents built per run (agents/council-agents.ts), each on its own model chain above: the Planner (full mode only, (read-only list_files/read_file/search_files) writes a Markdown plan); the Reviewer (no tools, structured JSON verdict) critiques the plan and later the real diff plus check output; the Implementer (the only role with write_file/edit_file/run_check) implements and fixes only listed issues. Checks are fixed ids resolved from the project\'s own package.json (lib/sandbox.ts) - a failing check forces CHANGES. Bounded rounds and a token budget; checkpoint commit per round, authored by the Gate 5 approver when they have a git identity (AURA otherwise, always AURA as committer); the Task moves to In Review only when the Reviewer approved. Not registered in mastra.agents (tools are bound to one worktree per run) - GET /council/registry reports it live.',
+    agentVersion: '1.1.0', // lean/full modes; checkpoint commits authored by the Gate 5 approver
+    promptVersion: '1.0.0',
   },
   'qa-agent': {
     label: 'QA Agent',
@@ -141,7 +143,7 @@ export const AGENT_MANIFEST: Record<AgentId, AgentManifestEntry> = {
     modelId: 'none - no model call at any step',
     delegatesTo: [],
     note: 'git init/branch/commit/status/diff against a Task\'s own isolated git worktree, invoked through delegate_to_git. No Mastra Agent object backs this entry (like coding-agent) - the command and, for commit, its message are built entirely by code from the Task\'s own Jira content, never a model. Runs directly on the host, no Docker (node:22-slim has no git installed, and the directory is already host-trusted). `status`/`diff` now show exactly this Task\'s own changes, never another Task\'s sharing the same discipline (agentVersion 2.0.0) - `init` is close to a no-op now, since a worktree is already a real git checkout the moment Gate 4 creates it.',
-    agentVersion: '2.0.0',
+    agentVersion: '2.1.0', // commit authored by the approver when they have a git identity
     promptVersion: '1.0.0',
   },
   'ci-tool': {

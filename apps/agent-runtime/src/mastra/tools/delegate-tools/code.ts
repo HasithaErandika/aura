@@ -5,17 +5,19 @@ import { draftStore, type DraftRecord } from '../../store/draft-store';
 import { jira } from '../../mcp/jira-client';
 import { createCodingAgent } from '../../agents/mastra-coding-agent';
 import { runCodingCouncil } from '../../workflows/coding-council';
+import { chooseCouncilMode, councilModeSetting, councilModeSettings } from '../../contracts/council';
 import { devWorkspaceDir, taskWorktreeDir } from '../../workspace/dev-workspace';
 import { access } from 'node:fs/promises';
 import path from 'node:path';
-import { provenance, buildProvenance, disciplineFromTask, type ProvenanceStamp, type ToolWriterLike } from './shared';
+import { provenance, buildProvenance, disciplineFromTask, approverFrom, type Approver, type ProvenanceStamp, type ToolWriterLike } from './shared';
 
 const codingInputSchema = z
   .object({
     mode: z.enum(['draft', 'execute']),
     epicKey: z.string().optional().describe('draft: the Epic this Task belongs to'),
     taskKey: z.string().optional().describe('draft: the Jira Task key to implement (must already be scaffolded via delegate_to_dev)'),
-    provider: z.enum(codingProviders).optional().describe('draft: which coding agent to use - "council" (AURA Coding Council: Planner, Implementer and Reviewer agents that discuss the work; the default) or "mastra" (AURA\'s single built-in agent, faster, no review). Ask the human, never assume - unless the request already names one.'),
+    provider: z.enum(codingProviders).optional().describe('draft: which coding agent to use. Omit it - the default is "council" (AURA Coding Council). Pass "mastra" (single agent, no review) only when the human explicitly asked for it.'),
+    councilMode: z.enum(councilModeSettings).optional().describe('draft, council only: "lean", "full" or "auto". Omit it unless the human asked for one - the default comes from COUNCIL_MODE (auto picks per Task).'),
     draftId: z.string().optional().describe('execute: the draftId returned by draft'),
     approved: z.boolean().optional().describe('execute: must be true; set only after ask_user returned an approval'),
   })
@@ -45,11 +47,13 @@ function codeFail(error: unknown): z.infer<typeof codingOutputSchema> {
 // providers, which ran on developers' personal logins, were removed.
 // `approved` is only set by the council: false means it finished without its Reviewer approving,
 // so the Task is not moved to In Review.
-async function runCodingProviderPrompt(content: CodingTaskDraft, prompt: string, draftId: string, writer: ToolWriterLike | undefined): Promise<{ exitCode: number; output: string; approved?: boolean }> {
+// `approver` is the human whose approval started this run - the author of the council's checkpoint
+// commits (null: AURA authors them).
+async function runCodingProviderPrompt(content: CodingTaskDraft, prompt: string, draftId: string, writer: ToolWriterLike | undefined, approver: Approver | null): Promise<{ exitCode: number; output: string; approved?: boolean }> {
   if (content.provider === 'council') {
     try {
-      const result = await runCodingCouncil({ draftId, taskKey: content.taskKey, targetDir: content.targetDir, taskPrompt: prompt, writer });
-      const lines = [result.summary, `Rounds: ${result.rounds} · tokens: ${result.totalTokens.toLocaleString()}`];
+      const result = await runCodingCouncil({ draftId, taskKey: content.taskKey, targetDir: content.targetDir, taskPrompt: prompt, mode: content.councilMode, approver, writer });
+      const lines = [result.summary, `Mode: ${result.mode} · rounds: ${result.rounds} · tokens: ${result.totalTokens.toLocaleString()}`];
       if (result.transcriptPath) lines.push(`Transcript: ${result.transcriptPath}`);
       return { exitCode: 0, output: lines.join('\n'), approved: result.approved };
     } catch (error) {
@@ -87,7 +91,7 @@ export interface CodingFixResult {
 // human-approved Gate 7 (the "Option A" decision - one approval starts the loop, not one per
 // attempt), the same trust boundary the Architect workflow's many internal model calls already
 // rely on for Gate 3. It never re-scaffolds; it edits the same targetDir Gate 4/5 already own.
-export async function runCodingFix(original: DraftRecord<CodingTaskDraft>, feedback: string, writer?: ToolWriterLike): Promise<CodingFixResult> {
+export async function runCodingFix(original: DraftRecord<CodingTaskDraft>, feedback: string, writer?: ToolWriterLike, approver: Approver | null = null): Promise<CodingFixResult> {
   const prompt = [
     `A real test failure was found against the code you (or a previous attempt) wrote for Task ${original.content.taskKey}: ${original.content.prompt.split('\n')[0]}`,
     '',
@@ -98,7 +102,7 @@ export async function runCodingFix(original: DraftRecord<CodingTaskDraft>, feedb
   ].join('\n');
 
   const record = await draftStore.create({ kind: 'coding-task', content: { ...original.content, prompt }, threadId: original.threadId, epicKey: original.epicKey, parentId: original.id });
-  const result = await runCodingProviderPrompt(record.content, prompt, record.id, writer);
+  const result = await runCodingProviderPrompt(record.content, prompt, record.id, writer, approver);
   await draftStore.markFiled(record.id, { status: 'done', exitCode: String(result.exitCode) });
 
   let commit: string | null = null;
@@ -117,10 +121,10 @@ export async function runCodingFix(original: DraftRecord<CodingTaskDraft>, feedb
 export const delegateToCodeTool = createTool({
   id: 'delegate_to_code',
   description:
-    "Coding Agent. Two built-in providers: 'council' (AURA Coding Council - a Planner, an Implementer and a Reviewer agent plan, implement, run the project's own checks and review each other's work over a few rounds, streaming their discussion live - the default) and 'mastra' (a single built-in agent, faster, no review). draft: epicKey + taskKey + provider -> a deterministic plan built from the Task's own content, no model call (returns draftId + markdown with the exact prompt). execute: draftId + approved -> runs the provider against the Task's own worktree (council can take many minutes; its result says whether the Reviewer approved), then comments the Task and moves it toward In Review. Never execute without an explicit human approval. Fails clearly if the Task has no worktree yet (run delegate_to_dev first).",
+    "Coding Agent - the AURA Coding Council (an Implementer and a Reviewer, plus a Planner in full mode, implement, run the project's own checks and review each other's work over a few rounds, streaming their discussion live). 'mastra' (single agent, no review) exists only as a fallback the human must ask for by name. draft: epicKey + taskKey (provider and councilMode optional) -> a deterministic plan built from the Task's own content, no model call (returns draftId + markdown with the exact prompt). execute: draftId + approved -> runs the provider against the Task's own worktree (council can take many minutes; its result says whether the Reviewer approved), then comments the Task and moves it toward In Review. Never execute without an explicit human approval. Fails clearly if the Task has no worktree yet (run delegate_to_dev first).",
   inputSchema: codingInputSchema,
   outputSchema: codingOutputSchema,
-  execute: async (input, { agent, writer }) => {
+  execute: async (input, { agent, writer, requestContext }) => {
     const threadId = agent?.threadId ?? null;
     try {
       switch (input.mode) {
@@ -129,8 +133,8 @@ export const delegateToCodeTool = createTool({
         case 'draft': {
           const epicKey = input.epicKey?.trim().toUpperCase();
           const taskKey = input.taskKey?.trim().toUpperCase();
-          if (!epicKey || !taskKey) return codeFail('draft needs epicKey, taskKey, and provider');
-          if (!input.provider) return codeFail('draft needs a provider - "council" (default) or "mastra"');
+          if (!epicKey || !taskKey) return codeFail('draft needs epicKey and taskKey');
+          const provider = input.provider ?? 'council';
           const task = await jira.getIssue(taskKey);
           if (task.issueType && task.issueType.toLowerCase() !== 'task') return codeFail(`${taskKey} is a ${task.issueType}, not a Task`);
           const discipline = disciplineFromTask(task.description || '');
@@ -160,13 +164,16 @@ export const delegateToCodeTool = createTool({
             'Also write or update unit/integration tests for the code you write, using whatever test runner this scaffold already includes (e.g. NestJS ships with Jest; a plain Vite React scaffold has none set up by default - add one only if the acceptance criteria clearly call for it, otherwise focus on the implementation). End-to-end/UI tests are QA\'s responsibility (Gate 6), not yours - stay at the unit/integration level.',
           ].join('\n');
 
-          const content: CodingTaskDraft = { epicKey, taskKey, discipline, targetDir, provider: input.provider, prompt };
+          // Lean or full, decided here from the Task itself so the plan the human approves says
+          // which one runs (contracts/council.ts chooseCouncilMode).
+          const council = provider === 'council' ? chooseCouncilMode(input.councilMode ?? councilModeSetting(), `${task.summary}\n${task.description ?? ''}`) : null;
+          const content: CodingTaskDraft = { epicKey, taskKey, discipline, targetDir, provider, prompt, ...(council ? { councilMode: council.mode, councilModeReason: council.reason } : {}) };
           const record = await draftStore.create({ kind: 'coding-task', content, threadId, epicKey });
           return { ok: true, draftId: record.id, markdown: renderCodingPlan(content), epicKey, taskKey };
         }
-        // Fetches the human's own connected key just-in-time (never persisted here), writes
-        // the prompt to a file, and runs the fixed CLI invocation for the drafted provider.
-        // Idempotent: a draft already executed just reports its prior result.
+        // Runs the drafted provider against the Task's worktree, as the human whose approval
+        // resumed this run (apps/api sends it as requestContext). Idempotent: a draft already
+        // executed just reports its prior result.
         case 'execute': {
           if (!input.draftId) return codeFail('execute needs draftId');
           if (input.approved !== true) return codeFail('execute requires approved=true, which is only set after the human approved via ask_user');
@@ -187,7 +194,7 @@ export const delegateToCodeTool = createTool({
 
           let result: { exitCode: number; output: string; approved?: boolean };
           try {
-            result = await runCodingProviderPrompt(record.content, record.content.prompt, record.id, writer);
+            result = await runCodingProviderPrompt(record.content, record.content.prompt, record.id, writer, approverFrom(requestContext));
           } catch (error) {
             return codeFail(error);
           }

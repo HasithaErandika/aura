@@ -9,19 +9,9 @@ import { writeAudit } from "../audit/audit.service.js";
 import { ROLE_LABELS } from "./roles.js";
 import { ROLE_AGENT_GRANTS, agentsApprovedByRole } from "../policy/policy.js";
 import { createToken, listTokens, revokeToken } from "./tokens.service.js";
+import { gitIdentityFor } from "./profiles.service.js";
 
 export const meRouter = Router();
-
-export interface GitIdentity {
-  name: string | null;
-  email: string | null;
-}
-
-export async function gitIdentityFor(userId: string): Promise<GitIdentity> {
-  const { data, error } = await supabaseAdmin.from("profiles").select("git_name, git_email").eq("id", userId).single();
-  if (error || !data) return { name: null, email: null };
-  return { name: data.git_name ?? null, email: data.git_email ?? null };
-}
 
 // The caller's identity plus the grants the policy module gives their role, so the web can
 // build navigation from data instead of duplicating the tables.
