@@ -5,6 +5,7 @@ import { devWorkspaceRoot, taskWorktreeDir } from '../workspace/dev-workspace';
 import { decryptCliToken, verifyTicket, type TerminalTicket } from './ticket';
 import { spawnPty, type PtySession } from './pty';
 import { startRestrictedShell } from './restricted';
+import { auraMode } from '../config/aura-mode';
 
 // The web terminal under the Scaffolded Project Files editor (docs/plans/aura-code-cli-council.md
 // section 4.8): a WebSocket server, separate from Mastra's HTTP server, that opens a shell in one
@@ -89,7 +90,8 @@ export function startTerminalServer(): void {
   const port = Number(process.env.TERMINAL_PORT || 4112);
   const loopback = LOOPBACK.has(host);
   const requested = process.env.TERMINAL_MODE;
-  const mode = requested === 'off' || requested === 'restricted' || requested === 'full' ? requested : loopback ? 'full' : 'restricted';
+  // Server mode never defaults to a full shell (config/aura-mode.ts refuses an explicit "full").
+  const mode = requested === 'off' || requested === 'restricted' || requested === 'full' ? requested : loopback && auraMode() === 'local' ? 'full' : 'restricted';
   // A PTY needs POSIX; a full shell on a non-loopback bind is refused outright.
   const effectiveMode = mode === 'full' && (process.platform === 'win32' || !loopback) ? 'restricted' : mode;
   const allowedOrigins = (process.env.TERMINAL_ALLOWED_ORIGINS || 'http://localhost:5173').split(',').map((o) => o.trim()).filter(Boolean);

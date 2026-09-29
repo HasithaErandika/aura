@@ -123,7 +123,8 @@ Never commit `.env` files.
 checked the user, the policy and written the audit record. Generate one secret with
 `make terminal-secret` and put the same value in both files as `MASTRA_RUNTIME_TOKEN`; the
 runtime then answers `401` to any request without it. `AURA_MODE=server` (a shared deployment)
-refuses to start without it. Locally you can leave it unset so Mastra Studio at
+refuses to start without it, and also refuses `SANDBOX_MODE=host` and `TERMINAL_MODE=full`
+(`apps/agent-runtime/src/mastra/config/aura-mode.ts` lists every problem at once). Locally you can leave it unset so Mastra Studio at
 `http://localhost:4111` keeps working - Studio can't send the token - as long as the runtime is
 only reachable on loopback.
 

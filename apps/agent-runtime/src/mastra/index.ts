@@ -31,6 +31,7 @@ import { createImplementer, createPlanner, createReviewer } from './agents/counc
 import { startTerminalServer } from './terminal/server';
 import { runnersRoute } from './server/runners-routes';
 import { runtimeAuth, runtimeTokenFromEnv } from './server/runtime-auth';
+import { assertServerModeSafe } from './config/aura-mode';
 
 // Prints each agent's real tool wiring at startup, read live from the agent itself - there is no
 // separate declared list to keep in sync (see agents/registry.ts).
@@ -66,6 +67,9 @@ printManifest({
   'git-tool': [],
   'ci-tool': [],
 } satisfies Record<AgentId, readonly string[]>);
+
+// AURA_MODE=server refuses loopback-only settings before anything starts listening.
+assertServerModeSafe();
 
 // The web terminal's WebSocket server (terminal/server.ts) - its own port, off unless
 // TERMINAL_TICKET_SECRET is set.

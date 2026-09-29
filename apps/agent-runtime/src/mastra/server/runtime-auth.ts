@@ -1,5 +1,6 @@
 import { createHash, timingSafeEqual } from 'node:crypto';
 import type { Middleware } from '@mastra/core/server';
+import { auraMode } from '../config/aura-mode';
 
 // Only apps/api may call this runtime. The API has already authenticated the user, checked the
 // policy and written the audit record; without this check anyone who can reach the port could run
@@ -13,8 +14,7 @@ export const MIN_RUNTIME_TOKEN_LENGTH = 32;
 
 export function runtimeTokenFromEnv(env: NodeJS.ProcessEnv = process.env): string | null {
   const token = env.MASTRA_RUNTIME_TOKEN?.trim() || null;
-  const mode = env.AURA_MODE?.trim() || 'local';
-  if (mode !== 'local' && mode !== 'server') throw new Error(`AURA_MODE must be "local" or "server", got "${mode}"`);
+  const mode = auraMode(env);
   if (token && token.length < MIN_RUNTIME_TOKEN_LENGTH) {
     throw new Error(`MASTRA_RUNTIME_TOKEN must be at least ${MIN_RUNTIME_TOKEN_LENGTH} characters (e.g. \`openssl rand -hex 32\`)`);
   }
