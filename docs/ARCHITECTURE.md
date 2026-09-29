@@ -1,11 +1,13 @@
 # AURA — Enterprise AI Agent Orchestration Platform
 
-> **Status:** v0.3 — rewritten to separate what is built from what is planned
+> **Status:** v0.4 — adds the tool gateway, projects/repositories, the Git provider, and evaluation + token usage
 > **Owner:** Platform Architecture
-> **Last updated:** 2026-09-23
+> **Last updated:** 2026-09-29
 
 This document describes the **built system** first, then lists everything
 planned but not implemented in one place: [Section 5 — Pending (Future)](#5-pending-future).
+How agent quality and token usage are measured, with the current numbers:
+[Section 6 — Evaluation and token usage](#6-evaluation-and-token-usage).
 If a capability isn't mentioned in Sections 1–4, assume it doesn't exist yet.
 
 ---
@@ -407,13 +409,17 @@ Built, in Supabase Postgres:
 `profiles` (incl. `git_name`/`git_email`), `access_tokens`, `workflow_runs`,
 `run_steps`, `approval_requests`, `approval_decisions`, `audit_logs`
 (append-only — a DB trigger blocks `UPDATE`/`DELETE`, including for the
-service role).
+service role), and since migration 0007 `projects`, `repositories` (one per
+project), `task_branches` and `task_dependencies` (§2.11).
 
 Owned by the runtime, not Supabase:
 - Memory threads/messages — Mastra libSQL.
 - Drafts — a local `aura-drafts.db` (libSQL) file; the same file holds
   `aura_model_usage` (per-day, per-model request/token counts for the
-  Coding Council, shown by `aura status`).
+  Coding Council, shown by `aura status`), `aura_token_usage` (tokens per
+  day × agent × model for every model call, §6.3) and
+  `aura_approval_uses` (which gated step each human approval was used for,
+  §2.10).
 - Council transcripts — `<worktree>/.aura/council/*.md`, excluded from git.
 - Design docs, scaffolds, QA specs — plain files under
   `<AURA_WORKSPACE_ROOT>/<epicKey>/...`, referenced by path from Jira.
@@ -525,6 +531,59 @@ consumers; `packages/` only holds code more than one app actually shares.
   stored (`aura login` fills them in) for a later change to make approved
   server-side commits author as the approving developer.
 
+### 2.10 Tool gateway (the runtime's checkpoint)
+
+Every Orchestrator tool except `ask_user` is wrapped by
+`gateway/gateway.ts` (`governed()` in `agents/orchestrator.ts`), so every call
+goes through one pipeline in one file:
+
+```mermaid
+flowchart LR
+    CALL["Orchestrator tool call<br/>(Zod-validated by Mastra)"] --> RISK{"Risk tier<br/>risk.ts"}
+    RISK -- "unknown mode" --> BLOCK["Refuse"]
+    RISK --> LOOP{"Loop guard<br/>loop-guard.ts"}
+    LOOP -- "tripped" --> HALT["Refuse · HALTED_LOOP_GUARD"]
+    LOOP -- "low" --> RUN["Execute in a span<br/>+ untrusted-content collector"]
+    LOOP -- "medium" --> HUMAN{"approved=true AND a human<br/>approve/answer decision on this turn<br/>AND approval not used before"}
+    HUMAN -- "no" --> BLOCK
+    HUMAN -- "yes" --> RUN
+    RUN --> DRAFT["Draft to the human in full,<br/>preview to the model"]
+    DRAFT --> REC["Record: metrics · log · data-gateway event<br/>→ run step + audit (API)"]
+    BLOCK --> REC
+    HALT --> REC
+```
+
+| Step | What it guarantees | Where |
+|---|---|---|
+| Risk tier | Every tool × mode has a tier (low: read/draft/revise/local CI; medium: file/execute/file-defect). A mode with no tier is refused. A test checks the table against the real schemas | `gateway/risk.ts` |
+| Human decision | apps/api sends `auraDecision` (approval id, decision, who) on every resume and `auraRun` (AURA run id) on every turn. A medium step runs only after an **approve** or **answer** decision; revise/reject never authorize one | `gateway/context.ts`, `run-stream.service.ts` |
+| Single use | The first medium step after a decision claims it (durable, `aura_approval_uses`). A retry of the same step is allowed; any other step is refused | `gateway/approval-ledger.ts` |
+| Loop guards | Same call + same arguments 3× in 15 min; same tool failing 3× in a row on a thread (reset by a new human decision); a draft at version 10. Tripped = refused, run → `HALTED_LOOP_GUARD`, audited | `gateway/loop-guard.ts` |
+| Prompt injection | Jira/requester text is cleaned (invisible characters), scanned (11 rules) and fenced in `<untrusted>` at every prompt site. Findings go on top of the draft the human approves and into the audit log. `INJECTION_POLICY=block` withholds the result instead | `gateway/untrusted.ts`, `contracts/prompts.ts` |
+| Draft delivery | The full draft markdown goes to the human as a `data-draft` chunk (saved in the thread, never in a model prompt); the model gets a 400-character preview. The token saver of §6.3 | `gateway/gateway.ts` `deliverDraft` |
+| Record | Prometheus counters/histograms at `GET /metrics` (behind the runtime token); a Mastra span per call tagged `aura.run_id`, agent and prompt version, approval id; a `data-gateway` event the API stores as a run step and, for refusals and findings, as `gateway.blocked` / `gateway.untrusted_content` audit rows | `lib/metrics.ts`, `server/metrics-route.ts` |
+
+Authorization by role still happens in apps/api before a turn starts
+(`policy.ts`). The gateway never decides *who* may act, only that a gated step
+has a real, unused human decision behind it.
+
+**Runtime access and modes.** Only apps/api can call the runtime (§2.2,
+`MASTRA_RUNTIME_TOKEN`). `AURA_MODE=server` refuses to start without that
+token, with `SANDBOX_MODE` other than `docker`, or with `TERMINAL_MODE=full`
+(`config/aura-mode.ts`); `AURA_MODE=local` (default) allows them on loopback.
+
+### 2.11 Projects, repositories and the Git provider
+
+- **Projects** (migration 0007): a project ties one Jira project key to one
+  Git repository (`github` or `local`). Admins manage them on
+  *Admin → Projects & Repositories* (`/projects` API, audited).
+- **`GitProvider`** (`agent-runtime/src/mastra/git/`): branches, pushes (never
+  forced), pull requests, check runs and merge state behind one interface.
+  The `local` provider uses bare repos under `AURA_GIT_LOCAL_ROOT`; a reusable
+  contract suite (`provider.contract.ts`) will hold the GitHub provider to the
+  same behaviour. There is deliberately **no merge method**.
+- Not wired into Gate 4 yet (plan Phase 1.3).
+
 ---
 
 ## 3. Delivery status by phase
@@ -532,11 +591,11 @@ consumers; `packages/` only holds code more than one app actually shares.
 | Phase | Built | Not built |
 |---|---|---|
 | 0 — Foundations | Identity/RBAC, policy tables, Supabase schema + RLS trigger, audit log, approval service, run state machine | SSO federation, Jira webhooks, event queue |
-| 1 — PO + BA | PO/BA agents, Gates 1–2, registry view | Evals, rejection-rate tracking |
+| 1 — PO + BA | PO/BA agents, Gates 1–2, registry view, evals with a CI promotion gate, approval/rejection-rate tracking (§6) | Evals for the workflow agents (Architect, QA, Tester) |
 | 2 — Architect + QA/Tester | Architect workflow, ADRs, architecture Tasks (Gate 3), QA + real Playwright execution (Gates 6–7) | Robot Framework (out of scope), CI integration |
 | 3 — Dev + Coding + Deployer | Frontend + Backend/NestJS scaffold (Gate 4), Coding Agent + Coding Council (Gate 5), `aura` CLI, web terminal, Deployer plan (Gate 8) | Other disciplines, server-side PR automation, VS Code extension, remote (non-local) worktrees, real deploy pipeline |
 | 4 — Multi-region | — | Everything |
-| 5 — Hardening | — | Everything |
+| 5 — Hardening | Runtime token + `AURA_MODE`, tool gateway (risk tiers, single-use approvals, loop guards, prompt-injection defense), metrics, token ledger (§2.10, §6) | Durable queue, budgets, SSO, RLS by project, OTLP export |
 
 ---
 
@@ -662,19 +721,20 @@ runner pool of ephemeral sandboxes, all state in Postgres.)
 **4. AI harness — hardening the agent control plane itself**
 This is the part worth the most engineering investment: not more agents,
 but a stronger, auditable boundary around the ones that exist.
-- Unify the Tool Gateway into one real pipeline (schema validation → policy
-  → risk tier → idempotency → timeout/circuit breaker → execute → audit →
-  provenance) — today these steps are split across delegate tools and
-  `apps/api`, which makes the guarantee harder to verify by inspection.
-- Active prompt-injection defense: today untrusted Jira/PR content is
-  wrapped as data, not instructions, but there's no scanning step —
-  add detection before untrusted content reaches an agent's context.
-- Eval harness per agent version with regression scoring, gating
-  `DRAFT → CANARY → ACTIVE` promotion on a score threshold *and* human
-  sign-off, so a prompt/model change can't silently regress an agent.
-- Replayable run traces (OpenTelemetry, one `trace_id` per run) so any
-  agent decision — not just its Jira comment — can be reproduced and
-  audited after the fact.
+- ~~Unify the Tool Gateway into one real pipeline~~ Built in-process — see
+  §2.10. Still open: per-call timeouts/circuit breakers, and running it as
+  its own service.
+- ~~Active prompt-injection defense~~ Built — see §2.10 (cleaning, 11
+  scan rules, `<untrusted>` fencing, warnings on the approved draft,
+  optional block policy).
+- ~~Eval harness per agent version~~ Built for PO, BA and Deployer — see
+  §6.1 (score + token gate, committed baselines as the human sign-off).
+  Still open: suites for the Architect/QA/Tester workflows and the
+  Orchestrator, and a canary stage.
+- Replayable run traces: every gateway span now carries the AURA run id
+  (`aura.run_id`) in Mastra's trace store. Still open: OTLP export to an
+  external collector (the Mastra OTel exporter needs the next
+  `@mastra/observability` upgrade).
 - Model/provider abstraction with automatic fallback and region-aware
   routing, so a single LLM provider outage doesn't stop every agent.
 
@@ -698,12 +758,12 @@ but a stronger, auditable boundary around the ones that exist.
 - Sandbox isolation beyond Docker (Firecracker/gVisor) — revisit only if AURA runs untrusted, multi-tenant workloads.
 
 **Reliability & observability**
-- Loop guards (`max_iterations` cap → human escalation) beyond the Tester Agent - every other agent still has no cap.
+- ~~Loop guards beyond the Tester Agent~~ Built in the gateway (§2.10).
 - Cost budgets enforced in the tool gateway.
 - Circuit breakers, backoff, model fallback for external outages.
 - Approval SLA timers/expiry and "role has zero members" warnings.
-- OpenTelemetry tracing, metrics dashboards, alerting.
-- Eval harness and eval-gated agent version promotion (`CANARY` status).
+- Metrics (`GET /metrics`) and the *AI Usage & Quality* page are built (§6); OTLP export, dashboards and alerting still open.
+- ~~Eval harness and eval-gated promotion~~ Built (§6.1); canary stage still open.
 
 **Deployment**
 - CI/CD pipeline (lint, tests, evals, build, scan) for AURA itself.
@@ -713,6 +773,158 @@ but a stronger, auditable boundary around the ones that exist.
 **Open decisions**
 - Queue: pg-boss vs BullMQ + Redis.
 - Jira test management: plain issues vs Xray/Zephyr.
-- Eval tooling: Mastra evals vs Langfuse/Braintrust.
+- ~~Eval tooling~~ Decided: AURA's own deterministic scorers + committed baselines (§6.1); revisit Langfuse/Braintrust for LLM-judged metrics.
 - Vector store: pgvector vs external.
 - Draft store: keep runtime-owned libSQL vs move to a Supabase table.
+
+---
+
+## 6. Evaluation and token usage
+
+Two questions, each measured before and after a change ships:
+**is the agent's work good?** (§6.1, §6.2) and **what does it cost in tokens?** (§6.3).
+
+```mermaid
+flowchart LR
+    subgraph BEFORE["Before a prompt/model change ships"]
+        EV["Offline evals<br/>pnpm --filter agent-runtime eval"] --> GATE{"Promotion gate<br/>score ≥ 0.8 · ≤ 0.1 drop · ≤ 1.25× tokens"}
+        GATE -- "pass" --> BASE["Baseline JSON committed<br/>(human review = sign-off)"]
+        BASE --> CI["CI: baselines.test.ts<br/>registry version = baseline version"]
+    end
+    subgraph AFTER["After it ships"]
+        LEDGER["Token ledger<br/>every model call"] --> PAGE["Admin → AI Usage & Quality"]
+        DEC["Approval decisions"] --> PAGE
+        GW["Gateway metrics<br/>GET /metrics"] --> PROM["Prometheus / Grafana"]
+    end
+```
+
+### 6.1 Offline evals (agent-runtime `src/mastra/evals/`)
+
+Each suite runs **the exact production prompt** (`contracts/prompts.ts`)
+against the agent's real model and scores the structured output with
+deterministic code checks: no model grades another model.
+
+**Evaluation matrix: what each dimension means and how it is scored**
+
+| Dimension | Question it answers | How it's measured | Example check |
+|---|---|---|---|
+| Structure | Is the output usable at all? | Zod schema of the draft; invalid JSON after one retry = case score 0 | `epicDraftSchema` parses |
+| Completeness | Is anything a reviewer expects missing? | Minimum counts per field | 3+ scope items; every Story has 2+ acceptance criteria |
+| Measurability | Can success be checked later? | Numbers present where a metric is expected | success metrics contain a digit |
+| Grounding | Did it keep the facts it was given? | Required terms/values from the input appear | keeps "30 minutes", keeps Epic key `KAN-10` |
+| Honesty about gaps | Does it record unknowns instead of inventing? | Assumptions recorded for vague input | 2+ assumptions for "Make the app faster" |
+| Injection resistance | Does planted text change the output? | One trap case per suite (override, fake approval, role change, tool call) | title not "PWNED", no `approved=true`, Epic key unchanged, rollback plan still written |
+| Cost | How many tokens does one case take? | Input + output tokens per case, retries included | ≤ 1.25× the baseline |
+
+Checks carry weights (injection and key-preservation checks weigh 2).
+Case score = passed weight / total weight; suite score = mean case score.
+
+**Promotion gate** (`evals/scoring.ts`)
+
+| Rule | Threshold |
+|---|---|
+| Minimum suite score | `MIN_SCORE` = 0.8 |
+| Maximum drop from the previous baseline | `TOLERANCE` = 0.1 |
+| Maximum token growth per case vs the previous baseline | `TOKEN_GROWTH_LIMIT` = 1.25× |
+| Baseline must match the registry's agent version, prompt version, model and case list | enforced in CI by `baselines.test.ts` |
+| A suite never recorded | reported as pending (skipped), not failed; its first recording is the promotion |
+
+**Current baselines** (`apps/agent-runtime/evals/baselines/`)
+
+| Agent | Prompt version | Cases | Score | Notes |
+|---|---|---:|---:|---|
+| PO Agent | 1.1.0 | 4 | **1.00** | Passed the injection trap |
+| BA Agent | 1.1.0 | 3 | **0.958** | Missed "user-story form" on one Story; passed the injection trap |
+| Deployer Agent | 1.1.0 | 2 | pending | Not recorded yet: `EVAL_UPDATE_BASELINE=1 EVAL_AGENT=deployer-agent pnpm --filter agent-runtime eval` |
+
+These two baselines were recorded before token tracking existed, so they
+have no `avgTokensPerCase` yet; the token gate starts applying from the next
+recording.
+
+### 6.2 Online quality (from real decisions)
+
+`GET /dashboard/agent-quality` (admin; *AI Usage & Quality* page) computes,
+per agent, from `approval_requests` + `approval_decisions`:
+
+| Metric | Definition | Good sign |
+|---|---|---|
+| Gates | Approval requests raised on this agent's output | - |
+| Approval rate | approve / decided | High |
+| First-pass rate | Conversations whose **first** draft was approved without a revision | High: drafts are right first time, fewer revise loops, fewer tokens |
+| Revised / Rejected | Counts of each decision | Low |
+| Expired / Pending | Gates nobody decided in time / still open | Low: otherwise work stalls |
+| Median time to decide | requested → decided, minutes | Low |
+
+The gateway adds safety metrics at `GET /metrics`:
+`aura_gateway_blocks_total{tool,reason}`, `aura_untrusted_findings_total{rule,severity}`,
+`aura_approvals_used_total{tool}`, `aura_tool_calls_total{tool,mode,tier,outcome}`,
+`aura_tool_duration_seconds`.
+
+### 6.3 Token usage evaluation
+
+**How it's measured**
+
+| Source | What | Where |
+|---|---|---|
+| Token ledger | Every model call: Orchestrator turns, every helper's structured call, Coding Council, single coding agent. Input, output, hidden reasoning and cached tokens per day × agent × model | `store/token-ledger.ts` → `GET /usage/tokens` → `GET /dashboard/token-usage` → *AI Usage & Quality* page |
+| Prometheus | `aura_model_calls_total{agent}`, `aura_model_tokens_total{agent,type}`, `aura_context_chars_saved_total{tool}` | `GET /metrics` |
+| Evals | Tokens per case, gated at 1.25× the baseline | §6.1 |
+| Mastra traces | Per-span token metrics (the source of the baseline below) | Mastra Studio / DuckDB store |
+
+**Baseline measurement: before optimisation** (65 runs, 118 model calls, 2026-09-17 to 09-23; from Mastra's trace store)
+
+| Agent | Calls | Input tokens | Output tokens | Avg input / call | Share of all tokens |
+|---|---:|---:|---:|---:|---:|
+| Orchestrator | 40 | 593,613 | 33,110 | 14,840 (max 63,894) | **69%** |
+| Architect (workflow) | 51 | 132,844 | 80,333 | 2,605 | 24% |
+| QA (workflow) | 12 | 15,697 | 18,328 | 1,308 | 4% |
+| BA | 5 | 5,851 | 13,803 | 1,170 | 2% |
+| Dev | 5 | 3,306 | 549 | 661 | <1% |
+| PO | 5 | 2,885 | 2,525 | 577 | <1% |
+| **Total** | **118** | **754,196** | **148,648** | | ~903k tokens |
+
+Other findings from the same data:
+- About a third of output tokens were hidden reasoning.
+- 57% of input was served by the Gemini **fallback**, so the Groq primary was often failing or rate limited.
+- Model call latency: median 10 s, p95 82 s.
+- Cost per gate, roughly: Epic ~1k tokens, Stories ~4k, a test plan ~17k, an architecture design ~70k (about 17 calls including retries).
+
+**Diagnosis.** The helpers are cheap: one structured call each, and the
+expensive actions (Jira, git, Docker) are plain code that uses no tokens.
+The cost is the Orchestrator deciding what to do next. On every step it re-sent:
+- ~7,500 tokens of fixed text (instructions and tool descriptions),
+- the last 32 messages, including every full draft it had received,
+- and it re-typed each draft as its own reply, because it was told to "show the markdown".
+
+**Optimisations made (2026-09-29)**
+
+| Change | Before | After | Where |
+|---|---|---|---|
+| Drafts go to the human directly (`data-draft`); the model gets a 400-char preview | Full draft in context on every later step (an architecture draft ≈ 7k tokens) and re-typed as output | ~120 tokens; never re-typed | `gateway/gateway.ts`, `run-stream.service.ts` |
+| Compact Orchestrator instructions (same rules, one gate pattern) | 15,812 chars | 5,590 chars | `agents/orchestrator.ts` (prompt 2.0.0) |
+| Shorter tool descriptions (details moved to the one place that needs them) | 14,215 chars | 11,421 chars | `tools/delegate-tools/*.ts` |
+| **Fixed payload per Orchestrator step** | **~7,500 tokens** | **~4,250 tokens (−43%)** | measured from the source |
+| Memory window | 32 messages | 16 messages | `agents/orchestrator.ts` |
+| Reasoning effort for routing | default (medium) | low | `agents/orchestrator.ts` |
+
+**Expected effect (estimate; confirm on the AI Usage & Quality page after real runs):**
+
+| | Before (measured) | After (estimated) |
+|---|---:|---:|
+| Orchestrator avg input per call | ~14,800 | ~6,000–7,000 (−55–60%) |
+| Orchestrator share of all tokens | 69% | ~45% |
+| Total tokens for the same work | ~903k | ~520–560k (**−38–42%**) |
+| Orchestrator output on draft gates | draft re-typed (up to ~7.8k) | one question line |
+
+Estimate method: fixed payload −3.25k per call (measured), plus 60–80% of the
+remaining ~7.3k conversation context per call being draft text that is now a
+preview. Output savings are not counted in the total.
+
+**Next opportunities** (not done yet)
+
+| Idea | Expected effect | Why not yet |
+|---|---|---|
+| Prompt caching (e.g. Claude with cached system prompt + tools) | Cached input billed at ~10%: most of the remaining fixed ~4.25k per step | Needs a paid provider (ADR-2 D6) |
+| Only the current gate's rules in the Orchestrator prompt | A further ~1k tokens per step | Needs a reliable way to know the gate before the model call |
+| Fewer Architect calls (merge design sections) | Up to ~40% of an architecture design | Trade-off with section quality; measure with a new eval suite first |
+| Eval suites for the Orchestrator and the workflows | Catch quality or token regressions there too | Needs multi-turn eval cases |
