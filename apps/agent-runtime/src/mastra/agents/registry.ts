@@ -59,37 +59,38 @@ export interface AgentManifestEntry {
   promptVersion: string;
 }
 
-const V1 = { agentVersion: '1.0.0', promptVersion: '1.0.0' } as const;
-
 export const AGENT_MANIFEST: Record<AgentId, AgentManifestEntry> = {
   orchestrator: {
     label: 'Orchestrator',
     modelId: ORCHESTRATOR_MODEL_ID,
     delegatesTo: ['po-agent', 'ba-agent', 'architect-agent', 'dev-agent', 'coding-agent'],
     note: 'Coordinates Gate 1 (Epic), Gate 2 (Stories), Gate 3 (Architecture), Gate 4 (Dev scaffold), and Gate 5 (Coding agent). Never drafts, files, or executes directly - no Jira, memory, filesystem, or shell tool of its own (docs/ARCHITECTURE.md section 6.2).',
-    agentVersion: '1.0.0',
-    promptVersion: '1.1.0', // Gate 5: council by default, no provider question
+    agentVersion: '1.1.0', // every delegate tool goes through the tool gateway
+    promptVersion: '2.0.0', // compact instructions; drafts shown by AURA, never repeated (token saving)
   },
   'po-agent': {
     label: 'PO Agent',
     modelId: PO_MODEL_ID,
     delegatesTo: [],
     note: 'Drafts/revises an Epic as structured JSON only, invoked through delegate_to_po. Holds no tools: cannot read or write Jira itself.',
-    ...V1,
+    agentVersion: '1.0.0',
+    promptVersion: '1.1.0', // untrusted Jira/requester text fenced (gateway/untrusted.ts)
   },
   'ba-agent': {
     label: 'BA Agent',
     modelId: BA_MODEL_ID,
     delegatesTo: [],
     note: 'Drafts/revises Stories as structured JSON only, invoked through delegate_to_ba. Holds no tools: cannot read or write Jira itself.',
-    ...V1,
+    agentVersion: '1.0.0',
+    promptVersion: '1.1.0', // untrusted Jira/requester text fenced (gateway/untrusted.ts)
   },
   'architect-agent': {
     label: 'Architect Agent',
     modelId: ARCHITECT_MODEL_ID,
     delegatesTo: [],
     note: 'Drafts/revises a decomposition, API/data/security/AI design, ADRs, and architecture tasks as structured JSON, invoked through delegate_to_architect. Holds no tools: cannot read or write Jira itself.',
-    ...V1,
+    agentVersion: '1.0.0',
+    promptVersion: '1.1.0', // untrusted Jira/requester text fenced (gateway/untrusted.ts)
   },
   'dev-agent': {
     label: 'Dev Agent',
@@ -97,7 +98,7 @@ export const AGENT_MANIFEST: Record<AgentId, AgentManifestEntry> = {
     delegatesTo: [],
     note: 'Explains a Task-driven scaffold plan (Frontend and Backend/NestJS) whose command is fixed by code, invoked through delegate_to_dev. Holds no tools: cannot execute anything itself - execute mode runs the fixed command in a sandboxed Docker container from delegate-tools.ts, never from the model. Now project init proper (agentVersion 2.0.0, "Concurrent Task Execution" milestone): the first Task of a discipline scaffolds the shared base repo; every Task (including that first one) then gets its own isolated git worktree/branch off it via ensureTaskWorktree - a second Task of the same discipline never re-scaffolds or shares another Task\'s directory.',
     agentVersion: '2.0.0',
-    promptVersion: '1.0.0',
+    promptVersion: '1.1.0', // untrusted Jira text fenced (gateway/untrusted.ts)
   },
   'coding-agent': {
     label: 'Coding Agent',
@@ -105,7 +106,7 @@ export const AGENT_MANIFEST: Record<AgentId, AgentManifestEntry> = {
     delegatesTo: [],
     note: 'Implements a Task, invoked through delegate_to_code. draft is always deterministic code, never a model call - no Mastra Agent object backs this entry (docs/ARCHITECTURE.md section 6.5). execute runs one of two AURA-owned providers against the Task\'s own git worktree: the Coding Council (default, see its own entry) or a single built-in agent (agents/mastra-coding-agent.ts - list_files/read_file/write_file only, no shell). Also asked to write/update unit and integration tests (E2E stays QA\'s job). The external Claude Code / Codex CLI providers, which ran on developers\' personal logins in Docker, were removed (ADR-3 D6, agentVersion 3.0.0).',
     agentVersion: '3.1.0', // council is the default; commits authored by the Gate 5 approver
-    promptVersion: '2.2.0',
+    promptVersion: '2.3.0', // untrusted Jira text fenced (gateway/untrusted.ts)
   },
   'coding-council': {
     label: 'Coding Council',
@@ -121,7 +122,7 @@ export const AGENT_MANIFEST: Record<AgentId, AgentManifestEntry> = {
     delegatesTo: [],
     note: 'Drafts a test plan and real Playwright source per Story, invoked through delegate_to_qa (Gate 6). Holds no tools: reads Stories via delegate-tools.ts, writes nothing itself - file mode writes the QA workspace and comments Jira. Now reads whatever of the actual scaffolded/implemented code exists first (workspace/read-scaffold-context.ts), and can revise a single failing scenario in isolation (revise-scenario) rather than only the whole plan (agentVersion 2.0.0) - see the Tester Agent loop below.',
     agentVersion: '2.0.0',
-    promptVersion: '2.0.0',
+    promptVersion: '2.1.0', // untrusted Jira text fenced (gateway/untrusted.ts)
   },
   'tester-agent': {
     label: 'Tester Agent',
@@ -136,7 +137,8 @@ export const AGENT_MANIFEST: Record<AgentId, AgentManifestEntry> = {
     modelId: DEPLOYER_MODEL_ID,
     delegatesTo: [],
     note: 'Drafts release notes, a change plan, and a rollback plan from filed Tasks (delegate_to_deploy, Gate 8) - plan-only, no execute mode exists: there is no real deployment pipeline to run, so this agent never claims a release happened.',
-    ...V1,
+    agentVersion: '1.0.0',
+    promptVersion: '1.1.0', // untrusted Jira/requester text fenced (gateway/untrusted.ts)
   },
   'git-tool': {
     label: 'Git workspace tool',

@@ -30,6 +30,8 @@ import { addCouncilNoteRoute, councilRegistryRoute, councilUsageRoute } from './
 import { createImplementer, createPlanner, createReviewer } from './agents/council-agents';
 import { startTerminalServer } from './terminal/server';
 import { runnersRoute } from './server/runners-routes';
+import { metricsRoute } from './server/metrics-route';
+import { tokenUsageRoute } from './server/usage-routes';
 import { runtimeAuth, runtimeTokenFromEnv } from './server/runtime-auth';
 import { assertServerModeSafe } from './config/aura-mode';
 
@@ -106,6 +108,8 @@ export const mastra = new Mastra({
       councilUsageRoute,
       councilRegistryRoute,
       runnersRoute,
+      metricsRoute,
+      tokenUsageRoute,
     ],
   },
   mcpServers: {

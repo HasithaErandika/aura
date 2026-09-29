@@ -10,6 +10,8 @@ import { devWorkspaceDir, taskWorktreeDir } from '../../workspace/dev-workspace'
 import { access } from 'node:fs/promises';
 import path from 'node:path';
 import { provenance, buildProvenance, disciplineFromTask, approverFrom, type Approver, type ProvenanceStamp, type ToolWriterLike } from './shared';
+import { untrusted, untrustedInline } from '../../gateway/untrusted';
+import { answeringModel, trackTokens } from '../../store/token-ledger';
 
 const codingInputSchema = z
   .object({
@@ -65,6 +67,7 @@ async function runCodingProviderPrompt(content: CodingTaskDraft, prompt: string,
     try {
       const codingAgent = createCodingAgent(content.targetDir);
       const response = await codingAgent.generate(prompt, { maxSteps: 20 });
+      trackTokens('coding-agent', answeringModel(response), response.totalUsage);
       const summary = response.text?.trim() || '(the agent made changes but returned no summary text)';
       void writer?.custom({ type: 'data-code-output', data: { chunk: summary }, transient: true });
       return { exitCode: 0, output: summary };
@@ -121,7 +124,7 @@ export async function runCodingFix(original: DraftRecord<CodingTaskDraft>, feedb
 export const delegateToCodeTool = createTool({
   id: 'delegate_to_code',
   description:
-    "Coding Agent - the AURA Coding Council (an Implementer and a Reviewer, plus a Planner in full mode, implement, run the project's own checks and review each other's work over a few rounds, streaming their discussion live). 'mastra' (single agent, no review) exists only as a fallback the human must ask for by name. draft: epicKey + taskKey (provider and councilMode optional) -> a deterministic plan built from the Task's own content, no model call (returns draftId + markdown with the exact prompt). execute: draftId + approved -> runs the provider against the Task's own worktree (council can take many minutes; its result says whether the Reviewer approved), then comments the Task and moves it toward In Review. Never execute without an explicit human approval. Fails clearly if the Task has no worktree yet (run delegate_to_dev first).",
+    "Coding Agent (Gate 5): the AURA Coding Council (Implementer + Reviewer, plus a Planner in full mode) implements a Task in its own worktree, runs the project's checks and reviews over a few rounds. provider 'mastra' (single agent, no review) only if the human asks. draft: epicKey + taskKey (+ provider/councilMode) -> the exact prompt, no model call. execute: draftId + approved -> runs it (can take many minutes), comments the Task, moves it toward In Review only if the Reviewer approved. Needs Gate 4 first.",
   inputSchema: codingInputSchema,
   outputSchema: codingOutputSchema,
   execute: async (input, { agent, writer, requestContext }) => {
@@ -155,9 +158,9 @@ export const delegateToCodeTool = createTool({
           if (!hasWorktree) return codeFail(`${taskKey} has no isolated worktree yet - run delegate_to_dev for it first (Gate 4), then come back here`);
 
           const prompt = [
-            `Implement Jira Task ${taskKey}: ${task.summary}`,
+            `Implement Jira Task ${taskKey}: ${untrustedInline(`jira:${taskKey} summary`, task.summary)}`,
             '',
-            task.description || '(no description)',
+            untrusted(`jira:${taskKey} description`, task.description),
             '',
             'Work only within this directory. Make the acceptance criteria above pass. Do not touch files outside it, and do not run destructive commands.',
             '',

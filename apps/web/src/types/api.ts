@@ -1,5 +1,6 @@
 import type { CouncilTurnEvent } from "../shared/lib/council.ts";
 import type { Role } from "../shared/lib/roles.ts";
+import type { GatewayEvent } from "../shared/lib/gateway.ts";
 
 export type AgentAccess = "run" | "read";
 
@@ -245,6 +246,32 @@ export interface AdminUser {
   createdAt: string;
 }
 
+// GET /dashboard/token-usage (admin): the runtime's token ledger.
+export interface TokenUsageReport {
+  since: string;
+  days: number;
+  totals: { calls: number; input: number; output: number; reasoning: number; cached: number };
+  agents: { agent: string; calls: number; input: number; output: number; reasoning: number; cached: number; avgInput: number; avgOutput: number; share: number }[];
+  models: { model: string; calls: number; input: number; output: number }[];
+  contextSaved: { chars: number; approxTokens: number };
+}
+
+// GET /dashboard/agent-quality (admin): how humans decided on each agent's gates.
+export interface AgentQualityRow {
+  agent: string;
+  gates: number;
+  decided: number;
+  approve: number;
+  revise: number;
+  reject: number;
+  answer: number;
+  expired: number;
+  pending: number;
+  approvalRate: number | null;
+  firstPassRate: number | null;
+  medianDecisionMinutes: number | null;
+}
+
 // GET /projects (apps/api modules/projects). One repository per Project in Phase 1.
 export type RepositoryProvider = "github" | "local";
 
@@ -293,7 +320,7 @@ export type StreamEvent =
       };
     }
   | { event: "decision"; data: { approvalId: string; status: ApprovalStatus; decision: Decision } }
-  | { event: "progress"; data: { stepId?: string; phase?: string; status?: string; source?: "dev" | "code"; chunk?: string } }
+  | { event: "progress"; data: { stepId?: string; phase?: string; status?: string; source?: "dev" | "code" | "gateway"; chunk?: string } & GatewayEvent }
   | { event: "council"; data: CouncilTurnEvent }
   | { event: "error"; data: { message: string } }
   | { event: "done"; data: { runId: string; status: RunStatus; approvalId: string | null } };

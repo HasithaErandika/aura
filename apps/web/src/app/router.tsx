@@ -20,6 +20,7 @@ import {
   RunsPage,
   UsersPage,
   ProjectsPage,
+  AiUsagePage,
   WorkspacePage,
 } from "./pages.ts";
 
@@ -92,6 +93,13 @@ export const router = createBrowserRouter([
           <RequireRole roles={["admin"]}>{page(<ProjectsPage />)}</RequireRole>
         ),
         handle: { title: "Projects & Repositories" },
+      },
+      {
+        path: "admin/ai-usage",
+        element: (
+          <RequireRole roles={["admin"]}>{page(<AiUsagePage />)}</RequireRole>
+        ),
+        handle: { title: "AI Usage & Quality" },
       },
     ],
   },

@@ -67,7 +67,7 @@ async function taskTargetDir(taskKey: string, epicKey: string): Promise<{ target
 export const delegateToGitTool = createTool({
   id: 'delegate_to_git',
   description:
-    'Git workspace tool for a scaffolded Task\'s directory. read: epicKey + taskKey + op ("status" or "diff") -> runs immediately, no approval needed (non-mutating). draft: epicKey + taskKey + op ("init", "branch", or "commit") -> a fixed git command (returns draftId + markdown) - the command and, for commit, its message are built deterministically, never chosen by a model. execute: draftId + approved -> runs it directly on the host (no Docker - git runs against the same host-owned directory Gate 4/5 already write to) and comments the Task. Never execute without an explicit human approval.',
+    "Git tool for a scaffolded Task's own worktree. read: epicKey + taskKey + op status|diff -> runs at once, no approval. draft: epicKey + taskKey + op init|branch|commit -> a fixed git command (commit message built from the Task, never by a model). execute: draftId + approved -> runs it and comments the Task.",
   inputSchema: gitInputSchema,
   outputSchema: gitOutputSchema,
   execute: async (input, { agent, requestContext }) => {

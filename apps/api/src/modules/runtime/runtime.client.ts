@@ -1,12 +1,13 @@
 import { env } from "../../config/env.js";
 import { runtimeUnavailable, upstreamError } from "../../lib/http/errors.js";
 import { errorMessage } from "../../lib/logger.js";
-import type { RunnersSnapshot, RuntimeAgentSummary, RuntimeChunk, RuntimeThread, RuntimeThreadList, SuspendedRunsResponse } from "./runtime.types.js";
+import type { RunnersSnapshot, RuntimeAgentSummary, RuntimeChunk, RuntimeThread, RuntimeThreadList, SuspendedRunsResponse, TokenUsageReport } from "./runtime.types.js";
 
 interface StreamBody {
   messages: Array<{ role: "user"; content: string }>;
   memory: { thread: string; resource: string };
   runId?: string;
+  requestContext?: Record<string, unknown>;
 }
 
 interface ResumeBody {
@@ -297,6 +298,11 @@ export const runtimeClient = {
   // agents are built per run, so /api/agents cannot list them.
   councilRegistry(): Promise<Record<string, RuntimeAgentSummary>> {
     return registryExtrasCache.get("council", () => request(`/council/registry`, { timeoutMs: 4000 }));
+  },
+
+  // Tokens per agent and model (agent-runtime store/token-ledger.ts).
+  tokenUsage(days: number): Promise<TokenUsageReport> {
+    return request(`/usage/tokens?days=${encodeURIComponent(String(days))}`, { timeoutMs: 8000 });
   },
 
   councilUsage(): Promise<{ date: string; providers: Record<string, { requests: number; tokens: number; dailyRequestLimit: number | null }> }> {

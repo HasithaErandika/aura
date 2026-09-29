@@ -9,6 +9,7 @@ import { generateObjectWith, type AgentLike } from '../lib/generate-object';
 import { runAllChecks, type CheckResult } from '../lib/sandbox';
 import { takeCouncilNotes } from '../store/council-notes';
 import { recordModelUsage } from '../store/usage-store';
+import { trackTokens, type TokenUsage } from '../store/token-ledger';
 import { commitArgs, type Approver, type ToolWriterLike } from '../tools/delegate-tools/shared';
 import { ensureAuraExcludes } from '../workspace/dev-workspace';
 
@@ -104,7 +105,7 @@ async function diffSince(cwd: string, base: string): Promise<string> {
 
 interface GenerateResultLike {
   text?: string;
-  totalUsage?: { totalTokens?: number };
+  totalUsage?: TokenUsage & { totalTokens?: number };
   response?: { modelId?: string; modelMetadata?: { modelProvider?: string; modelId?: string } };
 }
 
@@ -250,6 +251,7 @@ async function runCouncil(input: CouncilInput): Promise<CouncilResult> {
     const result = (await agent.generate(prompt, { maxSteps })) as unknown as GenerateResultLike;
     const model = answeringModel(result);
     track(model, result.totalUsage?.totalTokens ?? 0);
+    trackTokens('coding-council', model, result.totalUsage);
     return { text: result.text?.trim() || '(no summary returned)', model };
   }
 
@@ -264,7 +266,7 @@ async function runCouncil(input: CouncilInput): Promise<CouncilResult> {
       return result;
     },
   };
-  const review = (prompt: string) => generateObjectWith<ReviewVerdict>(trackedReviewer, 'Council Reviewer', prompt, reviewVerdictSchema);
+  const review = (prompt: string) => generateObjectWith<ReviewVerdict>(trackedReviewer, 'Council Reviewer', prompt, reviewVerdictSchema, 'coding-council');
 
   const planner = mode === 'full' ? createPlanner(cwd) : null;
   const implementer = createImplementer(cwd);

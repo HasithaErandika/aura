@@ -168,6 +168,12 @@ export function useConversation(agentId: string, threadId: string | null) {
           // step progress; shown as a synthetic tool-activity row so it appears in the same
           // list as delegate_to_* calls without a separate UI element.
           const { stepId, phase, status, source, chunk } = event.data;
+          if (source === "gateway") {
+            // The runtime's safety checkpoint: a gated step that ran, a refusal, or an
+            // injection warning. One row each, finished (it reports after the fact).
+            const tools = [...streaming.tools, { toolCallId: `gateway-${streaming.tools.length}-${event.data.tool ?? ""}`, toolName: "gateway", state: "result", result: event.data, isError: event.data.outcome === "blocked" }];
+            return { ...s, streaming: { ...streaming, tools } };
+          }
           if (source === "dev" || source === "code") {
             // The Dev/Coding agent's live Docker/CLI output - many small chunks, one growing
             // row (not one row per chunk) so it reads like a scrolling log, not a flood.

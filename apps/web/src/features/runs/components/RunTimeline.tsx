@@ -4,6 +4,7 @@ import { formatDateTime } from "../../../shared/lib/format.ts";
 import { cn } from "../../../shared/lib/cn.ts";
 import { ChevronRightIcon } from "../../../shared/icons/index.tsx";
 import { councilTurnTitle, formatCouncilTurn, type CouncilTurnEvent } from "../../../shared/lib/council.ts";
+import { gatewayDetail, gatewaySummary, toolLabel, type GatewayEvent } from "../../../shared/lib/gateway.ts";
 
 const AGENT_NAMES: Record<string, string> = {
   po: "PO Agent",
@@ -44,6 +45,11 @@ function label(step: RunStep): { title: string; tone: "neutral" | "success" | "w
       if (source === "dev" || source === "code") {
         return { title: `${source === "dev" ? "Dev Agent" : "Coding Agent"} output`, tone: "neutral" };
       }
+      if (source === "gateway") return gatewaySummary(step.payload as unknown as GatewayEvent);
+      if (source === "draft") {
+        const chars = typeof step.payload?.chars === "number" ? step.payload.chars : 0;
+        return { title: `${toolLabel(String(step.payload?.tool ?? ""))} draft shown to the human (${chars.toLocaleString()} characters, kept out of the AI's context)`, tone: "neutral" };
+      }
       const stepId = typeof step.payload?.stepId === "string" ? step.payload.stepId : "";
       const phase = typeof step.payload?.phase === "string" ? step.payload.phase : "";
       const stepLabel = ARCHITECT_STEP_NAMES[stepId] ?? stepId;
@@ -81,6 +87,8 @@ function payloadText(step: RunStep): string | null {
   if (!step.payload) return null;
   const p = step.payload as Record<string, unknown>;
   if (p.source === "council") return formatCouncilTurn(p as unknown as CouncilTurnEvent);
+  if (p.source === "gateway") return gatewayDetail(p as unknown as GatewayEvent) || null;
+  if (p.source === "draft") return null;
   if (typeof p.chunk === "string") return p.chunk;
   if (typeof p.text === "string") return p.text;
   if (typeof p.message === "string") return p.message;

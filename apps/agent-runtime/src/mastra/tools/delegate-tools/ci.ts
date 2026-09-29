@@ -65,7 +65,7 @@ function ciFail(error: unknown): z.infer<typeof ciOutputSchema> {
 export const delegateToCiTool = createTool({
   id: 'delegate_to_ci',
   description:
-    "Runs a project's checked-in CI (the same steps as .github/workflows/<discipline>-ci.yaml, written by Gate 4) locally, inside a sandboxed Docker container - a preview of what CI would report, before pushing anywhere. run: epicKey + discipline + taskKey -> runs against that Task's own isolated worktree (recommended - tests its real code); omit taskKey to run against the shared base scaffold instead, which reflects no Task's changes once worktrees are in use. Runs immediately, no approval needed (non-mutating) - returns {ok, draftId, exitCode, markdown}; ok=false means CI failed, read error for the log tail. file-defect: draftId + approved, only after a failed run -> files a real Jira Bug under the Epic with the failure log and comments the Epic pointing to it. Only Frontend and Backend/NestJS are supported (the disciplines Gate 4 actually scaffolds) - fails clearly for anything else. Never pushes anywhere and never calls the GitHub API - AURA has no GitHub integration at all.",
+    "Runs a project's checked-in CI steps locally in a sandboxed container, a preview before pushing. run: epicKey + discipline (Frontend|Backend) + optional taskKey (tests that Task's own worktree) -> runs at once, no approval (changes nothing); ok=false means CI failed. file-defect: draftId + approved, after a failed run -> Jira Bug under the Epic.",
   inputSchema: ciInputSchema,
   outputSchema: ciOutputSchema,
   execute: async (input, { writer, agent }) => {
