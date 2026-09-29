@@ -245,6 +245,29 @@ export interface AdminUser {
   createdAt: string;
 }
 
+// GET /projects (apps/api modules/projects). One repository per Project in Phase 1.
+export type RepositoryProvider = "github" | "local";
+
+export interface Repository {
+  id: string;
+  provider: RepositoryProvider;
+  owner: string;
+  name: string;
+  fullName: string;
+  defaultBranch: string;
+  installationId: number | null;
+  createdAt: string;
+}
+
+export interface Project {
+  id: string;
+  key: string;
+  name: string;
+  jiraProjectKey: string;
+  createdAt: string;
+  repository: Repository | null;
+}
+
 // Events on the SSE stream from POST /threads/:id/messages and POST /approvals/:id/decide.
 export type StreamEvent =
   | { event: "run"; data: { runId: string; runtimeRunId: string | null; status: RunStatus } }

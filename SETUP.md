@@ -96,6 +96,7 @@ Run every migration in `apps/api/supabase/migrations/`, **in order**, in the Sup
 0004_coding_agent_credentials.sql
 0005_remove_tester_role.sql
 0006_access_tokens_git_identity.sql   ← access tokens for the CLI + per-user git identity
+0007_projects_repositories.sql        ← projects, their Git repository, Task branches (drops 0004's table)
 ```
 
 ### 3.2 Environment files
