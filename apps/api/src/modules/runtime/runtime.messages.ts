@@ -34,6 +34,8 @@ interface RawPart {
   state?: string;
   input?: unknown;
   output?: unknown;
+  // data-* parts (e.g. data-draft from the runtime's gateway)
+  data?: { markdown?: unknown };
 }
 
 interface RawMessage {
@@ -85,6 +87,11 @@ function collectParts(parts: RawPart[], textParts: string[], tools: ChatToolActi
     if (!part || typeof part !== "object") continue;
     if (part.type === "text" && typeof part.text === "string") {
       textParts.push(part.text);
+      continue;
+    }
+    // Drafts the gateway showed the human directly (they never enter the model's context).
+    if (part.type === "data-draft" && typeof part.data?.markdown === "string") {
+      textParts.push(`${part.data.markdown}\n\n`);
       continue;
     }
     if (part.type === "tool-invocation" && part.toolInvocation) {

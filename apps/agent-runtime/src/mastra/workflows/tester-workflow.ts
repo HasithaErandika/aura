@@ -201,6 +201,11 @@ const attemptStateSchema = z.object({
   haltReason: z.enum(['passed', 'cap_reached', 'escalated_unknown']).nullable(),
   bugKey: z.string().nullable(),
   history: z.array(attemptRecordSchema),
+  // Who approved Gate 7 - authors the automatic fix's checkpoint commits (null: AURA does).
+  approver: z
+    .object({ userId: z.string(), role: z.string(), name: z.string().nullable(), email: z.string().nullable(), gitName: z.string().nullable(), gitEmail: z.string().nullable() })
+    .nullable()
+    .optional(),
 });
 export type AttemptState = z.infer<typeof attemptStateSchema>;
 
@@ -310,7 +315,7 @@ const attemptStep = createStep({
       const codeBugFailures = diagnoses.filter((d) => d.classification === 'code_bug');
       const feedback = codeBugFailures.map((d) => `- ${d.name} (${d.stage}): ${d.reasoning}`).join('\n');
       bugKey = await fileOrUpdateBug(state, bugKey, codeBugFailures, feedback, commit);
-      const fix = await runCodingFix(await requireTaskDraft(state.taskKey, state.epicKey, state.targetDir, state.discipline), feedback, writer);
+      const fix = await runCodingFix(await requireTaskDraft(state.taskKey, state.epicKey, state.targetDir, state.discipline), feedback, writer, state.approver ?? null);
       action = `Routed to Coding Agent (${codeBugFailures.length} failure(s) diagnosed as application defects). Fix attempt exit code ${fix.exitCode}, commit ${fix.commit ?? 'uncommitted'}. Bug: ${bugKey ?? 'not filed'}.`;
     } else if (allBadTest) {
       route = 'qa';

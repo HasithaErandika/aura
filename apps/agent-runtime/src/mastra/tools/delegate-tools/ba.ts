@@ -6,6 +6,7 @@ import { jira, jiraIssueUrl } from '../../mcp/jira-client';
 import { BA_MODEL_ID } from '../../agents/registry';
 import { generateObject, type MastraLike } from '../../lib/generate-object';
 import { outputSchema, fail, provenance, buildProvenance } from './shared';
+import { baDraftPrompt } from '../../contracts/prompts';
 
 const baInputSchema = z
   .object({
@@ -33,7 +34,7 @@ export const delegateToBaTool = createTool({
           if (!epicKey) return fail('draft needs the Epic key');
           const epic = await jira.getIssue(epicKey);
           if (epic.issueType && epic.issueType.toLowerCase() !== 'epic') return fail(`${epicKey} is a ${epic.issueType}, not an Epic`);
-          const prompt = `Break this approved Epic into Stories. Set epicKey to "${epic.key}".\n\nEpic ${epic.key}: ${epic.summary}\nStatus: ${epic.status || 'unknown'}\n\n${epic.description || '(no description)'}`;
+          const prompt = baDraftPrompt(epic);
           const content = await generateObject<StoriesDraft>(mastra as MastraLike, 'ba', prompt, storiesDraftSchema);
           content.epicKey = epic.key;
           const record = await draftStore.create({ kind: 'stories', content, threadId, epicKey: epic.key });

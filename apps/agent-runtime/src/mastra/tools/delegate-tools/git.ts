@@ -8,7 +8,7 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { access } from 'node:fs/promises';
 import path from 'node:path';
-import { disciplineFromTask, provenance, buildProvenance, AURA_GIT_IDENTITY, type ProvenanceStamp } from './shared';
+import { disciplineFromTask, provenance, buildProvenance, approverFrom, commitArgs, type ProvenanceStamp } from './shared';
 
 const execFileAsync = promisify(execFile);
 
@@ -67,10 +67,10 @@ async function taskTargetDir(taskKey: string, epicKey: string): Promise<{ target
 export const delegateToGitTool = createTool({
   id: 'delegate_to_git',
   description:
-    'Git workspace tool for a scaffolded Task\'s directory. read: epicKey + taskKey + op ("status" or "diff") -> runs immediately, no approval needed (non-mutating). draft: epicKey + taskKey + op ("init", "branch", or "commit") -> a fixed git command (returns draftId + markdown) - the command and, for commit, its message are built deterministically, never chosen by a model. execute: draftId + approved -> runs it directly on the host (no Docker - git runs against the same host-owned directory Gate 4/5 already write to) and comments the Task. Never execute without an explicit human approval.',
+    "Git tool for a scaffolded Task's own worktree. read: epicKey + taskKey + op status|diff -> runs at once, no approval. draft: epicKey + taskKey + op init|branch|commit -> a fixed git command (commit message built from the Task, never by a model). execute: draftId + approved -> runs it and comments the Task.",
   inputSchema: gitInputSchema,
   outputSchema: gitOutputSchema,
-  execute: async (input, { agent }) => {
+  execute: async (input, { agent, requestContext }) => {
     const threadId = agent?.threadId ?? null;
     try {
       switch (input.mode) {
@@ -138,7 +138,10 @@ export const delegateToGitTool = createTool({
               output = r.stdout + r.stderr;
             } else {
               const add = await execFileAsync('git', ['add', '-A'], { cwd: targetDir });
-              const commit = await execFileAsync('git', [...AURA_GIT_IDENTITY, 'commit', '-m', args[0] ?? 'AURA commit'], { cwd: targetDir });
+              // Authored by the human who approved this commit when they have a git identity on
+              // their profile, AURA otherwise (shared.ts's commitIdentity).
+              const trailers = [`AURA-Task: ${record.content.taskKey}`, `AURA-Run: ${record.id}`];
+              const commit = await execFileAsync('git', commitArgs(approverFrom(requestContext), args[0] ?? 'AURA commit', trailers), { cwd: targetDir });
               output = add.stdout + add.stderr + commit.stdout + commit.stderr;
             }
           } catch (error) {

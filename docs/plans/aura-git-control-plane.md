@@ -213,8 +213,8 @@ flowchart LR
 
 | Step | Change | Done when |
 |---|---|---|
-| 1.1 | **Projects & repositories**: migration 0007, admin API (`/projects`, `/repositories`), web Admin screen to register a repo | Admin registers `org/repo`; policy restricts to admin |
-| 1.2 | **`GitProvider` interface** (`createBranch`, `push`, `openPullRequest`, `getPullRequest`, `createCheckRun`, `updateCheckRun`, `mergeState`) with `github` (App auth via installation tokens, short-lived) and `local` (bare repo on disk, for tests + offline) | Contract tests pass against the `local` provider; `github` tested against a sandbox repo |
+| 1.1 ✅ 2026-09-29 | **Projects & repositories**: migration 0007, admin API (`/projects`, `/repositories`), web Admin screen to register a repo | Admin registers `org/repo`; policy restricts to admin |
+| 1.2 🟡 `local` done 2026-09-29 | **`GitProvider` interface** (`createBranch`, `push`, `openPullRequest`, `getPullRequest`, `createCheckRun`, `updateCheckRun`, `mergeState`) with `github` (App auth via installation tokens, short-lived) and `local` (bare repo on disk, for tests + offline) | Contract tests pass against the `local` provider; `github` tested against a sandbox repo |
 | 1.3 | **Gate 4 = branch**: `delegate_to_dev` creates `feature/<TASK>` from `main` of the Task's repository (worktree = clone/fetch of that repo); scaffolding only when the repository is empty | KAN-45-style Task gets a branch in the registered repo, no new app |
 | 1.4 | **Gate 5 → PR**: after the council's verification passes and Gate 5 is approved, push the branch with the App token and open a PR; the PR description carries provenance (run id, model ids, approvals, transcript link) | A PR exists on GitHub for the Task; `task_branches` updated |
 | 1.5 | **Webhooks + polling fallback**: `pull_request` (opened/synchronize/closed), `check_suite`/`check_run` → `task_branches`; polling every 60s when no public URL (local dev) | PR/CI state visible in AURA within a minute |

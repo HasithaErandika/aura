@@ -4,12 +4,13 @@ import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import type { Agent } from '@mastra/core/agent';
 import { createImplementer, createPlanner, createReviewer } from '../agents/council-agents';
-import { reviewVerdictSchema, type CouncilPhase, type CouncilResult, type CouncilRole, type CouncilTurn, type ReviewIssue, type ReviewVerdict } from '../contracts/council';
+import { reviewVerdictSchema, type CouncilMode, type CouncilPhase, type CouncilResult, type CouncilRole, type CouncilTurn, type ReviewIssue, type ReviewVerdict } from '../contracts/council';
 import { generateObjectWith, type AgentLike } from '../lib/generate-object';
 import { runAllChecks, type CheckResult } from '../lib/sandbox';
 import { takeCouncilNotes } from '../store/council-notes';
 import { recordModelUsage } from '../store/usage-store';
-import { AURA_GIT_IDENTITY, type ToolWriterLike } from '../tools/delegate-tools/shared';
+import { trackTokens, type TokenUsage } from '../store/token-ledger';
+import { commitArgs, type Approver, type ToolWriterLike } from '../tools/delegate-tools/shared';
 import { ensureAuraExcludes } from '../workspace/dev-workspace';
 
 const execFileAsync = promisify(execFile);
@@ -19,7 +20,8 @@ const execFileAsync = promisify(execFile);
 // writing code in a single shot:
 //
 //   1. PLAN     Planner writes a plan; Reviewer critiques it (<= planRounds); Planner revises.
-//   2. BUILD    Implementer implements the agreed plan; the project's own checks run.
+//               Skipped in lean mode (contracts/council.ts CouncilMode).
+//   2. BUILD    Implementer implements the agreed plan (lean: plans inline first); checks run.
 //   3. REVIEW   Reviewer reviews the real diff + real check output -> APPROVE | CHANGES.
 //               CHANGES -> Implementer fixes only the listed issues -> checks -> REVIEW again
 //               (<= maxRounds).
@@ -35,9 +37,10 @@ const execFileAsync = promisify(execFile);
 // a token budget stops the run cleanly rather than failing mid-edit. A failing check forces
 // CHANGES no matter what the Reviewer says - real output always outranks a model's opinion.
 //
-// Every round ends in a checkpoint commit ("council: round N", authored by AURA) on the Task's
-// branch, so any round can be inspected or rolled back; `aura commit` later folds them into one
-// commit authored by the developer.
+// Every round ends in a checkpoint commit ("council: round N") on the Task's branch, so any round
+// can be inspected or rolled back. It is authored by the human who approved Gate 5 when their
+// profile has a git identity, AURA otherwise, and always committed by AURA; `aura commit` later
+// folds them into one commit authored by the developer.
 
 export interface CouncilSettings {
   planRounds: number;
@@ -63,6 +66,9 @@ export function councilSettings(): CouncilSettings {
 }
 
 const MAX_DIFF_CHARS = 60_000;
+// What the Reviewer is told in place of a plan in lean mode; the Implementer's summary opens
+// with its own inline plan.
+const LEAN_PLAN = '(lean mode: no separate plan - the Implementer planned inline; see its summary)';
 const MAX_WAIT_MS = 30_000;
 const MAX_PROVIDER_RETRIES = 2;
 const PROVIDER_ERROR_WAIT_MS = 20_000;
@@ -78,12 +84,18 @@ async function git(cwd: string, args: string[]): Promise<string> {
   return stdout;
 }
 
-async function checkpoint(cwd: string, round: number): Promise<string | null> {
+async function checkpoint(cwd: string, round: number, identity: CheckpointIdentity): Promise<string | null> {
   await git(cwd, ['add', '-A']);
   const staged = (await git(cwd, ['diff', '--cached', '--name-only'])).trim();
   if (!staged) return null;
-  await git(cwd, [...AURA_GIT_IDENTITY, 'commit', '-q', '-m', `council: round ${round}`]);
+  await git(cwd, commitArgs(identity.approver, `council: round ${round}`, [`AURA-Task: ${identity.taskKey}`, `AURA-Run: ${identity.draftId}`], ['-q']));
   return (await git(cwd, ['rev-parse', '--short', 'HEAD'])).trim();
+}
+
+interface CheckpointIdentity {
+  approver: Approver | null;
+  taskKey: string;
+  draftId: string;
 }
 
 async function diffSince(cwd: string, base: string): Promise<string> {
@@ -93,7 +105,7 @@ async function diffSince(cwd: string, base: string): Promise<string> {
 
 interface GenerateResultLike {
   text?: string;
-  totalUsage?: { totalTokens?: number };
+  totalUsage?: TokenUsage & { totalTokens?: number };
   response?: { modelId?: string; modelMetadata?: { modelProvider?: string; modelId?: string } };
 }
 
@@ -168,6 +180,10 @@ export interface CouncilInput {
   targetDir: string;
   // The deterministic Gate 5 prompt built from the Jira Task (delegate-tools/code.ts).
   taskPrompt: string;
+  // Chosen and approved at draft time (delegate-tools/code.ts); defaults to full.
+  mode?: CouncilMode;
+  // Who approved Gate 5 - the author of the checkpoint commits (null: AURA authors them).
+  approver?: Approver | null;
   writer?: ToolWriterLike;
 }
 
@@ -181,10 +197,12 @@ export async function runCodingCouncil(input: CouncilInput): Promise<CouncilResu
 
 async function runCouncil(input: CouncilInput): Promise<CouncilResult> {
   const settings = councilSettings();
+  const mode: CouncilMode = input.mode ?? 'full';
   const { draftId, targetDir: cwd } = input;
-  const transcript: string[] = [`# Coding Council - ${input.taskKey} (${draftId})`, '', `Started ${new Date().toISOString()}`, ''];
+  const identity: CheckpointIdentity = { approver: input.approver ?? null, taskKey: input.taskKey, draftId };
+  const transcript: string[] = [`# Coding Council - ${input.taskKey} (${draftId})`, '', `Started ${new Date().toISOString()} · ${mode} mode`, ''];
   let totalTokens = 0;
-  const live: ActiveCouncil = { draftId, taskKey: input.taskKey, dir: cwd, round: 0, phase: 'plan', role: 'planner', status: 'started', totalTokens: 0, budget: settings.tokenBudget, startedAt: new Date().toISOString() };
+  const live: ActiveCouncil = { draftId, taskKey: input.taskKey, dir: cwd, round: 0, phase: mode === 'lean' ? 'build' : 'plan', role: mode === 'lean' ? 'implementer' : 'planner', status: 'started', totalTokens: 0, budget: settings.tokenBudget, startedAt: new Date().toISOString() };
   activeCouncils.set(draftId, live);
 
   const emit = (turn: Omit<CouncilTurn, 'draftId'>) => {
@@ -233,6 +251,7 @@ async function runCouncil(input: CouncilInput): Promise<CouncilResult> {
     const result = (await agent.generate(prompt, { maxSteps })) as unknown as GenerateResultLike;
     const model = answeringModel(result);
     track(model, result.totalUsage?.totalTokens ?? 0);
+    trackTokens('coding-council', model, result.totalUsage);
     return { text: result.text?.trim() || '(no summary returned)', model };
   }
 
@@ -247,9 +266,9 @@ async function runCouncil(input: CouncilInput): Promise<CouncilResult> {
       return result;
     },
   };
-  const review = (prompt: string) => generateObjectWith<ReviewVerdict>(trackedReviewer, 'Council Reviewer', prompt, reviewVerdictSchema);
+  const review = (prompt: string) => generateObjectWith<ReviewVerdict>(trackedReviewer, 'Council Reviewer', prompt, reviewVerdictSchema, 'coding-council');
 
-  const planner = createPlanner(cwd);
+  const planner = mode === 'full' ? createPlanner(cwd) : null;
   const implementer = createImplementer(cwd);
 
   await ensureAuraExcludes(cwd);
@@ -262,13 +281,16 @@ async function runCouncil(input: CouncilInput): Promise<CouncilResult> {
   let stoppedEarly: string | null = null;
 
   try {
-    // 1. PLAN
-    let plan = await turn(0, 'plan', 'planner', () =>
-      runAgent(planner, `${input.taskPrompt}${notesText(takeCouncilNotes(draftId))}\n\nExplore the project, then write the implementation plan.`, 8),
-    );
-    emit({ round: 0, phase: 'plan', role: 'planner', model: plan.model, status: 'done', text: plan.text });
+    // 1. PLAN (full mode only)
+    let plan = { text: LEAN_PLAN, model: '' };
+    if (planner) {
+      plan = await turn(0, 'plan', 'planner', () =>
+        runAgent(planner, `${input.taskPrompt}${notesText(takeCouncilNotes(draftId))}\n\nExplore the project, then write the implementation plan.`, 8),
+      );
+      emit({ round: 0, phase: 'plan', role: 'planner', model: plan.model, status: 'done', text: plan.text });
+    }
 
-    for (let r = 1; r <= settings.planRounds; r++) {
+    for (let r = 1; planner && r <= settings.planRounds; r++) {
       const verdict = await turn(0, 'plan-review', 'reviewer', () =>
         review(`Review this implementation PLAN (no code exists yet) against the Task.\n\n# Task\n${input.taskPrompt}\n\n# Plan\n${plan.text}\n\nUse file "(plan)" for issues about the plan as a whole.`),
       );
@@ -282,9 +304,10 @@ async function runCouncil(input: CouncilInput): Promise<CouncilResult> {
 
     // 2. BUILD
     rounds = 1;
-    const build = await turn(1, 'build', 'implementer', () =>
-      runAgent(implementer, `${input.taskPrompt}\n\n# Agreed plan\n${plan.text}${notesText(takeCouncilNotes(draftId))}\n\nImplement the plan now.`, settings.implementerSteps),
-    );
+    const buildPrompt = planner
+      ? `${input.taskPrompt}\n\n# Agreed plan\n${plan.text}${notesText(takeCouncilNotes(draftId))}\n\nImplement the plan now.`
+      : `${input.taskPrompt}${notesText(takeCouncilNotes(draftId))}\n\nThere is no separate plan for this Task. Explore only what you need, then implement it. Start your final summary with a short "Plan" section: the files you changed and why.`;
+    const build = await turn(1, 'build', 'implementer', () => runAgent(implementer, buildPrompt, settings.implementerSteps));
     emit({ round: 1, phase: 'build', role: 'implementer', model: build.model, status: 'done', text: build.text });
     let lastSummary = build.text;
 
@@ -294,7 +317,7 @@ async function runCouncil(input: CouncilInput): Promise<CouncilResult> {
       emit({ round, phase: 'checks', role: 'system', status: 'started' });
       const checks = await runAllChecks(cwd);
       emit({ round, phase: 'checks', role: 'system', status: 'done', checks, text: checks.length ? undefined : 'No checks defined in this project.' });
-      const sha = await checkpoint(cwd, round);
+      const sha = await checkpoint(cwd, round, identity);
       if (sha) emit({ round, phase: 'checks', role: 'system', status: 'done', text: `checkpoint commit ${sha} (council: round ${round})` });
 
       const diff = await diffSince(cwd, startSha);
@@ -338,11 +361,11 @@ async function runCouncil(input: CouncilInput): Promise<CouncilResult> {
   } catch (error) {
     if (error instanceof BudgetExhausted) {
       stoppedEarly = `Token budget reached (${totalTokens.toLocaleString()} / ${settings.tokenBudget.toLocaleString()}). Stopped cleanly; the work so far is committed as checkpoints.`;
-      await checkpoint(cwd, rounds + 1).catch(() => null);
+      await checkpoint(cwd, rounds + 1, identity).catch(() => null);
     } else {
       const message = error instanceof Error ? error.message : String(error);
       emit({ round: rounds, phase: 'done', role: 'system', status: 'error', text: message });
-      await checkpoint(cwd, rounds + 1).catch(() => null);
+      await checkpoint(cwd, rounds + 1, identity).catch(() => null);
       await writeTranscript(cwd, draftId, transcript).catch(() => null);
       throw error;
     }
@@ -354,7 +377,7 @@ async function runCouncil(input: CouncilInput): Promise<CouncilResult> {
   emit({ round: rounds, phase: 'done', role: 'system', status: 'done', text: finalText, issues: openIssues.length ? openIssues : undefined });
   const transcriptPath = await writeTranscript(cwd, draftId, transcript).catch(() => null);
 
-  return { approved, rounds, summary: finalText, openIssues, totalTokens, transcriptPath };
+  return { mode, approved, rounds, summary: finalText, openIssues, totalTokens, transcriptPath };
 }
 
 async function writeTranscript(cwd: string, draftId: string, lines: string[]): Promise<string> {

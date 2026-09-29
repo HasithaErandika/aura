@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { asyncHandler } from "../../lib/http/async-handler.js";
-import { currentUser } from "../../middleware/auth.js";
+import { currentUser, requireRole } from "../../middleware/auth.js";
 import { profilesById } from "../identity/profiles.service.js";
 import { agentsApprovedByRole, ROLE_AGENT_GRANTS } from "../policy/policy.js";
 import { approvalsRepository } from "../approvals/approvals.repository.js";
@@ -8,6 +8,7 @@ import { expireOverdue, toApprovalViews } from "../approvals/approvals.service.j
 import { runsRepository } from "../runs/runs.repository.js";
 import { toRunView } from "../runs/runs.types.js";
 import { runtimeClient } from "../runtime/runtime.client.js";
+import { agentQuality } from "./quality.service.js";
 
 export const dashboardRouter = Router();
 
@@ -61,5 +62,29 @@ dashboardRouter.get(
       }),
       runtime,
     });
+  }),
+);
+
+function daysParam(raw: unknown, fallback: number): number {
+  const n = Number(raw);
+  return Number.isInteger(n) && n >= 1 && n <= 90 ? n : fallback;
+}
+
+// GET /dashboard/token-usage?days=7 (admin): tokens per agent and model from the runtime's ledger,
+// and how much draft text the gateway kept out of the Orchestrator's context.
+dashboardRouter.get(
+  "/token-usage",
+  requireRole("admin"),
+  asyncHandler(async (req, res) => {
+    res.json(await runtimeClient.tokenUsage(daysParam(req.query.days, 7)));
+  }),
+);
+
+// GET /dashboard/agent-quality?days=30 (admin): how humans decided on each agent's gates.
+dashboardRouter.get(
+  "/agent-quality",
+  requireRole("admin"),
+  asyncHandler(async (req, res) => {
+    res.json(await agentQuality(daysParam(req.query.days, 30)));
   }),
 );

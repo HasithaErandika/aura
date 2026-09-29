@@ -6,6 +6,7 @@ import { jira, jiraIssueUrl } from '../../mcp/jira-client';
 import { PO_MODEL_ID } from '../../agents/registry';
 import { generateObject, type MastraLike } from '../../lib/generate-object';
 import { outputSchema, fail, provenance, buildProvenance } from './shared';
+import { poDraftPrompt } from '../../contracts/prompts';
 
 const poInputSchema = z
   .object({
@@ -31,7 +32,7 @@ export const delegateToPoTool = createTool({
         // Drafts a new Epic from a business requirement.
         case 'draft': {
           if (!input.requirement?.trim()) return fail('draft needs the requirement text');
-          const prompt = `Draft an Epic for this business requirement.\n\nRequirement:\n${input.requirement.trim()}${input.stakeholders ? `\n\nStakeholders given by the requester:\n${input.stakeholders}` : ''}`;
+          const prompt = poDraftPrompt(input.requirement, input.stakeholders);
           const content = await generateObject<EpicDraft>(mastra as MastraLike, 'po', prompt, epicDraftSchema);
           const record = await draftStore.create({ kind: 'epic', content, threadId });
           return { ok: true, draftId: record.id, markdown: renderEpic(content) };

@@ -15,3 +15,5 @@ export const JiraPage = lazy(() => import("../features/jira/JiraPage.tsx").then(
 export const ProfilePage = lazy(() => import("../features/profile/ProfilePage.tsx").then((m) => ({ default: m.ProfilePage })));
 export const AuditPage = lazy(() => import("../features/audit/AuditPage.tsx").then((m) => ({ default: m.AuditPage })));
 export const UsersPage = lazy(() => import("../features/admin/users/UsersPage.tsx").then((m) => ({ default: m.UsersPage })));
+export const ProjectsPage = lazy(() => import("../features/admin/projects/ProjectsPage.tsx").then((m) => ({ default: m.ProjectsPage })));
+export const AiUsagePage = lazy(() => import("../features/admin/ai-usage/AiUsagePage.tsx").then((m) => ({ default: m.AiUsagePage })));

@@ -6,6 +6,7 @@ import { jira } from '../../mcp/jira-client';
 import { DEPLOYER_MODEL_ID } from '../../agents/registry';
 import { generateObject, type MastraLike } from '../../lib/generate-object';
 import { provenance, buildProvenance, type ProvenanceStamp } from './shared';
+import { deployDraftPrompt } from '../../contracts/prompts';
 
 // ==================== Deployer Agent (Gate 8, plan-only) ====================
 
@@ -35,7 +36,7 @@ function deployFail(error: unknown): z.infer<typeof deployOutputSchema> {
 export const delegateToDeployTool = createTool({
   id: 'delegate_to_deploy',
   description:
-    "Deployer Agent (Gate 8, plan-only). draft: epicKey -> release notes, a change plan, and a rollback plan drafted from the Epic's filed Tasks (returns draftId + markdown). revise: draftId + feedback -> new draftId + markdown. file: draftId + approved -> posted as a Jira comment on the Epic (returns epicKey). There is no execute mode - AURA has no real deployment pipeline, so this agent only prepares a plan for a human to carry out; it never claims a release happened. Never file without an explicit human approval.",
+    "Deployer Agent (Gate 8, plan-only). draft: epicKey -> release notes, change plan and rollback plan from the Epic's filed Tasks. revise: draftId + feedback. file: draftId + approved -> Jira comment on the Epic. No execute mode: AURA never deploys.",
   inputSchema: deployInputSchema,
   outputSchema: deployOutputSchema,
   execute: async (input, { mastra, agent }) => {
@@ -50,8 +51,7 @@ export const delegateToDeployTool = createTool({
           const items = await jira.getEpicStories(epicKey);
           const tasks = items.filter((i) => i.issueType.toLowerCase() === 'task');
           if (!tasks.length) return deployFail(`${epicKey} has no filed Tasks yet - nothing to release`);
-          const tasksText = tasks.map((t) => `- ${t.key}: ${t.summary}\n${t.description || '(no description)'}`).join('\n\n');
-          const prompt = `Draft a release plan for Epic ${epicKey}: ${epic.summary}.\n\nFiled Tasks:\n${tasksText}\n\nReturn only the JSON the schema describes.`;
+          const prompt = deployDraftPrompt({ ...epic, key: epicKey }, tasks);
           const content = await generateObject<DeployDraft>(mastra as MastraLike, 'deployer', prompt, deployDraftSchema);
           content.epicKey = epicKey;
           const record = await draftStore.create({ kind: 'deploy-plan', content, threadId, epicKey });

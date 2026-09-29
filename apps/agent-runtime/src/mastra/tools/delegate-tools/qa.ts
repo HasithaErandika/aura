@@ -9,6 +9,7 @@ import { qaWorkspace } from '../../workspace/qa-workspace';
 import { readScaffoldContext } from '../../workspace/read-scaffold-context';
 import type { WorkspaceRegistry } from '../../workspace/architect-workspace';
 import { provenance, buildProvenance, type ProvenanceStamp, type ToolWriterLike } from './shared';
+import { untrusted, untrustedInline } from '../../gateway/untrusted';
 
 interface QaWorkflowStreamOutput {
   fullStream: AsyncIterable<{ type: string; id?: string; payload?: { status?: string; id?: string } }>;
@@ -132,7 +133,7 @@ export async function reviseQaScenario(mastra: MastraLike, previous: DraftRecord
 export const delegateToQaTool = createTool({
   id: 'delegate_to_qa',
   description:
-    "QA Agent (Gate 6). draft: epicKey -> a test plan and real Playwright source generated from the Epic's approved Stories (and, if scaffolded/implemented, the actual code - so selectors/routes are real, not guessed). revise: draftId + feedback -> new draftId + markdown, regenerating every scenario. revise-scenario: draftId + fileName + feedback -> regenerates ONLY that one scenario's Playwright source from real failure evidence, leaving every other scenario untouched (this is what the Tester Agent loop calls when it diagnoses a bad test, not a code bug). file: draftId + approved -> test-plan.md and one .spec.ts file per scenario written to the QA workspace, commented on the Epic (returns scenarioCount). Never file without an explicit human approval. Requires the Epic to already have approved Stories filed (run delegate_to_ba first).",
+    "QA Agent (Gate 6). draft: epicKey -> test plan + real Playwright specs from the approved Stories (and the real code if it exists). revise: draftId + feedback -> regenerates the plan. revise-scenario: draftId + fileName + feedback -> regenerates only that scenario (used by the Tester loop). file: draftId + approved -> writes the specs to the QA workspace and comments the Epic (returns scenarioCount). Needs filed Stories.",
   inputSchema: qaInputSchema,
   outputSchema: qaOutputSchema,
   execute: async (input, { mastra, agent, writer }) => {
@@ -147,9 +148,9 @@ export const delegateToQaTool = createTool({
           const stories = await jira.getEpicStories(epicKey);
           const storyIssues = stories.filter((s) => s.issueType.toLowerCase() === 'story');
           if (!storyIssues.length) return qaFail(`${epicKey} has no Stories yet - run delegate_to_ba and file Stories before drafting a test plan`);
-          const storiesText = storyIssues.map((s) => `- ${s.key}: ${s.summary}\n${s.description || '(no description)'}`).join('\n\n');
+          const storiesText = untrusted(`jira:${epicKey} stories`, storyIssues.map((s) => `- ${s.key}: ${s.summary}\n${s.description || '(no description)'}`).join('\n\n'));
           const codeContext = await readScaffoldContext(epicKey);
-          const content = await runQaWorkflow(mastra as QaMastra, { epicKey, epicSummary: epic.summary, storiesText, codeContext }, writer);
+          const content = await runQaWorkflow(mastra as QaMastra, { epicKey, epicSummary: untrustedInline(`jira:${epicKey} summary`, epic.summary), storiesText, codeContext }, writer);
           const record = await draftStore.create({ kind: 'qa-plan', content, threadId, epicKey });
           return { ok: true, draftId: record.id, markdown: renderTestPlan(content), epicKey, scenarioCount: content.scenarios.length };
         }

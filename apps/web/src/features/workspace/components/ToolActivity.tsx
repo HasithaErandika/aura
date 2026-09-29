@@ -3,6 +3,7 @@ import type { ChatToolActivity } from "../../../types/api.ts";
 import { cn } from "../../../shared/lib/cn.ts";
 import { ChevronRightIcon } from "../../../shared/icons/index.tsx";
 import { Spinner } from "../../../shared/ui/Spinner.tsx";
+import { gatewayDetail, gatewaySummary, type GatewayEvent } from "../../../shared/lib/gateway.ts";
 
 const AGENT_NAMES: Record<string, string> = {
   po: "PO Agent",
@@ -57,6 +58,10 @@ function describe(tool: ChatToolActivity): { title: string; detail: string | nul
     return { title: `${label} responded`, detail: null };
   }
   if (name === "ask_user") return { title: "Asked for a human decision", detail: null };
+  if (name === "gateway") {
+    const event = (tool.result ?? {}) as GatewayEvent;
+    return { title: gatewaySummary(event).title, detail: gatewayDetail(event) || null };
+  }
   return { title: tool.state === "call" ? `Calling ${name}` : `${name} finished`, detail: null };
 }
 

@@ -13,6 +13,7 @@ import { mkdir, writeFile, access, readdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
+import { untrusted, untrustedInline } from '../../gateway/untrusted';
 
 const execFileAsync = promisify(execFile);
 
@@ -267,7 +268,7 @@ export const delegateToDevTool = createTool({
           const targetDir = taskWorktreeDir(baseDir, taskKey);
           const branch = taskBranchName(taskKey);
 
-          const prompt = `Task ${taskKey}: ${task.summary}\n\n${task.description || '(no description)'}\n\nDiscipline: ${discipline}\n${
+          const prompt = `Task ${taskKey}: ${untrustedInline(`jira:${taskKey} summary`, task.summary)}\n\n${untrusted(`jira:${taskKey} description`, task.description)}\n\nDiscipline: ${discipline}\n${
             alreadyScaffolded ? `${discipline} is already scaffolded at ${baseDir} - this Task only gets its own isolated git worktree.` : `Will run: ${scaffold.description}`
           }\nThis Task's own directory: ${targetDir}\n\nReturn only the JSON the schema describes.`;
           const { summary } = await generateObject(mastra as MastraLike, 'dev', prompt, z.object({ summary: z.string().min(10) }));

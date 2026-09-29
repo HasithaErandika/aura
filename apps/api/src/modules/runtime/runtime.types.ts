@@ -95,3 +95,50 @@ export interface RunnersSnapshot {
   checks: Record<string, unknown>[];
   terminals: { id: number; userId: string; label: string; mode: string; startedAt: string }[];
 }
+
+// Every turn: the AURA run the runtime's tool gateway tags its spans, metrics and events with
+// (agent-runtime gateway/context.ts RUN_CONTEXT_KEY).
+export const RUN_CONTEXT_KEY = "auraRun";
+
+export interface RuntimeRunContext {
+  runId: string;
+  requestId: string | null;
+  userId: string;
+  role: string;
+}
+
+// Resumed turns: the human decision that resumed the run, for every decision type. The runtime's
+// gateway lets a gated step run only after an approve/answer decision, and only once per
+// decision (agent-runtime gateway/context.ts DECISION_CONTEXT_KEY).
+export const DECISION_CONTEXT_KEY = "auraDecision";
+
+export interface RuntimeDecision {
+  approvalId: string;
+  decision: "approve" | "revise" | "reject" | "answer";
+  userId: string;
+  role: string;
+  decidedAt: string;
+}
+
+// The human whose approval resumed a run, sent to the runtime as requestContext[APPROVER_CONTEXT_KEY]
+// (mirrors agent-runtime tools/delegate-tools/shared.ts Approver).
+export const APPROVER_CONTEXT_KEY = "auraApprover";
+
+export interface RuntimeApprover {
+  userId: string;
+  role: string;
+  name: string | null;
+  email: string | null;
+  gitName: string | null;
+  gitEmail: string | null;
+}
+
+// GET /usage/tokens on the runtime (agent-runtime store/token-ledger.ts TokenReport).
+export interface TokenUsageReport {
+  since: string;
+  days: number;
+  totals: { calls: number; input: number; output: number; reasoning: number; cached: number };
+  agents: { agent: string; calls: number; input: number; output: number; reasoning: number; cached: number; avgInput: number; avgOutput: number; share: number }[];
+  models: { model: string; calls: number; input: number; output: number }[];
+  contextSaved: { chars: number; approxTokens: number };
+}

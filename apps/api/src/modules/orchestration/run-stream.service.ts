@@ -9,7 +9,7 @@ import { canDecide, delegatedAgentFromTool, gateInfoForPause, resolveApprover } 
 import { runsRepository } from "../runs/runs.repository.js";
 import type { RunRow, RunStatus } from "../runs/runs.types.js";
 import { runtimeClient } from "../runtime/runtime.client.js";
-import type { AskUserSuspendPayload, RuntimeChunk } from "../runtime/runtime.types.js";
+import { APPROVER_CONTEXT_KEY, DECISION_CONTEXT_KEY, RUN_CONTEXT_KEY, type AskUserSuspendPayload, type RuntimeApprover, type RuntimeChunk, type RuntimeDecision, type RuntimeRunContext } from "../runtime/runtime.types.js";
 
 // Observes one runtime stream (a fresh turn or a resumed one) and mirrors what the
 // Orchestrator decides to do into AURA's governance records:
@@ -50,6 +50,10 @@ function runtimeErrorMessage(payload: Record<string, unknown> | undefined): stri
     return (inner as { message: string }).message;
   }
   return errorMessage(inner ?? "runtime error");
+}
+
+function runContext(runId: string, requestId: string, user: AuthedUser): RuntimeRunContext {
+  return { runId, requestId, userId: user.id, role: user.role };
 }
 
 function isAskUserSuspension(chunk: RuntimeChunk): boolean {
@@ -272,6 +276,69 @@ export async function pipeRuntimeStream(context: StreamContext, stream: AsyncGen
           break;
         }
 
+        // A draft the runtime's gateway sent to the human instead of into the Orchestrator's
+        // context (agent-runtime gateway/gateway.ts deliverDraft - the token saver). It becomes
+        // part of the assistant's reply exactly as if the model had written it, so the chat shows
+        // it and the approval snapshot the human decides on contains it.
+        case "data-draft": {
+          const data = (chunk as unknown as { data?: Record<string, unknown> }).data ?? {};
+          const markdown = typeof data.markdown === "string" ? data.markdown : "";
+          if (markdown) {
+            const delta = `${assistantText && !assistantText.endsWith("\n") ? "\n\n" : ""}${markdown}\n\n`;
+            assistantText += delta;
+            writer.send("text", { delta });
+            await step("progress", { payload: { source: "draft", tool: data.tool, mode: data.mode, draftId: data.draftId ?? null, chars: markdown.length } });
+          }
+          break;
+        }
+
+        // The runtime's tool gateway (agent-runtime gateway/gateway.ts) reports every gated step,
+        // every refusal and every prompt-injection finding. Stored as a run step; refusals and
+        // findings also go to the audit log, and a tripped loop guard halts the run for a human.
+        case "data-gateway": {
+          const data = (chunk as unknown as { data?: Record<string, unknown> }).data ?? {};
+          await step("progress", { payload: { source: "gateway", ...data } });
+          writer.send("progress", { source: "gateway", ...data });
+          const findings = Array.isArray(data.findings) ? data.findings : [];
+          if (data.outcome === "blocked") {
+            await writeAudit({
+              actorId: null,
+              actorRole: null,
+              action: "gateway.blocked",
+              entityType: "workflow_run",
+              entityId: run.id,
+              requestId: context.requestId,
+              metadata: { tool: data.tool, mode: data.mode, reason: data.reason, message: data.message, approvalId: data.approvalId ?? null },
+            });
+          }
+          if (findings.length) {
+            await writeAudit({
+              actorId: null,
+              actorRole: null,
+              action: "gateway.untrusted_content",
+              entityType: "workflow_run",
+              entityId: run.id,
+              requestId: context.requestId,
+              metadata: { tool: data.tool, mode: data.mode, outcome: data.outcome, findings: preview(findings) },
+            });
+          }
+          if (data.reason === "loop_guard") {
+            run = await runsRepository.update(run.id, { status: "HALTED_LOOP_GUARD", last_error: typeof data.message === "string" ? data.message : null });
+            // Kept unless the Orchestrator follows up with ask_user, whose suspension supersedes it.
+            outcome = { status: "HALTED_LOOP_GUARD", approvalId: null };
+            await writeAudit({
+              actorId: null,
+              actorRole: null,
+              action: "run.halted_loop_guard",
+              entityType: "workflow_run",
+              entityId: run.id,
+              requestId: context.requestId,
+              metadata: { tool: data.tool, mode: data.mode, message: data.message },
+            });
+          }
+          break;
+        }
+
         case "finish": {
           finished = true;
           // An error chunk arrives before finish; only a still-running turn completes here.
@@ -283,6 +350,11 @@ export async function pipeRuntimeStream(context: StreamContext, stream: AsyncGen
               finished_at: new Date().toISOString(),
             });
             outcome = { status: "SUCCEEDED", approvalId: null };
+          } else if (outcome.status === "HALTED_LOOP_GUARD") {
+            run = await runsRepository.update(run.id, {
+              output_summary: assistantText.trim().slice(0, 4000) || run.output_summary,
+              finished_at: new Date().toISOString(),
+            });
           }
           break;
         }
@@ -357,6 +429,7 @@ export async function startTurn(input: {
       {
         messages: [{ role: "user", content: input.message }],
         memory: { thread: input.threadId, resource: input.user.id },
+        requestContext: { [RUN_CONTEXT_KEY]: runContext(run.id, input.requestId, input.user) },
       },
       turn.signal,
     );
@@ -382,6 +455,8 @@ export async function resumeTurn(input: {
   runtimeRunId: string;
   toolCallId: string;
   resumeData: string;
+  approver?: RuntimeApprover | null;
+  decision: RuntimeDecision;
   requestId: string;
   writer: SseWriter;
 }): Promise<TurnOutcome> {
@@ -397,6 +472,13 @@ export async function resumeTurn(input: {
         toolCallId: input.toolCallId,
         resumeData: input.resumeData,
         memory: { thread: run.thread_id, resource: run.requested_by },
+        requestContext: {
+          [RUN_CONTEXT_KEY]: runContext(run.id, input.requestId, input.user),
+          // Read by the runtime's tool gateway: a gated step needs this decision, once.
+          [DECISION_CONTEXT_KEY]: input.decision,
+          // Read by delegate tools as the commit author (agent-runtime tools/delegate-tools/shared.ts).
+          ...(input.approver ? { [APPROVER_CONTEXT_KEY]: input.approver } : {}),
+        },
       },
       turn.signal,
     );

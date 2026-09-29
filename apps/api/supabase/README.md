@@ -13,6 +13,7 @@ The Orchestrator decides what happens in a run. The API only records what it obs
 |---|---|
 | `0001_identity.sql` | `user_role` enum, `profiles` (+ RLS), `current_role()` helper |
 | `0002_runs_approvals_audit.sql` | `workflow_runs`, `run_steps`, `approval_requests`, `approval_decisions`, `audit_logs` (append-only, trigger enforced) |
+| `0007_projects_repositories.sql` | `projects`, `repositories` (one per project), `task_branches`, `task_dependencies`; drops `coding_agent_credentials` |
 
 Apply them in order in the Supabase SQL editor. Every table has RLS enabled and no client policies except the two read policies on `profiles`; all writes go through the API's service-role client.
 

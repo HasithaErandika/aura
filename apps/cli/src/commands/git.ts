@@ -63,16 +63,17 @@ export async function commit(taskArg: string | undefined, opts: { message?: stri
   const email = (await git(cwd, ["config", "user.email"]).catch(() => "")).trim();
   if (!name || !email) throw new Error('Set your git identity first: git config --global user.name "…" && git config --global user.email "…"');
 
-  // Council checkpoint commits ("council: round N", authored by AURA) are folded into this one
+  // Council checkpoint commits ("council: round N", committed by AURA) are folded into this one
   // commit so the branch history shows the developer's approved change, not the agents' drafts.
-  // Only when every commit since the branch point is AURA's - a developer's own commits are
-  // never rewritten.
+  // Matched on the committer, not the author: a checkpoint is authored by whoever approved Gate 5
+  // when they have a git identity, but AURA always commits it. Only when every commit since the
+  // branch point is AURA's - a developer's own commits are never rewritten.
   const base = await mergeBase(cwd);
-  const authors = (await git(cwd, ["log", "--format=%ae", `${base}..HEAD`])).trim().split("\n").filter(Boolean);
-  if (opts.squash && authors.length > 0 && authors.every((a) => a === AURA_EMAIL)) {
+  const committers = (await git(cwd, ["log", "--format=%ce", `${base}..HEAD`])).trim().split("\n").filter(Boolean);
+  if (opts.squash && committers.length > 0 && committers.every((a) => a === AURA_EMAIL)) {
     await git(cwd, ["reset", "--soft", base]);
-    out(c.gray(`Folded ${authors.length} council checkpoint commit${authors.length === 1 ? "" : "s"} into this commit`));
-  } else if (authors.some((a) => a === AURA_EMAIL)) {
+    out(c.gray(`Folded ${committers.length} council checkpoint commit${committers.length === 1 ? "" : "s"} into this commit`));
+  } else if (committers.some((a) => a === AURA_EMAIL)) {
     warn("This branch mixes AURA checkpoint commits with your own - committing on top without squashing.");
   }
 

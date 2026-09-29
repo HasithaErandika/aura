@@ -30,6 +30,10 @@ import { addCouncilNoteRoute, councilRegistryRoute, councilUsageRoute } from './
 import { createImplementer, createPlanner, createReviewer } from './agents/council-agents';
 import { startTerminalServer } from './terminal/server';
 import { runnersRoute } from './server/runners-routes';
+import { metricsRoute } from './server/metrics-route';
+import { tokenUsageRoute } from './server/usage-routes';
+import { runtimeAuth, runtimeTokenFromEnv } from './server/runtime-auth';
+import { assertServerModeSafe } from './config/aura-mode';
 
 // Prints each agent's real tool wiring at startup, read live from the agent itself - there is no
 // separate declared list to keep in sync (see agents/registry.ts).
@@ -66,6 +70,9 @@ printManifest({
   'ci-tool': [],
 } satisfies Record<AgentId, readonly string[]>);
 
+// AURA_MODE=server refuses loopback-only settings before anything starts listening.
+assertServerModeSafe();
+
 // The web terminal's WebSocket server (terminal/server.ts) - its own port, off unless
 // TERMINAL_TICKET_SECRET is set.
 startTerminalServer();
@@ -79,6 +86,8 @@ export const mastra = new Mastra({
   // Mastra resolves getWorkflow() by this key, not by the workflow's own internal `id` field.
   workflows: { 'architect-workflow': architectWorkflow, 'qa-workflow': qaWorkflow, 'tester-workflow': testerWorkflow },
   server: {
+    // Every request must carry apps/api's MASTRA_RUNTIME_TOKEN (server/runtime-auth.ts).
+    middleware: runtimeAuth(runtimeTokenFromEnv()),
     apiRoutes: [
       listEpicsRoute,
       listWorkspaceFilesRoute,
@@ -99,6 +108,8 @@ export const mastra = new Mastra({
       councilUsageRoute,
       councilRegistryRoute,
       runnersRoute,
+      metricsRoute,
+      tokenUsageRoute,
     ],
   },
   mcpServers: {

@@ -236,10 +236,16 @@ Reviews are cheap: one request, diff-sized input.
 | Best-of-N parallel implementers + judge | 200–400% | Higher on hard Tasks | Rejected for free tiers (per-minute limits) |
 | Claude Code / Agent SDK headless | Paid; fewest wasted steps | Highest | Was provider `anthropic`; **removed** (ADR-3 D6) - Claude models stay available to AURA's own agents via the registry |
 
-### Cheap improvements (not yet implemented)
+### Cheap improvements
 
-1. **Lean mode** (`COUNCIL_MODE=lean`) folds the Planner into the Implementer's first turn. The
-   biggest waste today is that the Planner and the Implementer both read the same files.
+1. **Lean mode** ✅ built 2026-09-28. `COUNCIL_MODE=lean|full|auto` (default `auto`). Lean folds
+   the Planner into the Implementer's first turn, so the project is read once. `auto` picks full
+   for Tasks that touch a sensitive area (auth, tokens, secrets, payments, migrations, …), list
+   more than 6 requirements or run long, and lean otherwise (`contracts/council.ts`
+   `chooseCouncilMode`). The mode is chosen at draft time and shown in the Gate 5 plan, so the
+   human approves it. The council is now Gate 5's default without asking; `mastra` is only a
+   fallback a human must name. The biggest waste had been that the Planner and the Implementer
+   both read the same files.
 2. **Share file reads between agents.** Hand the Implementer the plan *and* the excerpts the
    Planner already read, so it doesn't fetch them again.
 3. **Scale to the Task.** Skip the plan review when the plan touches ≤ 2 files; you can already
@@ -248,9 +254,8 @@ Reviews are cheap: one request, diff-sized input.
 5. **Trim tool output.** Cap `read_file` to the relevant line ranges (a `lines` argument), since
    whole-file reads are the largest input.
 
-**Recommendation:** keep the current council as the default for real Tasks, and add lean mode
-(1) plus shared reads (2) as the next efficiency step. Both are small, contained changes in
-`workflows/coding-council.ts`.
+**Recommendation:** shared reads (2) are the next efficiency step for full mode. Remove the
+`mastra` provider once lean mode has run on a few real Tasks.
 
 ---
 
@@ -258,7 +263,7 @@ Reviews are cheap: one request, diff-sized input.
 
 | Item | Notes |
 |---|---|
-| Server-side commits still author as `AURA <aura@localhost>` | `profiles.git_name/git_email` are stored but not used yet by `delegate_to_git`; the runtime would need the approving user's identity passed in with the approval. |
+| Server-side commit authorship | ✅ 2026-09-28. On approve, `approvals.service.ts` resolves the approver's profile git identity and sends it on the resume as `requestContext.auraApprover`. `delegate_to_git` commits, council checkpoints and Tester-loop fixes are authored by the approver and committed by AURA, with a `Co-authored-by: AURA` trailer. Without a git identity they are authored by AURA with an `Approved-by:` trailer. The audit row records which applied. `aura commit` now recognises checkpoints by committer, not author. Dev's Gate 4 scaffold commit stays AURA's. |
 | Council notes are in memory | A runtime restart drops notes that haven't been read (the transcript keeps every note that was read). |
 | Host checks run the project's own scripts | Accepted for local single-user use. Hosted use must set `SANDBOX_MODE=docker` and `TERMINAL_MODE=restricted`/`off`. |
 | Council runs may exceed the API's 10-minute turn timeout | Raise `RUN_TURN_TIMEOUT_MS`. |

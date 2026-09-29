@@ -50,7 +50,7 @@ cli: ## Build the aura CLI and put `aura` on your PATH
 cli-unlink: ## Remove `aura` from your PATH
 	$(PNPM) remove --global aura-cli
 
-terminal-secret: ## Print a random TERMINAL_TICKET_SECRET (paste it into apps/api/.env AND apps/agent-runtime/.env)
+terminal-secret: ## Print a random secret for TERMINAL_TICKET_SECRET or MASTRA_RUNTIME_TOKEN (paste it into apps/api/.env AND apps/agent-runtime/.env)
 	@node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
 
 doctor: ## Check prerequisites and which .env files exist

@@ -2,7 +2,7 @@ import type { ComponentType, SVGProps } from "react";
 import type { Role } from "../lib/roles.ts";
 import type { Me } from "../../types/api.ts";
 import { paths } from "../../app/paths.ts";
-import { AuditIcon, ChatIcon, ClipboardCheckIcon, CodeIcon, DashboardIcon, ListIcon, RegistryIcon, SettingsIcon, TicketIcon, UsersIcon } from "../icons/index.tsx";
+import { AuditIcon, BoltIcon, ChatIcon, ClipboardCheckIcon, CodeIcon, DashboardIcon, GitIcon, ListIcon, RegistryIcon, SettingsIcon, TicketIcon, UsersIcon } from "../icons/index.tsx";
 
 export interface NavItem {
   label: string;
@@ -49,6 +49,8 @@ export const navigation: NavGroup[] = [
       { label: "Profile & Access Tokens", to: paths.profile, icon: SettingsIcon, visible: (me) => me.role === "developer" },
       { label: "Audit Explorer", to: paths.audit, icon: AuditIcon, visible: isAdmin },
       { label: "User Management", to: paths.users, icon: UsersIcon, visible: isAdmin },
+      { label: "Projects & Repositories", to: paths.projects, icon: GitIcon, visible: isAdmin },
+      { label: "AI Usage & Quality", to: paths.aiUsage, icon: BoltIcon, visible: isAdmin },
     ],
   },
 ];

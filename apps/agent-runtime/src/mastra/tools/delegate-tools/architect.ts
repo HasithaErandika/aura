@@ -18,6 +18,7 @@ import { ARCHITECT_MODEL_ID } from '../../agents/registry';
 import { generateObject, type MastraLike } from '../../lib/generate-object';
 import { architectWorkspace, type WorkspaceRegistry } from '../../workspace/architect-workspace';
 import { outputSchema, fail, provenance, buildProvenance, slugify, type ToolWriterLike } from './shared';
+import { untrusted, untrustedInline } from '../../gateway/untrusted';
 
 const architectInputSchema = z
   .object({
@@ -132,11 +133,11 @@ export const delegateToArchitectTool = createTool({
           for (const epic of epics) {
             const stories = await jira.getEpicStories(epic.key);
             if (!stories.length) return fail(`${epic.key} has no Stories yet - run delegate_to_ba and file Stories before designing architecture`);
-            storySections.push(`### Stories for Epic ${epic.key} (${epic.summary})\n${stories.map((s) => `- ${s.key}: ${s.summary}\n${s.description || '(no description)'}`).join('\n\n')}`);
+            storySections.push(`### Stories for Epic ${epic.key}\n${untrusted(`jira:${epic.key} stories`, `Epic: ${epic.summary}\n\n${stories.map((s) => `- ${s.key}: ${s.summary}\n${s.description || '(no description)'}`).join('\n\n')}`)}`);
           }
 
           const primaryEpicKey = epics[0]!.key;
-          const epicSummary = epics.map((e) => `${e.key}: ${e.summary}`).join('; ');
+          const epicSummary = epics.map((e) => `${e.key}: ${untrustedInline(`jira:${e.key} summary`, e.summary)}`).join('; ');
           const storiesText = storySections.join('\n\n');
           const techStack = { frontend: 'React 19 (Vite 19)', backend: input.backend, database: 'PostgreSQL' };
           const techStackText = `Frontend: ${techStack.frontend}. Backend: ${techStack.backend}. Database: ${techStack.database}.`;
