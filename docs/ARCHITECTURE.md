@@ -169,6 +169,16 @@ single-use, payload-bound approval token → execute → audit record.
 The runtime never holds user credentials or raw Jira/DB access; it only
 calls its own gated tools.
 
+**Only the API may call the runtime.** With `MASTRA_RUNTIME_TOKEN` set (the
+same value in both apps), the runtime rejects every request that doesn't
+carry it as a bearer token (`server/runtime-auth.ts`, a server-wide Mastra
+middleware covering Mastra's own `/api/*` routes and AURA's custom routes).
+Without it, anyone who could reach port 4111 could run an agent, resume a
+suspended gate or write workspace files and skip the policy engine, the
+approval gates and the audit log. `AURA_MODE=server` makes the token
+mandatory in both apps; `AURA_MODE=local` (the default) allows leaving it
+unset on loopback so Mastra Studio keeps working.
+
 **Personal access tokens** (`access_tokens`, migration 0006) let the `aura`
 CLI authenticate without a browser: `aura_pat_…`, stored only as a SHA-256
 hash, expiring (default 90 days), revocable from the Profile page, audited

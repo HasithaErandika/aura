@@ -20,7 +20,25 @@ function optionalString(name: string): string | undefined {
   return value && value.length > 0 ? value : undefined;
 }
 
+// local = one developer's machine; server = a shared deployment, where the settings that are only
+// safe on loopback are refused at startup (docs/adr/0002-team-scale-deployment.md).
+function auraMode(): "local" | "server" {
+  const mode = process.env.AURA_MODE?.trim() || "local";
+  if (mode !== "local" && mode !== "server") throw new Error(`AURA_MODE must be "local" or "server", got "${mode}"`);
+  return mode;
+}
+
+// The runtime trusts only callers presenting this token (apps/agent-runtime server/runtime-auth.ts).
+function runtimeToken(mode: "local" | "server"): string | undefined {
+  const token = optionalString("MASTRA_RUNTIME_TOKEN");
+  if (!token && mode === "server") throw new Error("AURA_MODE=server requires MASTRA_RUNTIME_TOKEN (same value in apps/agent-runtime/.env)");
+  return token;
+}
+
+const mode = auraMode();
+
 export const env = {
+  mode,
   port: optionalNumber("PORT", 4000),
   nodeEnv: process.env.NODE_ENV ?? "development",
   isProduction: process.env.NODE_ENV === "production",
@@ -36,7 +54,7 @@ export const env = {
   sessionCacheTtlMs: optionalNumber("SESSION_CACHE_TTL_MS", 30_000),
   runtimeUrl: (process.env.MASTRA_RUNTIME_URL ?? "http://localhost:4111").replace(/\/+$/, ""),
   runtimeTimeoutMs: optionalNumber("MASTRA_RUNTIME_TIMEOUT_MS", 15_000),
-  runtimeToken: optionalString("MASTRA_RUNTIME_TOKEN"),
+  runtimeToken: runtimeToken(mode),
   runTurnTimeoutMs: optionalNumber("RUN_TURN_TIMEOUT_MS", 10 * 60_000),
   approvalSlaHours: optionalNumber("APPROVAL_SLA_HOURS", 72),
   

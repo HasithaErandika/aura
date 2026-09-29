@@ -113,11 +113,19 @@ cp apps/web/.env.example           apps/web/.env
 
 | File | Key values |
 |---|---|
-| `apps/agent-runtime/.env` | `GROQ_API_KEY`, `GOOGLE_GENERATIVE_AI_API_KEY`, Jira MCP settings, `JIRA_PROJECT_KEY`, `AURA_WORKSPACE_ROOT` (use an **absolute** path), Coding Council settings (see §7) |
-| `apps/api/.env` | `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `WEB_ORIGIN`, `MASTRA_RUNTIME_URL`, Jira read credentials, `TERMINAL_TICKET_SECRET` (see §6) |
+| `apps/agent-runtime/.env` | `AURA_MODE`, `MASTRA_RUNTIME_TOKEN` (see below), `GROQ_API_KEY`, `GOOGLE_GENERATIVE_AI_API_KEY`, Jira MCP settings, `JIRA_PROJECT_KEY`, `AURA_WORKSPACE_ROOT` (use an **absolute** path), Coding Council settings (see §7) |
+| `apps/api/.env` | `AURA_MODE`, `MASTRA_RUNTIME_TOKEN` (see below), `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `WEB_ORIGIN`, `MASTRA_RUNTIME_URL`, Jira read credentials, `TERMINAL_TICKET_SECRET` (see §6) |
 | `apps/web/.env` | `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`, `VITE_API_URL` |
 
 Never commit `.env` files.
+
+**Runtime token.** `apps/agent-runtime` must only be called by `apps/api`, which has already
+checked the user, the policy and written the audit record. Generate one secret with
+`make terminal-secret` and put the same value in both files as `MASTRA_RUNTIME_TOKEN`; the
+runtime then answers `401` to any request without it. `AURA_MODE=server` (a shared deployment)
+refuses to start without it. Locally you can leave it unset so Mastra Studio at
+`http://localhost:4111` keeps working - Studio can't send the token - as long as the runtime is
+only reachable on loopback.
 
 ### 3.3 Install dependencies
 
@@ -166,7 +174,7 @@ Check that it's up: `curl http://localhost:4000/health`, then sign in at http://
 | `make test` | `pnpm -r run test` | unit tests of every app (Vitest) - CI runs the same (`.github/workflows/ci.yml`) |
 | `make build` | `pnpm -r run build` | production build of everything |
 | `make cli` | see §5 | build the CLI and put `aura` on your PATH |
-| `make terminal-secret` | — | print a random `TERMINAL_TICKET_SECRET` |
+| `make terminal-secret` | — | print a random secret for `TERMINAL_TICKET_SECRET` or `MASTRA_RUNTIME_TOKEN` |
 | `make doctor` | — | check prerequisites and `.env` files |
 | `make clean` | — | delete every `node_modules`, `dist`, `.mastra` |
 | — | `pnpm --filter <app> add <pkg>` | add a dependency to one app (`api`, `web`, `agent-runtime`, `aura-cli`, `@aura/client`) |
@@ -317,6 +325,9 @@ A council run can take longer than the API's default 10-minute turn limit, so ra
 | `aura`: *AURA API is unreachable* | Is `apps/api` running? Check the `--api` URL in `aura whoami` |
 | `aura code`: *has no worktree yet* | Pass `--epic <KEY>`; AURA drafts the Dev scaffold (Gate 4) first |
 | API: *Agent runtime is unreachable* | Start `apps/agent-runtime`; check `MASTRA_RUNTIME_URL` |
+| API: *Agent runtime responded 401* | `MASTRA_RUNTIME_TOKEN` differs between the two `.env` files, or is set only in the runtime's; restart both |
+| Mastra Studio shows 401 errors | `MASTRA_RUNTIME_TOKEN` is set in the runtime; Studio can't send it. Unset it locally to use Studio |
+| Runtime/API won't start: *AURA_MODE=server requires MASTRA_RUNTIME_TOKEN* | Set the same 32+ character token in both `.env` files, or use `AURA_MODE=local` on your own machine |
 | Council stops with *token budget reached* / waits on rate limits | Free-tier quota: check `aura status`, wait, or raise `COUNCIL_TOKEN_BUDGET` |
 | Council run cut off after 10 minutes | Raise `RUN_TURN_TIMEOUT_MS` in `apps/api/.env` |
 | CLI can't find `@aura/client` | `pnpm install` at the repo root (it builds the package) |
