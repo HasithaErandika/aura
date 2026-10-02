@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | **Approved 2026-10-02** · ADR-4 written · Part B built · Part C next |
+| **Status** | **Approved 2026-10-02** · Parts B, C and V0 built · V1 next |
 | **Target** | AI agent harness for a leading Sri Lankan technology company |
 | **Date** | 2026-10-02 |
 | **Needs** | ADR-4 (supersedes ADR-1, ADR-2 D1–D2/D5, ADR-3 D2/D8) |
@@ -325,7 +325,7 @@ flowchart LR
 | Phase | Scope | Done when |
 |---|---|---|
 | Part B, C | Postgres state; queued, resumable runs | A run survives a runtime restart |
-| V0 | ADR-4. Spike: API WebSocket relay + Mastra `Workspace` bridge provider; `read_file` and `execute_command` round-trip with a permission prompt | Both work from a laptop against the cloud runtime |
+| V0 | ADR-4. Spike: API WebSocket relay + Mastra `Workspace` bridge provider; `read_file` and `execute_command` round-trip with a permission prompt | 🟢 **Passed** (see §12.1) |
 | V1 | Extension base: device-flow sign-in, Tasks view, AURA panel with streaming, Initialize / Connect Repository | A developer chats with AURA about a Task in VS Code |
 | V2 | Full tool set, permission engine, modes, hooks, `.aura/AURA.md`, skills | One coder implements a Task end-to-end |
 | V3 | Design docs, ADRs, SRS, QA plans in Postgres; Architect specialists; Design documents and QA web pages (Markdown editor, no CodeMirror) | Gate 3 writes nothing to disk; Project Files removed |
@@ -335,6 +335,34 @@ flowchart LR
 | V7 | Removal (§13) and docs | No code path touches `.workspaces`, Docker or a server shell |
 
 ---
+
+### 12.1 V0 result (2026-10-02)
+
+Built: `packages/aura-bridge` (protocol), `apps/api` bridge hub + `/bridge` WebSocket + tickets +
+`POST /internal/bridge/calls`, `apps/agent-runtime` `vscode-agent` with a bridge filesystem and
+sandbox, and `apps/vscode` (sign in, connect, ask, permission prompts).
+
+End-to-end run with real code in all three parts, no model calls:
+
+| # | Scenario | Result |
+|---|---|---|
+| 1 | Extension connects with a ticket | ✅ |
+| 2 | Mastra generates its standard workspace tools on the bridge | ✅ 11 tools |
+| 3 | `read_file` | ✅ no prompt, 18 ms |
+| 4 | `list_files` | ✅ 7 ms |
+| 5 | `execute_command npm test` | ✅ no prompt, real output, 116 ms |
+| 6 | `write_file` | ✅ prompt → allowed → file on disk |
+| 7 | `npm install left-pad` | ✅ prompt → denied → agent told |
+| 8 | `git push --force` | ✅ refused by rule, no prompt |
+| 9 | Read `../../etc/passwd` | ✅ refused, outside the workspace |
+
+**Verdict: go.** Bridge overhead is 2–18 ms per call. Found and fixed during the run: Mastra's
+write tool needs Mastra's own error classes (`FileNotFoundError`, `PermissionError`).
+
+**Limits found:** a single bridge call (prompt + operation) is capped at 4.5 minutes by Node
+`fetch` on the runtime → API hop; longer commands need streamed progress (V2). One API process
+holds the WebSocket and receives the call (several API replicas need call routing, with Part C's
+Postgres). The agent turn with a live model and the VS Code UI itself are verified by hand.
 
 ## 13. Removed
 

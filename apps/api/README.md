@@ -25,6 +25,7 @@ flowchart LR
 | `src/modules/terminal/` | Web terminal tickets |
 | `src/modules/*` | `threads`, `runs`, `agents`, `jira`, `council`, `dashboard`, workspaces, `runners`, `health` |
 | `src/modules/settings/` | Settings registry, resolution, API |
+| `src/modules/bridge/` | VS Code bridge: hub, tickets, WebSocket, internal call route |
 | `src/modules/orchestration/turn-jobs.ts` | Turn queue (pg-boss), heartbeat, stale-run sweep |
 | `supabase/migrations/` | SQL migrations `0001`–`0009` |
 
@@ -35,6 +36,8 @@ flowchart LR
 | `/health` | Anyone | API and runtime liveness |
 | `/me` | Signed in | Profile, grants, access tokens, git identity |
 | `/users` · `/projects` | Admin | Users, projects and repositories |
+| `/bridge` | Developer | `POST /bridge/tickets` (WebSocket ticket), `GET /bridge/status`; WebSocket at `/bridge?ticket=` |
+| `/internal/bridge/calls` | Runtime token | The runtime's file and command calls, forwarded to the developer's VS Code |
 | `/settings` | Signed in (shared values: admin) | Settings registry, effective values, global/project/user values |
 | `/threads` | Run grant | Conversations; `POST /threads/:id/messages` streams a turn (SSE) |
 | `/approvals` | Approver role | Inbox; `POST /approvals/:id/decide` streams the continuation (SSE) |

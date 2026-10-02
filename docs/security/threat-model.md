@@ -50,6 +50,7 @@ flowchart LR
 | B4 | Model output → action | Drafts only; execution after a human approves the exact payload hash; single-use approval in the gateway | 🟢 |
 | B5 | Agent code → machine | Docker for scaffolds and tests; checks on host or Docker; server mode requires Docker | 🟡 Host checks allowed locally |
 | B6 | Audit trail | Trigger blocks UPDATE/DELETE on `audit_logs` | 🟢 |
+| B7 | Cloud → developer machine (VS Code bridge) | Single-use ticket; calls only for the run's owner; extension: path containment (incl. symlinks), allow/ask/deny, built-in denies, secrets stripped from command env; changes audited | 🟡 V0: shell commands rely on rules and the developer's approval |
 
 ---
 

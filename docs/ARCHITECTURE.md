@@ -57,7 +57,9 @@ flowchart LR
 | `apps/web` | React, Vite, Tailwind | Approval inbox, agent chat, runs, Jira view, Project Files, admin | 5173 |
 | `apps/api` | Express | Auth, policy, approvals, audit, settings, Jira reads, terminal tickets | 4000 |
 | `apps/agent-runtime` | Mastra | Orchestrator, agents, workflows, tool gateway, drafts, terminal | 4111 / 4112 |
-| `packages/aura-client` | TypeScript | Typed REST + SSE client, for the coming VS Code extension | — |
+| `apps/vscode` | VS Code extension | The developer's client (V0): agents' file and command calls run here, after a permission check | — |
+| `packages/aura-client` | TypeScript | Typed REST + SSE client, used by the extension | — |
+| `packages/aura-bridge` | TypeScript | Bridge protocol between the cloud and the extension | — |
 
 **Request path:** client → `apps/api` (checks who and what) → `apps/agent-runtime` (runs the
 agent) → Jira, disk, Docker. Only `apps/api` can call the runtime. Each agent turn runs as a
@@ -287,6 +289,25 @@ Commands and settings: [SETUP.md](../SETUP.md). The developer client is moving t
 extension ([ADR-4](adr/0004-vscode-developer-workspace.md)); the `aura` CLI was removed.
 
 ---
+
+### 7.1 VS Code bridge (V0)
+
+```mermaid
+sequenceDiagram
+    participant RT as vscode-agent (runtime)
+    participant A as apps/api
+    participant X as VS Code extension
+    RT->>A: POST /internal/bridge/calls (runtime token)
+    A->>X: tool.request (WebSocket)
+    X->>X: allow / ask / deny → run in the open folder
+    X-->>A: tool.result
+    A-->>RT: result
+```
+
+The `vscode-agent` uses a Mastra `Workspace` whose filesystem and sandbox live on the developer's
+machine ([ADR-4](adr/0004-vscode-developer-workspace.md)). The extension connects with a 60-second
+single-use ticket (`POST /bridge/tickets`, developers only). Every change it makes is audited
+(`bridge.tool.call`).
 
 ## 8. Quality and cost
 

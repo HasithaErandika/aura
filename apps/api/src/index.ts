@@ -2,12 +2,16 @@ import { createApp } from "./app.js";
 import { env } from "./config/env.js";
 import { errorMessage, logger } from "./lib/logger.js";
 import { startTurnQueue, stopTurnQueue } from "./modules/orchestration/turn-jobs.js";
+import { attachBridge } from "./modules/bridge/ws.js";
 
 const app = createApp();
 
 const server = app.listen(env.port, () => {
   logger.info("aura-api listening", { port: env.port, env: env.nodeEnv, runtimeUrl: env.runtimeUrl });
 });
+
+// The VS Code extension's WebSocket (/bridge, ADR-4).
+attachBridge(server);
 
 // Agent turns run as background jobs (pg-boss with DATABASE_URL, in-process otherwise).
 startTurnQueue().catch((error) => {

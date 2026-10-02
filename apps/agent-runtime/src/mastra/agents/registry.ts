@@ -24,6 +24,7 @@ export const MASTRA_CODING_MODEL_ID = 'groq/openai/gpt-oss-120b'; // heavy - hol
 export const QA_MODEL_ID = 'groq/openai/gpt-oss-120b'; // heavy - writes real Playwright source
 export const TESTER_MODEL_ID = 'groq/qwen/qwen3.8-27b'; // light - interprets an already-real result, no tools
 export const DEPLOYER_MODEL_ID = 'groq/openai/gpt-oss-120b'; // heavy
+export const VSCODE_AGENT_MODEL_ID = 'groq/openai/gpt-oss-120b'; // heavy - holds workspace tools (ADR-4)
 
 // Coding Council (workflows/coding-council.ts, agents/council-agents.ts) - an ordered fallback
 // chain per role rather than one id: each later model is tried only when the one before it
@@ -37,7 +38,7 @@ export const COUNCIL_PLANNER_MODEL_IDS = ['groq/openai/gpt-oss-120b', GEMINI_FAL
 export const COUNCIL_IMPLEMENTER_MODEL_IDS = ['groq/openai/gpt-oss-120b', GEMINI_FALLBACK_MODEL] as const; // heavy - holds write/edit/check tools
 export const COUNCIL_REVIEWER_MODEL_IDS = [GEMINI_FALLBACK_MODEL, 'groq/qwen/qwen3.8-27b'] as const; // no tools - structured verdict only
 
-export type AgentId = 'orchestrator' | 'po-agent' | 'ba-agent' | 'architect-agent' | 'dev-agent' | 'coding-agent' | 'coding-council' | 'qa-agent' | 'tester-agent' | 'deployer-agent' | 'git-tool' | 'ci-tool';
+export type AgentId = 'orchestrator' | 'po-agent' | 'ba-agent' | 'architect-agent' | 'dev-agent' | 'coding-agent' | 'coding-council' | 'qa-agent' | 'tester-agent' | 'deployer-agent' | 'git-tool' | 'ci-tool' | 'vscode-agent';
 
 export interface AgentManifestEntry {
   modelId: string;
@@ -146,6 +147,14 @@ export const AGENT_MANIFEST: Record<AgentId, AgentManifestEntry> = {
     delegatesTo: [],
     note: 'git init/branch/commit/status/diff against a Task\'s own isolated git worktree, invoked through delegate_to_git. No Mastra Agent object backs this entry (like coding-agent) - the command and, for commit, its message are built entirely by code from the Task\'s own Jira content, never a model. Runs directly on the host, no Docker (node:22-slim has no git installed, and the directory is already host-trusted). `status`/`diff` now show exactly this Task\'s own changes, never another Task\'s sharing the same discipline (agentVersion 2.0.0) - `init` is close to a no-op now, since a worktree is already a real git checkout the moment Gate 4 creates it.',
     agentVersion: '2.1.0', // commit authored by the approver when they have a git identity
+    promptVersion: '1.0.0',
+  },
+  'vscode-agent': {
+    label: 'VS Code Agent',
+    modelId: VSCODE_AGENT_MODEL_ID,
+    delegatesTo: [],
+    note: "V0 of the VS Code developer workspace (ADR-4): a Mastra Workspace whose filesystem and sandbox are the folder open in the developer's VS Code, reached through apps/api and the AURA extension (bridge/). The extension asks the developer before every write and command. Developers run it directly; it has no gates of its own.",
+    agentVersion: '0.1.0',
     promptVersion: '1.0.0',
   },
   'ci-tool': {

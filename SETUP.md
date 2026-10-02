@@ -123,7 +123,20 @@ Check: `curl http://localhost:4000/health`, then sign in at http://localhost:517
 
 ---
 
-## 7. Optional settings
+## 7. AURA for VS Code (developers, V0)
+
+```bash
+pnpm --filter aura-vscode build
+code --extensionDevelopmentPath="$PWD/apps/vscode" /path/to/your/project
+```
+
+Run **AURA: Sign In** with an access token (Profile → Access tokens), then **AURA: Ask the
+Agent**. The runtime reaches your VS Code through the API, so set `AURA_API_URL` in
+`apps/agent-runtime/.env` to the API's URL. Details: [apps/vscode/README.md](apps/vscode/README.md).
+
+---
+
+## 8. Optional settings
 
 ### Web terminal (agent-runtime `.env`)
 
@@ -161,7 +174,7 @@ Models are set in code in `apps/agent-runtime/src/mastra/agents/registry.ts`. To
 
 ---
 
-## 8. Where data is stored
+## 9. Where data is stored
 
 | Location | Contents |
 |---|---|
@@ -175,7 +188,7 @@ Models are set in code in `apps/agent-runtime/src/mastra/agents/registry.ts`. To
 
 ---
 
-## 9. Troubleshooting
+## 10. Troubleshooting
 
 | Problem | Fix |
 |---|---|

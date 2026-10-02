@@ -1,8 +1,8 @@
 {
-  "name": "@aura/client",
+  "name": "@aura/bridge",
   "version": "0.1.0",
   "private": true,
-  "description": "Typed client for the AURA API (REST + server-sent events), for the AURA VS Code extension (and later the web app).",
+  "description": "Protocol between the AURA cloud (apps/api, apps/agent-runtime) and the AURA VS Code extension: tool requests the agents make and the results the extension returns (ADR-4).",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -19,9 +19,11 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
     "prepare": "tsc -p tsconfig.json"
   },
   "devDependencies": {
-    "typescript": "^5.9.3"
+    "typescript": "^5.9.3",
+    "vitest": "^5.0.2"
   }
 }

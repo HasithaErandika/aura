@@ -35,6 +35,7 @@
     "zod": "^4.4.3"
   },
   "devDependencies": {
+    "@aura/bridge": "workspace:*",
     "@electric-sql/pglite": "^0.5.8",
     "@types/node": "latest",
     "@types/pg": "^8.23.1",

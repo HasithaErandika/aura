@@ -20,7 +20,7 @@ work items, and a human approves every step through eight gates. Read
 | Agent evals (uses model quota) | `pnpm --filter agent-runtime eval` |
 
 Use **pnpm only** (one workspace, one lockfile). Package names: `web`, `api`, `agent-runtime`,
-`@aura/client`.
+`aura-vscode`, `@aura/client`, `@aura/bridge`.
 
 ## Layout
 
@@ -30,6 +30,8 @@ Use **pnpm only** (one workspace, one lockfile). Package names: `web`, `api`, `a
 | `apps/api/src/modules/` | One folder per domain: `policy`, `approvals`, `audit`, `orchestration`, `projects`, … |
 | `apps/api/supabase/migrations/` | SQL migrations `NNNN_name.sql` |
 | `apps/web/src/features/` | One folder per screen |
+| `apps/vscode/src/` | VS Code extension: bridge client, permissions, executor |
+| `packages/aura-bridge/` | Bridge protocol (types used by api, runtime, extension) |
 | `docs/` | Documentation (index: `docs/README.md`) |
 
 ## Rules

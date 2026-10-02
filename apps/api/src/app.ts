@@ -6,6 +6,7 @@ import { apiRouter } from "./routes/index.js";
 import { requestId } from "./middleware/request-id.js";
 import { errorHandler, notFoundHandler } from "./middleware/error-handler.js";
 import { byIp, rateLimit } from "./lib/http/rate-limit.js";
+import { internalRouter } from "./modules/bridge/internal.router.js";
 
 export function createApp() {
   const app = express();
@@ -24,6 +25,9 @@ export function createApp() {
     }),
   );
   app.use(requestId);
+  // The runtime calling back (bridge tool calls): its own token check, larger bodies (file
+  // contents), and no per-client rate limit - one agent turn makes many tool calls.
+  app.use("/internal", express.json({ limit: "8mb", type: "application/json" }), internalRouter);
   app.use(rateLimit({ name: "per client", windowMs: env.rateLimit.windowMs, max: env.rateLimit.perIp, key: byIp }));
   app.use(express.json({ limit: env.jsonBodyLimit, type: "application/json" }));
 

@@ -88,7 +88,7 @@ export interface Approval {
   canDecide?: boolean;
 }
 
-export type RunStatus = "PENDING" | "RUNNING" | "SUSPENDED_FOR_APPROVAL" | "SUCCEEDED" | "FAILED" | "REJECTED" | "EXPIRED" | "HALTED_LOOP_GUARD";
+export type RunStatus = "PENDING" | "RUNNING" | "SUSPENDED_FOR_APPROVAL" | "SUCCEEDED" | "FAILED" | "REJECTED" | "EXPIRED" | "HALTED_LOOP_GUARD" | "INTERRUPTED";
 
 // One Coding Council turn (agent-runtime workflows/coding-council.ts), relayed by the API as
 // SSE event "council".

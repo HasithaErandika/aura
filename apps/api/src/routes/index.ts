@@ -19,6 +19,7 @@ import { terminalRouter } from "../modules/terminal/terminal.router.js";
 import { runnersRouter } from "../modules/runners/runners.router.js";
 import { projectsRouter } from "../modules/projects/projects.router.js";
 import { settingsRouter } from "../modules/settings/settings.router.js";
+import { bridgeRouter } from "../modules/bridge/bridge.router.js";
 import { requireAuth } from "../middleware/auth.js";
 import { perUserLimit } from "../middleware/limits.js";
 
@@ -31,6 +32,7 @@ apiRouter.use("/me", meRouter);
 apiRouter.use("/users", usersRouter);
 apiRouter.use("/projects", projectsRouter);
 apiRouter.use("/settings", settingsRouter);
+apiRouter.use("/bridge", bridgeRouter);
 apiRouter.use("/agents", agentsRouter);
 apiRouter.use("/threads", threadsRouter);
 apiRouter.use("/runs", runsRouter);

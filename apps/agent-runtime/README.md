@@ -37,6 +37,7 @@ cannot reach Jira or the filesystem directly.
 | `git/` | `GitProvider` interface and `local` provider |
 | `terminal/` | Web terminal server, tickets, PTY, restricted mode |
 | `server/` | Custom HTTP routes, runtime auth, metrics |
+| `bridge/` | Bridge filesystem and sandbox: a Mastra `Workspace` on the developer's VS Code |
 | `config/` | `AURA_MODE`, models, dashboard settings from the request context |
 | `lib/` | Docker exec, sandbox checks, metrics, structured-output helper |
 | `evals/` | Eval suites, scoring, baseline test |

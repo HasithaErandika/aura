@@ -50,6 +50,9 @@ importers:
         specifier: ^4.4.3
         version: 4.6.5
     devDependencies:
+      '@aura/bridge':
+        specifier: workspace:*
+        version: link:../../packages/aura-bridge
       '@electric-sql/pglite':
         specifier: ^0.5.8
         version: 0.5.8
@@ -74,6 +77,9 @@ importers:
 
   apps/api:
     dependencies:
+      '@aura/bridge':
+        specifier: workspace:*
+        version: link:../../packages/aura-bridge
       '@supabase/supabase-js':
         specifier: ^2.116.0
         version: 2.117.1
@@ -95,6 +101,9 @@ importers:
       pg-boss:
         specifier: ^12.35.1
         version: 12.35.1
+      ws:
+        specifier: ^8.21.3
+        version: 8.21.3
       zod:
         specifier: ^3.25.76
         version: 3.25.76
@@ -114,9 +123,43 @@ importers:
       '@types/pg':
         specifier: ^8.23.1
         version: 8.23.1
+      '@types/ws':
+        specifier: ^8.18.1
+        version: 8.18.1
       tsx:
         specifier: ^4.23.13
         version: 4.23.15
+      typescript:
+        specifier: ^5.9.3
+        version: 5.9.3
+      vitest:
+        specifier: ^5.0.2
+        version: 5.0.2(@types/node@22.20.4)(vite@8.3.0(@types/node@22.20.4)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.15)(yaml@2.9.1))
+
+  apps/vscode:
+    dependencies:
+      '@aura/bridge':
+        specifier: workspace:*
+        version: link:../../packages/aura-bridge
+      '@aura/client':
+        specifier: workspace:*
+        version: link:../../packages/aura-client
+      ws:
+        specifier: ^8.21.3
+        version: 8.21.3
+    devDependencies:
+      '@types/node':
+        specifier: ^22.10.0
+        version: 22.20.4
+      '@types/vscode':
+        specifier: ^1.90.0
+        version: 1.138.0
+      '@types/ws':
+        specifier: ^8.18.1
+        version: 8.18.1
+      esbuild:
+        specifier: ^0.28.2
+        version: 0.28.2
       typescript:
         specifier: ^5.9.3
         version: 5.9.3
@@ -205,6 +248,15 @@ importers:
       vite:
         specifier: ^8.3.0
         version: 8.3.0(@types/node@26.6.3)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.15)(yaml@2.9.1)
+      vitest:
+        specifier: ^5.0.2
+        version: 5.0.2(@types/node@26.6.3)(vite@8.3.0(@types/node@26.6.3)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.15)(yaml@2.9.1))
+
+  packages/aura-bridge:
+    devDependencies:
+      typescript:
+        specifier: ^5.9.3
+        version: 5.9.3
       vitest:
         specifier: ^5.0.2
         version: 5.0.2(@types/node@26.6.3)(vite@8.3.0(@types/node@26.6.3)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.15)(yaml@2.9.1))
@@ -1627,6 +1679,9 @@ packages:
 
   '@types/unist@3.0.3':
     resolution: {integrity: sha512-ko/gIFJRv177XgZsZcBwnqJN5x/Gien8qNOn0D5bQU/zAzVf9Zt3BlcUiLqhV9y4ARk0GbT3tnUiPNgnTXzc/Q==}
+
+  '@types/vscode@1.138.0':
+    resolution: {integrity: sha512-DhlvrucJa8n6EHst7qQcXOcjLKs/VRTQy55plLO+RN74jonYsr/t9dd66zBnAyz1tpDig0okQAxuoPHpVNje2g==}
 
   '@types/ws@8.18.1':
     resolution: {integrity: sha512-ThVF6DCVhA8kUGy+aazFQ4kXQ7E1Ty7A3ypFOe0IcJV8O/M511G99AW24irKrW56Wt44yG9+ij8FaqoBGkuBXg==}
@@ -5310,7 +5365,7 @@ snapshots:
 
   '@types/connect@3.4.38':
     dependencies:
-      '@types/node': 26.6.3
+      '@types/node': 22.20.4
 
   '@types/cors@2.8.19':
     dependencies:
@@ -5387,11 +5442,11 @@ snapshots:
   '@types/send@0.17.6':
     dependencies:
       '@types/mime': 1.3.5
-      '@types/node': 26.6.3
+      '@types/node': 22.20.4
 
   '@types/send@1.2.1':
     dependencies:
-      '@types/node': 26.6.3
+      '@types/node': 22.20.4
 
   '@types/serve-static@1.15.10':
     dependencies:
@@ -5400,6 +5455,8 @@ snapshots:
       '@types/send': 0.17.6
 
   '@types/unist@3.0.3': {}
+
+  '@types/vscode@1.138.0': {}
 
   '@types/ws@8.18.1':
     dependencies:

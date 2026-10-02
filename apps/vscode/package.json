@@ -1,0 +1,52 @@
+{
+  "name": "aura-vscode",
+  "displayName": "AURA",
+  "description": "Work on AURA Tasks with AURA's agents in VS Code. Agents run in the AURA cloud; files and commands stay on your machine and each change asks you first.",
+  "version": "0.1.0",
+  "private": true,
+  "publisher": "aura",
+  "license": "UNLICENSED",
+  "engines": {
+    "vscode": "^1.90.0"
+  },
+  "categories": ["AI", "Other"],
+  "main": "./dist/extension.cjs",
+  "activationEvents": [],
+  "contributes": {
+    "commands": [
+      { "command": "aura.signIn", "title": "AURA: Sign In" },
+      { "command": "aura.signOut", "title": "AURA: Sign Out" },
+      { "command": "aura.connect", "title": "AURA: Connect" },
+      { "command": "aura.disconnect", "title": "AURA: Disconnect" },
+      { "command": "aura.ask", "title": "AURA: Ask the Agent" }
+    ],
+    "configuration": {
+      "title": "AURA",
+      "properties": {
+        "aura.apiUrl": {
+          "type": "string",
+          "default": "http://localhost:4000",
+          "description": "The AURA API URL."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "build": "esbuild src/extension.ts --bundle --platform=node --format=cjs --target=node20 --external:vscode --outfile=dist/extension.cjs",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@aura/bridge": "workspace:*",
+    "@aura/client": "workspace:*",
+    "ws": "^8.21.3"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "@types/vscode": "^1.90.0",
+    "@types/ws": "^8.18.1",
+    "esbuild": "^0.28.2",
+    "typescript": "^5.9.3",
+    "vitest": "^5.0.2"
+  }
+}

@@ -29,7 +29,9 @@ Full guide: [SETUP.md](SETUP.md) · `make help` lists every command.
 | `apps/web` | React UI |
 | `apps/api` | Express API: auth, policy, approvals, audit |
 | `apps/agent-runtime` | Mastra agents and workflows |
+| `apps/vscode` | AURA for VS Code (developers) |
 | `packages/aura-client` | Shared typed API client |
+| `packages/aura-bridge` | Cloud ↔ VS Code bridge protocol |
 | `docs/` | Documentation |
 
 ## Documentation
