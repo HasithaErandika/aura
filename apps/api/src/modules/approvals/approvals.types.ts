@@ -1,5 +1,7 @@
-import type { Role } from "../identity/roles.js";
-import type { AskUserOption } from "../runtime/runtime.types.js";
+import type { Role } from "../../lib/auth/roles.js";
+import type { Person } from "../identity/index.js";
+import type { GateInfo } from "../policy/index.js";
+import type { AskUserOption } from "../runtime/index.js";
 
 export const APPROVAL_STATUSES = ["PENDING", "APPROVED", "REJECTED", "REVISION_REQUESTED", "ANSWERED", "EXPIRED"] as const;
 export type ApprovalStatus = (typeof APPROVAL_STATUSES)[number];
@@ -46,10 +48,10 @@ export interface ApprovalView {
   threadId: string;
   agentId: string;
   producingAgent: string | null;
-  gate: { number: number; name: string; outcome: string } | null;
+  gate: GateView | null;
   requiredRole: Role | null;
   requestedBy: string;
-  requester?: { fullName: string | null; email: string } | null;
+  requester: Person | null;
   question: string;
   options: AskUserOption[];
   selectionMode: "single_select" | "multi_select" | null;
@@ -59,8 +61,8 @@ export interface ApprovalView {
   requestedAt: string;
   expiresAt: string;
   decidedAt: string | null;
-  decision?: DecisionView | null;
-  canDecide?: boolean;
+  decision: DecisionView | null;
+  canDecide: boolean;
 }
 
 export interface DecisionView {
@@ -83,4 +85,18 @@ export function toDecisionView(row: DecisionRow): DecisionView {
     reason: row.reason,
     createdAt: row.created_at,
   };
+}
+
+export interface GateView {
+  number: number | null;
+  name: string;
+  outcome: string;
+}
+
+export function toGateView(gate: GateInfo | null): GateView | null {
+  return gate ? { number: gate.gate, name: gate.name, outcome: gate.outcome } : null;
+}
+
+export function selectionModeOf(value: string | null | undefined): "single_select" | "multi_select" | null {
+  return value === "single_select" || value === "multi_select" ? value : null;
 }

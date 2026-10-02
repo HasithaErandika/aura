@@ -1,29 +1,31 @@
 import { api } from "../api/client.ts";
+import { describeError } from "../api/errors.ts";
+import type { RuntimeHealth } from "../api/types.ts";
 import { useAsync } from "../hooks/useAsync.ts";
 import { usePolling } from "../hooks/usePolling.ts";
-import type { RuntimeHealth } from "../../types/api.ts";
 import { cn } from "../lib/cn.ts";
 
-interface Response {
-  runtime: RuntimeHealth & { url: string };
+async function loadHealth(): Promise<RuntimeHealth> {
+  try {
+    return (await api.get<{ runtime: RuntimeHealth }>("/health/runtime")).runtime;
+  } catch (err) {
+    return { ok: false, agents: [], message: describeError(err) };
+  }
 }
 
-// Live reachability of apps/agent-runtime as seen by the API. Polled quietly.
 export function RuntimeStatus() {
-  const { data, error, reload } = useAsync(
-    () => api.get<Response>("/health/runtime").catch((err: unknown) => ({ runtime: { ok: false, agents: [], url: "", message: err instanceof Error ? err.message : "unreachable" } })),
-    [],
-  );
+  const { data, reload } = useAsync(loadHealth, []);
   usePolling(reload, 30_000, true);
 
-  const ok = data?.runtime.ok ?? false;
-  const title = ok ? `Agent runtime online (${data?.runtime.agents.length ?? 0} agents)` : (data?.runtime.message ?? error ?? "Checking agent runtime");
+  const ok = data?.ok ?? false;
+  const text = data ? (ok ? "online" : "offline") : "checking";
+  const title = !data ? "Checking agent runtime" : ok ? `Agent runtime online (${data.agents.length} agents)` : `Agent runtime offline${data.message ? `: ${data.message}` : ""}`;
 
   return (
-    <div className="hidden items-center gap-2 rounded-md border border-line px-2.5 py-1.5 text-xs text-ink-600 sm:flex" title={title}>
-      <span className={cn("size-2 rounded-full", data ? (ok ? "bg-success" : "bg-danger") : "bg-ink-300")} />
+    <div className="hidden items-center gap-2 rounded-md border border-line px-2.5 py-1.5 text-xs text-ink-600 sm:flex" title={title} role="status" aria-label={title}>
+      <span className={cn("size-2 rounded-full", data ? (ok ? "bg-success" : "bg-danger") : "bg-ink-300")} aria-hidden />
       <span className="font-medium">Runtime</span>
-      <span className="text-ink-500">{data ? (ok ? "online" : "offline") : "checking"}</span>
+      <span className="text-ink-500">{text}</span>
     </div>
   );
 }

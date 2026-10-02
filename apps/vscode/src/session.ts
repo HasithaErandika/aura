@@ -7,6 +7,8 @@ import { PROJECT_FILE, type ProjectConfig } from "./project-setup.js";
 // and command. The token is kept in VS Code's secret storage, never in settings or files.
 
 const TOKEN_KEY = "aura.token";
+const WEB_URL_KEY = "aura.webUrl";
+const DEFAULT_WEB_URL = "http://localhost:5173";
 
 export class Session {
   private readonly changed = new vscode.EventEmitter<void>();
@@ -17,6 +19,12 @@ export class Session {
 
   get apiUrl(): string {
     return vscode.workspace.getConfiguration("aura").get<string>("apiUrl", "http://localhost:4000").replace(/\/+$/, "");
+  }
+
+  // The web app: the setting, else where the last browser sign-in happened, else local dev.
+  get webUrl(): string {
+    const configured = vscode.workspace.getConfiguration("aura").get<string>("webUrl", "").trim();
+    return (configured || this.context.globalState.get<string>(WEB_URL_KEY) || DEFAULT_WEB_URL).replace(/\/+$/, "");
   }
 
   token(): Thenable<string | undefined> {
@@ -75,6 +83,7 @@ export class Session {
     const clientName = `VS Code on ${os.hostname()}`.slice(0, 80);
     const grant = await startDeviceSignIn(this.apiUrl, clientName);
     await vscode.env.clipboard.writeText(grant.userCode);
+    await this.context.globalState.update(WEB_URL_KEY, new URL(grant.verificationUriComplete).origin);
     void vscode.env.openExternal(vscode.Uri.parse(grant.verificationUriComplete));
     return vscode.window.withProgress(
       { location: vscode.ProgressLocation.Notification, title: `AURA: approve code ${grant.userCode} in your browser (copied)`, cancellable: true },

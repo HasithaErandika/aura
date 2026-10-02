@@ -8,26 +8,25 @@ interface RouteHandle {
   fullBleed?: boolean;
 }
 
-// Authenticated frame: white sidebar, header with the signed-in user, scrolling content.
-// Route `handle` supplies the header title; `fullBleed` routes manage their own padding
-// (the workspace uses the whole height for the chat panel).
 export function AppShell() {
   const [navOpen, setNavOpen] = useState(false);
   const matches = useMatches();
   const handle = [...matches].reverse().find((m) => m.handle && typeof m.handle === "object")?.handle as RouteHandle | undefined;
-  const title = handle?.title ?? "AURA";
 
   return (
-    <div className="flex h-screen overflow-hidden bg-canvas">
+    <div className="flex h-dvh overflow-hidden bg-canvas">
+      <a href="#main" className="sr-only focus:not-sr-only focus:absolute focus:top-2 focus:left-2 focus:z-50 focus:rounded-md focus:bg-surface focus:px-3 focus:py-2 focus:text-sm focus:shadow">
+        Skip to content
+      </a>
       <Sidebar open={navOpen} onClose={() => setNavOpen(false)} />
       <div className="flex min-w-0 flex-1 flex-col">
-        <Topbar title={title} onOpenNav={() => setNavOpen(true)} />
+        <Topbar title={handle?.title ?? "AURA"} onOpenNav={() => setNavOpen(true)} />
         {handle?.fullBleed ? (
-          <main className="min-h-0 flex-1">
+          <main id="main" className="min-h-0 flex-1">
             <Outlet />
           </main>
         ) : (
-          <main className="scroll-quiet flex-1 overflow-y-auto">
+          <main id="main" className="scroll-quiet min-h-0 flex-1 overflow-x-hidden overflow-y-auto">
             <div className="mx-auto max-w-7xl space-y-6 px-4 py-6 sm:px-6">
               <Outlet />
             </div>

@@ -1,23 +1,30 @@
-import { NavLink } from "react-router-dom";
+import { useEffect } from "react";
+import { env } from "@/config/env.ts";
 import { useAuth } from "../auth/useAuth.ts";
-import { navigation } from "./navigation.ts";
 import { LogoMark } from "../brand/Logo.tsx";
-import { cn } from "../lib/cn.ts";
 import { XIcon } from "../icons/index.tsx";
-import { env } from "../../config/env.ts";
+import { cn } from "../lib/cn.ts";
+import { IconButton } from "../ui/IconButton.tsx";
+import { visibleNavigation } from "./navigation.ts";
+import { SidebarLink } from "./SidebarLink.tsx";
 
 export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void }) {
   const { profile } = useAuth();
-  if (!profile) return null;
 
-  const groups = navigation
-    .map((group) => ({ ...group, items: group.items.filter((item) => item.visible(profile)) }))
-    .filter((group) => group.items.length > 0);
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [open, onClose]);
+
+  if (!profile) return null;
 
   return (
     <>
       {open ? <div className="fixed inset-0 z-30 bg-ink-900/30 md:hidden" onClick={onClose} aria-hidden /> : null}
       <aside
+        aria-label="Main navigation"
         className={cn(
           "fixed inset-y-0 left-0 z-40 flex w-64 shrink-0 flex-col border-r border-line bg-surface transition-transform md:static md:translate-x-0",
           open ? "translate-x-0" : "-translate-x-full",
@@ -31,37 +38,17 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
               <p className="text-[11px] text-ink-500">Delivery platform</p>
             </div>
           </div>
-          <button type="button" onClick={onClose} className="rounded-md p-1.5 text-ink-500 hover:bg-ink-100 md:hidden" aria-label="Close navigation">
-            <XIcon className="size-4" />
-          </button>
+          <IconButton label="Close navigation" icon={<XIcon className="size-4" />} onClick={onClose} className="md:hidden" />
         </div>
 
         <nav className="scroll-quiet flex-1 overflow-y-auto px-3 py-4">
-          {groups.map((group) => (
+          {visibleNavigation(profile).map((group) => (
             <div key={group.label} className="mb-5">
-              <p className="mb-1.5 px-3 text-[11px] font-semibold uppercase tracking-wider text-ink-400">{group.label}</p>
+              <p className="mb-1.5 px-3 text-[11px] font-semibold tracking-wider text-ink-400 uppercase">{group.label}</p>
               <ul className="space-y-0.5">
-                {group.items.map(({ label, to, icon: Icon, end }) => (
-                  <li key={to}>
-                    <NavLink
-                      to={to}
-                      end={end}
-                      onClick={onClose}
-                      className={({ isActive }) =>
-                        cn(
-                          "group relative flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors",
-                          isActive ? "bg-ink-100 text-ink-900" : "text-ink-600 hover:bg-ink-50 hover:text-ink-900",
-                        )
-                      }
-                    >
-                      {({ isActive }) => (
-                        <>
-                          {isActive ? <span className="absolute inset-y-1.5 left-0 w-0.5 rounded-full bg-brand" /> : null}
-                          <Icon className={cn("size-[18px] shrink-0", isActive ? "text-ink-900" : "text-ink-400 group-hover:text-ink-600")} />
-                          <span className="truncate">{label}</span>
-                        </>
-                      )}
-                    </NavLink>
+                {group.items.map((item) => (
+                  <li key={item.to}>
+                    <SidebarLink item={item} onNavigate={onClose} />
                   </li>
                 ))}
               </ul>

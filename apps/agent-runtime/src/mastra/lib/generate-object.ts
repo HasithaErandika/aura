@@ -26,10 +26,7 @@ export async function generateObject<T>(mastra: MastraLike, agentId: string, pro
   return generateObjectWith(agent, agentId, prompt, schema, `${agentId}-agent`);
 }
 
-// Same as generateObject, for an agent that is not registered with Mastra (built per call and
-// bound to one Task's directory - e.g. the Coding Council's Reviewer, agents/council-agents.ts).
-// `usageAgent` is the name the call's tokens are recorded under (store/token-ledger.ts); a retry
-// after invalid JSON is recorded too, since it costs the same.
+// generateObject for an unregistered agent; tokens, retries included, are recorded under usageAgent.
 export async function generateObjectWith<T>(agent: AgentLike, label: string, prompt: string, schema: z.ZodType<T>, usageAgent: string = label): Promise<T> {
   const attempt = async () => {
     const result = await agent.generate(prompt, {

@@ -20,15 +20,12 @@ function optionalString(name: string): string | undefined {
   return value && value.length > 0 ? value : undefined;
 }
 
-// local = one developer's machine; server = a shared deployment, where the settings that are only
-// safe on loopback are refused at startup (docs/adr/0002-team-scale-deployment.md).
 function auraMode(): "local" | "server" {
   const mode = process.env.AURA_MODE?.trim() || "local";
   if (mode !== "local" && mode !== "server") throw new Error(`AURA_MODE must be "local" or "server", got "${mode}"`);
   return mode;
 }
 
-// The runtime trusts only callers presenting this token (apps/agent-runtime server/runtime-auth.ts).
 function runtimeToken(mode: "local" | "server"): string | undefined {
   const token = optionalString("MASTRA_RUNTIME_TOKEN");
   if (!token && mode === "server") throw new Error("AURA_MODE=server requires MASTRA_RUNTIME_TOKEN (same value in apps/agent-runtime/.env)");
@@ -53,27 +50,16 @@ export const env = {
   supabaseAnonKey: required("SUPABASE_ANON_KEY"),
   supabaseServiceRoleKey: required("SUPABASE_SERVICE_ROLE_KEY"),
   supabaseJwtSecret: optionalString("SUPABASE_JWT_SECRET"),
-  
   sessionCacheTtlMs: optionalNumber("SESSION_CACHE_TTL_MS", 30_000),
   runtimeUrl: (process.env.MASTRA_RUNTIME_URL ?? "http://localhost:4111").replace(/\/+$/, ""),
   runtimeTimeoutMs: optionalNumber("MASTRA_RUNTIME_TIMEOUT_MS", 15_000),
   runtimeToken: runtimeToken(mode),
   runTurnTimeoutMs: optionalNumber("RUN_TURN_TIMEOUT_MS", 10 * 60_000),
-  // Postgres for the turn queue (pg-boss, schema "pgboss"). Unset: turns run in this process
-  // without a queue (fine for one developer; a restart interrupts running turns either way).
   databaseUrl: optionalString("DATABASE_URL"),
-  // Agent turns running at once on this API process, and per user across all processes.
   turnConcurrency: optionalNumber("TURN_CONCURRENCY", 4),
   turnConcurrencyPerUser: optionalNumber("TURN_CONCURRENCY_PER_USER", 2),
   approvalSlaHours: optionalNumber("APPROVAL_SLA_HOURS", 72),
-  
-  // Web terminal (modules/terminal): shared with apps/agent-runtime, which verifies the tickets
-  // this API signs. Unset = terminal disabled.
-  terminalTicketSecret: optionalString("TERMINAL_TICKET_SECRET"),
-  terminalWsUrl: (process.env.TERMINAL_WS_URL ?? "ws://localhost:4112").replace(/\/+$/, ""),
-  // The API URL the `aura` CLI inside the web terminal talks to (the shell runs on the runtime's
-  // machine, which in local mode is this one).
-  terminalCliApiUrl: (process.env.TERMINAL_CLI_API_URL ?? `http://localhost:${optionalNumber("PORT", 4000)}`).replace(/\/+$/, ""),
+  ciOidcAudience: process.env.AURA_CI_AUDIENCE ?? "aura",
 
   jiraUrl: optionalString("JIRA_URL")?.replace(/\/+$/, ""),
   jiraUsername: optionalString("JIRA_USERNAME"),

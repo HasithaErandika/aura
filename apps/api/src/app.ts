@@ -2,11 +2,12 @@ import express from "express";
 import cors from "cors";
 import helmet from "helmet";
 import { env } from "./config/env.js";
-import { apiRouter } from "./routes/index.js";
-import { requestId } from "./middleware/request-id.js";
-import { errorHandler, notFoundHandler } from "./middleware/error-handler.js";
 import { byIp, rateLimit } from "./lib/http/rate-limit.js";
-import { internalRouter } from "./modules/bridge/internal.router.js";
+import { errorHandler, notFoundHandler } from "./middleware/error-handler.js";
+import { requestId } from "./middleware/request-id.js";
+import { apiRouter, internalRouter } from "./routes/index.js";
+
+const INTERNAL_BODY_LIMIT = "8mb";
 
 export function createApp() {
   const app = express();
@@ -25,14 +26,10 @@ export function createApp() {
     }),
   );
   app.use(requestId);
-  // The runtime calling back (bridge tool calls): its own token check, larger bodies (file
-  // contents), and no per-client rate limit - one agent turn makes many tool calls.
-  app.use("/internal", express.json({ limit: "8mb", type: "application/json" }), internalRouter);
+  app.use("/internal", express.json({ limit: INTERNAL_BODY_LIMIT, type: "application/json" }), internalRouter);
   app.use(rateLimit({ name: "per client", windowMs: env.rateLimit.windowMs, max: env.rateLimit.perIp, key: byIp }));
   app.use(express.json({ limit: env.jsonBodyLimit, type: "application/json" }));
-
   app.use(apiRouter);
-
   app.use(notFoundHandler);
   app.use(errorHandler);
   return app;

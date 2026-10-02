@@ -2,7 +2,7 @@ import { mkdtempSync, mkdirSync, rmSync, symlinkSync, writeFileSync } from "node
 import os from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
-import { executeRequest } from "./bridge-client.js";
+import { BridgeClient, executeRequest } from "./bridge-client.js";
 import { ExecutorError, WorkspaceExecutor, safeEnv } from "./executor.js";
 import { PermissionPolicy } from "./permissions.js";
 import type { ToolRequestMessage } from "@aura/bridge";
@@ -127,5 +127,20 @@ describe("executeRequest", () => {
     const outcome = await executeRequest(request("fs.readFile", { path: "../x" }), { executor: exec, policy: new PermissionPolicy(), ask: vi.fn(), log: () => {} });
     expect(outcome).toMatchObject({ ok: false, error: { code: "outside_workspace" } });
     expect(new ExecutorError("failed", "x").code).toBe("failed");
+  });
+});
+
+describe("BridgeClient.cancelRun", () => {
+  it("kills the stopped run's running command and leaves other runs alone", async () => {
+    const client = new BridgeClient({ apiUrl: "http://api.test", token: async () => "t", executor: exec, policy: new PermissionPolicy(), workspaceName: "shop", ask: async () => "once", log: () => {} });
+    const slow = (callId: string, runId: string): ToolRequestMessage => ({ type: "tool.request", callId, runId, op: "sandbox.exec", args: { command: "node -e 'setTimeout(() => {}, 20000)'" }, timeoutMs: 30000 });
+    const started = Date.now();
+    const stopped = client.execute(slow("c1", "r1"));
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    expect(client.cancelRun("r2")).toBe(0);
+    expect(client.cancelRun("r1")).toBe(1);
+    await stopped;
+    expect(Date.now() - started).toBeLessThan(5000);
+    expect(client.cancelRun("r1")).toBe(0);
   });
 });

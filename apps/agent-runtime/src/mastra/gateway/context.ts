@@ -11,6 +11,8 @@ export const RUN_CONTEXT_KEY = 'auraRun';
 
 export interface RunContext {
   runId: string;
+  // The conversation (Mastra thread) of the run; null from an older API.
+  threadId: string | null;
   requestId: string | null;
   userId: string;
   role: string;
@@ -40,7 +42,7 @@ export function runFrom(requestContext: RequestContextLike | undefined): RunCont
   const runId = text(v?.runId);
   const userId = text(v?.userId);
   if (!runId || !userId) return null;
-  return { runId, requestId: text(v?.requestId), userId, role: text(v?.role) ?? 'unknown' };
+  return { runId, threadId: text(v?.threadId), requestId: text(v?.requestId), userId, role: text(v?.role) ?? 'unknown' };
 }
 
 export function decisionFrom(requestContext: RequestContextLike | undefined): DecisionContext | null {
@@ -52,9 +54,7 @@ export function decisionFrom(requestContext: RequestContextLike | undefined): De
   return { approvalId, decision, userId, role: text(v?.role) ?? 'unknown', decidedAt: text(v?.decidedAt) ?? new Date().toISOString() };
 }
 
-// A decision that lets a gated step go ahead. "answer" counts: it's a human picking one of the
-// gate's own options whose label the clients couldn't classify (apps/web GateCard.tsx), e.g.
-// "Start the test loop". revise and reject never do.
+// Whether a decision lets a gated step run: approve or an unclassified gate option, never revise or reject.
 export function authorizesGatedStep(decision: DecisionContext | null): boolean {
   return decision?.decision === 'approve' || decision?.decision === 'answer';
 }

@@ -450,5 +450,3 @@ export function EditIcon(props: SVGProps<SVGSVGElement>) {
 
 export { AgentLiveIcon } from "./agentLive.tsx";
 export { PALETTE } from "./palette.ts";
-
-

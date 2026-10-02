@@ -1,19 +1,13 @@
+import type { Role } from "../../lib/auth/roles.js";
+import { dbError, orValue } from "../../lib/db.js";
 import { supabaseAdmin } from "../../lib/supabase.js";
-import { assertSafeOrValue } from "../../lib/postgrest.js";
-import type { Role } from "../identity/roles.js";
-import type { AskUserOption } from "../runtime/runtime.types.js";
+import type { AskUserOption } from "../runtime/index.js";
 import type { ApprovalRow, ApprovalStatus, Decision, DecisionRow } from "./approvals.types.js";
 
 const APPROVAL_COLUMNS =
   "id, run_id, thread_id, agent_id, runtime_run_id, tool_call_id, producing_agent, required_role, requested_by, question, options, selection_mode, snapshot, snapshot_hash, status, requested_at, expires_at, decided_at";
 
-function dbError(context: string, error: { message: string; code?: string }): Error {
-  const hint =
-    error.code === "42P01" || /relation .* does not exist/i.test(error.message)
-      ? " (apply supabase/migrations/0002_runs_approvals_audit.sql)"
-      : "";
-  return new Error(`${context}: ${error.message}${hint}`);
-}
+const DECISION_COLUMNS = "id, approval_id, decided_by, decided_by_role, decision, answer, reason, snapshot_hash, created_at";
 
 export interface ApprovalFilter {
   status?: ApprovalStatus[];
@@ -88,13 +82,12 @@ export const approvalsRepository = {
     return (data ?? []) as ApprovalRow[];
   },
 
-  // Approvals a user may act on or watch: those requiring their role, plus clarification
-  // questions (no role) on runs they started, plus anything on their own runs for context.
+  // Gates for their role, plus everything on runs they started.
   async listForUser(userId: string, role: Role, status: ApprovalStatus[] | undefined, limit: number): Promise<ApprovalRow[]> {
     let builder = supabaseAdmin
       .from("approval_requests")
       .select(APPROVAL_COLUMNS)
-      .or(`required_role.eq.${assertSafeOrValue(role, "role")},requested_by.eq.${assertSafeOrValue(userId, "userId")}`)
+      .or(`required_role.eq.${orValue(role, "role")},requested_by.eq.${orValue(userId, "userId")}`)
       .order("requested_at", { ascending: false })
       .limit(limit);
     if (status?.length) builder = builder.in("status", status);
@@ -103,7 +96,7 @@ export const approvalsRepository = {
     return (data ?? []) as ApprovalRow[];
   },
 
-  // Atomic transition guarded on the previous status so two approvers cannot both win.
+  // Guarded on the previous status so two approvers cannot both win.
   async transition(id: string, from: ApprovalStatus, to: ApprovalStatus): Promise<ApprovalRow | null> {
     const { data, error } = await supabaseAdmin
       .from("approval_requests")
@@ -147,7 +140,7 @@ export const approvalsRepository = {
         reason: input.reason,
         snapshot_hash: input.snapshotHash,
       })
-      .select("id, approval_id, decided_by, decided_by_role, decision, answer, reason, snapshot_hash, created_at")
+      .select(DECISION_COLUMNS)
       .single();
     if (error) throw dbError("record decision", error);
     return data as DecisionRow;
@@ -157,7 +150,7 @@ export const approvalsRepository = {
     if (approvalIds.length === 0) return [];
     const { data, error } = await supabaseAdmin
       .from("approval_decisions")
-      .select("id, approval_id, decided_by, decided_by_role, decision, answer, reason, snapshot_hash, created_at")
+      .select(DECISION_COLUMNS)
       .in("approval_id", approvalIds)
       .order("created_at", { ascending: false });
     if (error) throw dbError("list decisions", error);
@@ -173,13 +166,13 @@ export const approvalsRepository = {
     return count ?? 0;
   },
 
-// Counts approvals this user can decide now, matching canDecide() (required role or their own run's clarification).
+  // Matches policy canDecide: their role, or a question on their own run.
   async countPendingForUser(userId: string, role: Role): Promise<number> {
     const { count, error } = await supabaseAdmin
       .from("approval_requests")
       .select("id", { count: "exact", head: true })
       .eq("status", "PENDING")
-      .or(`required_role.eq.${assertSafeOrValue(role, "role")},and(required_role.is.null,requested_by.eq.${assertSafeOrValue(userId, "userId")})`);
+      .or(`required_role.eq.${orValue(role, "role")},and(required_role.is.null,requested_by.eq.${orValue(userId, "userId")})`);
     if (error) throw dbError("count approvals for user", error);
     return count ?? 0;
   },

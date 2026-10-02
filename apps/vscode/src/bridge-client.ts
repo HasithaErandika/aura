@@ -1,13 +1,16 @@
+import { posix } from "node:path";
 import WebSocket from "ws";
-import { BRIDGE_PROTOCOL_VERSION, READ_ONLY_OPS, parseServerMessage, type BridgeArgs, type BridgeOp, type ClientMessage, type ToolRequestMessage } from "@aura/bridge";
-import { describeRequest, type PermissionPolicy } from "./permissions.js";
+import { BRIDGE_PROTOCOL_VERSION, READ_ONLY_OPS, WORKTREE_DIR, isWorktreeName, parseServerMessage, type BridgeArgs, type BridgeOp, type ClientMessage, type ToolRequestMessage } from "@aura/bridge";
+import { afterEditCommands, isCommit, runBeforeCommit, type HookRunner } from "./hooks.js";
+import { describeRequest, ruleFor, type PermissionPolicy } from "./permissions.js";
+import { EMPTY_SETTINGS, type Hooks } from "./project-settings.js";
 import { ExecutorError, type WorkspaceExecutor } from "./executor.js";
 
 // The extension's end of the bridge (ADR-4): fetches a ticket, opens the WebSocket to apps/api,
 // and answers each tool request after the permission check. Reconnects with backoff until
 // stopped. No VS Code API here: the prompt, the log and the status are passed in.
 
-export type Approval = "once" | "session" | "deny";
+export type Approval = "once" | "session" | "project" | "deny";
 export type BridgeState = "disconnected" | "connecting" | "connected";
 
 export interface BridgeClientOptions {
@@ -18,6 +21,10 @@ export interface BridgeClientOptions {
   workspaceName: string;
   ask: (question: string, detail: string) => Promise<Approval>;
   log: (line: string) => void;
+  // The project's hooks (.aura/settings.json), read when a request arrives.
+  hooks?: () => Hooks;
+  // "Allow for this project": saves the rule to .aura/settings.local.json.
+  allowForProject?: (rule: string) => Promise<void>;
   onState?: (state: BridgeState) => void;
   fetchImpl?: typeof fetch;
 }
@@ -29,7 +36,7 @@ export class BridgeClient {
   private stopped = true;
   private attempts = 0;
   private retryTimer: NodeJS.Timeout | null = null;
-  private readonly running = new Map<string, AbortController>();
+  private readonly running = new Map<string, { runId: string; controller: AbortController }>();
 
   constructor(private readonly options: BridgeClientOptions) {}
 
@@ -41,7 +48,7 @@ export class BridgeClient {
   stop(): void {
     this.stopped = true;
     if (this.retryTimer) clearTimeout(this.retryTimer);
-    for (const controller of this.running.values()) controller.abort();
+    for (const { controller } of this.running.values()) controller.abort();
     this.running.clear();
     this.ws?.close(1000, "stopped");
     this.ws = null;
@@ -113,18 +120,47 @@ export class BridgeClient {
     const message = parseServerMessage(raw);
     if (!message) return;
     if (message.type === "run.cancel") {
-      this.running.get(message.callId)?.abort();
+      this.running.get(message.callId)?.controller.abort();
       return;
     }
     if (message.type === "tool.request") await this.execute(message);
   }
 
+  // Stop: kills what this run is doing on this machine right now, without waiting for the cloud.
+  cancelRun(runId: string): number {
+    let cancelled = 0;
+    for (const { runId: id, controller } of this.running.values()) {
+      if (id === runId) {
+        controller.abort();
+        cancelled++;
+      }
+    }
+    return cancelled;
+  }
+
   // Exported for tests through executeRequest.
   async execute(request: ToolRequestMessage): Promise<void> {
-    const outcome = await executeRequest(request, this.options, (controller) => this.running.set(request.callId, controller));
+    const outcome = await executeRequest(request, this.options, (controller) => this.running.set(request.callId, { runId: request.runId, controller }));
     this.running.delete(request.callId);
     this.send(outcome.ok ? { type: "tool.result", callId: request.callId, ok: true, value: outcome.value } : { type: "tool.result", callId: request.callId, ok: false, error: outcome.error });
   }
+}
+
+// A parallel sub-task's request: its paths (and the commands' folder) resolve inside
+// .aura/worktrees/<name>. Permission rules see the paths as the agent wrote them.
+export function scopeToWorktree(op: BridgeOp, args: BridgeArgs<BridgeOp>, worktree: string): BridgeArgs<BridgeOp> | null {
+  const base = `${WORKTREE_DIR}/${worktree}`;
+  let escaped = false;
+  const inside = (p: unknown) => {
+    if (typeof p !== "string" || !p || p === ".") return base;
+    const scoped = posix.normalize(`${base}/${p.replace(/\\/g, "/").replace(/^\/+/, "")}`);
+    if (scoped !== base && !scoped.startsWith(`${base}/`)) escaped = true;
+    return scoped;
+  };
+  const a = { ...(args as Record<string, unknown>) };
+  for (const key of ["path", "src", "dest"]) if (key in a) a[key] = inside(a[key]);
+  if (op === "sandbox.exec" || op === "proc.spawn") a.cwd = inside(a.cwd);
+  return escaped ? null : (a as BridgeArgs<BridgeOp>);
 }
 
 export type RequestOutcome = { ok: true; value: unknown } | { ok: false; error: { code: ExecutorError["code"]; message: string } };
@@ -132,13 +168,16 @@ export type RequestOutcome = { ok: true; value: unknown } | { ok: false; error: 
 // Permission check → (ask) → run. Pure enough to test without a socket.
 export async function executeRequest(
   request: ToolRequestMessage,
-  options: Pick<BridgeClientOptions, "executor" | "policy" | "ask" | "log">,
+  options: Pick<BridgeClientOptions, "executor" | "policy" | "ask" | "log" | "hooks" | "allowForProject">,
   track?: (controller: AbortController) => void,
 ): Promise<RequestOutcome> {
   const op = request.op as BridgeOp;
-  const args = request.args as BridgeArgs<BridgeOp>;
+  if (request.worktree !== undefined && !isWorktreeName(request.worktree)) return { ok: false, error: { code: "invalid", message: "Invalid worktree name." } };
+  const asked = request.args as BridgeArgs<BridgeOp>;
+  const args = request.worktree ? scopeToWorktree(op, asked, request.worktree) : asked;
+  if (!args) return { ok: false, error: { code: "outside_workspace", message: "The path leaves the sub-task's worktree." } };
   const question = describeRequest(op, args);
-  const decision = options.policy.decide(op, args);
+  const decision = options.policy.decide(op, asked, request.readOnly ? "plan" : undefined);
 
   if (decision.kind === "deny") {
     options.log(`✗ Refused: ${question} (${decision.reason})`);
@@ -150,13 +189,35 @@ export async function executeRequest(
       options.log(`✗ Denied by you: ${question}`);
       return { ok: false, error: { code: "denied", message: "The developer refused this action." } };
     }
-    if (answer === "session") options.policy.rememberForSession(op, args);
+    if (answer === "session") options.policy.rememberForSession(op, asked);
+    if (answer === "project") {
+      options.policy.rememberForSession(op, asked);
+      await options.allowForProject?.(ruleFor(op, asked)).catch((error: unknown) => options.log(`Couldn't save the rule: ${error instanceof Error ? error.message : String(error)}`));
+    }
   }
 
+  const hooks = options.hooks?.() ?? EMPTY_SETTINGS.hooks;
   const controller = new AbortController();
   track?.(controller);
+  // Hooks run as commands in the workspace; built-in and project denies still apply.
+  const runHook: HookRunner = async (command) => {
+    const check = options.policy.decide("sandbox.exec", { command });
+    if (check.kind === "deny") return { exitCode: 126, output: `Refused: ${check.reason}` };
+    const r = await options.executor.run("sandbox.exec", { command }, controller.signal);
+    options.log(`${r.exitCode === 0 ? "✓" : "✗"} Hook: ${command} → exit ${r.exitCode}`);
+    return { exitCode: r.exitCode, output: `${r.stdout}\n${r.stderr}`.trim() };
+  };
+
   try {
+    if (isCommit(op, args)) {
+      const gate = await runBeforeCommit(hooks, runHook);
+      if (!gate.ok) {
+        options.log(`✗ ${question}: a beforeCommit hook failed`);
+        return { ok: false, error: { code: "failed", message: gate.message } };
+      }
+    }
     const value = await options.executor.run(op, args, controller.signal);
+    for (const command of afterEditCommands(hooks, op, args)) await runHook(command).catch((error: unknown) => options.log(`✗ Hook: ${command}: ${error instanceof Error ? error.message : String(error)}`));
     if (!READ_ONLY_OPS.includes(op)) {
       const exit = op === "sandbox.exec" ? ` → exit ${(value as { exitCode: number }).exitCode}` : "";
       options.log(`✓ ${question}${exit}`);

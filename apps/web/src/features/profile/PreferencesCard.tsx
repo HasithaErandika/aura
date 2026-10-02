@@ -1,16 +1,14 @@
-import { useAsync } from "../../shared/hooks/useAsync.ts";
-import { Card, CardHeader } from "../../shared/ui/Card.tsx";
-import { Alert } from "../../shared/ui/Alert.tsx";
-import { SkeletonRows } from "../../shared/ui/Skeleton.tsx";
-import { settingsApi, type SettingValue } from "../settings/api.ts";
-import { SettingField } from "../settings/SettingField.tsx";
+import { useAsync } from "@/shared/hooks/useAsync.ts";
+import { Card } from "@/shared/ui/Card.tsx";
+import { CardHeader } from "@/shared/ui/CardHeader.tsx";
+import { Alert } from "@/shared/ui/Alert.tsx";
+import { SkeletonRows } from "@/shared/ui/SkeletonRows.tsx";
+import { settingsApi, type SettingValue } from "@/shared/settings/api.ts";
+import { SettingField } from "@/shared/settings/SettingField.tsx";
 
-// Profile → Preferences: personal values for the settings that allow them (Coding Council mode,
-// a lower personal token budget). Anything not set here follows the project and global values.
 export function PreferencesCard() {
   const definitions = useAsync(() => settingsApi.definitions(), []);
   const mine = useAsync(() => settingsApi.mine(), []);
-  // Without the personal values, so "inherited" shows what applies when one is reset.
   const shared = useAsync(() => settingsApi.effective({ includeMine: false }), []);
 
   const personal = (definitions.data ?? []).filter((d) => d.scopes.includes("user"));

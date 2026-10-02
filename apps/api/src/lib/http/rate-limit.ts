@@ -1,5 +1,5 @@
 import type { NextFunction, Request, Response } from "express";
-import { HttpError } from "./errors.js";
+import { tooManyRequests } from "./errors.js";
 
 interface Bucket {
   count: number;
@@ -42,7 +42,7 @@ export function rateLimit(options: RateLimitOptions) {
     res.setHeader("RateLimit-Reset", String(Math.ceil((bucket.resetAt - now) / 1000)));
     if (bucket.count > options.max) {
       res.setHeader("Retry-After", String(Math.ceil((bucket.resetAt - now) / 1000)));
-      return next(new HttpError(429, "rate_limited", `Too many requests (${options.name}). Try again shortly.`));
+      return next(tooManyRequests(`Too many requests (${options.name}). Try again shortly.`));
     }
     next();
   };

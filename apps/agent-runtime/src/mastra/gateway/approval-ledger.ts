@@ -1,7 +1,6 @@
 import { runtimeDb } from '../store/runtime-db';
 
-// Each human decision authorizes one gated step (docs/ARCHITECTURE.md §2.2: "single-use,
-// payload-bound approval"). The first medium-risk call after a decision claims it for that tool
+// Each human decision authorizes one gated step (docs/ARCHITECTURE.md §6.2). The first medium-risk call after a decision claims it for that tool
 // and draft; the same call again (a retry, which every execute/file mode handles idempotently)
 // is allowed, anything else is refused. Durable, in the same runtime database as the drafts (store/runtime-db.ts), so a
 // restart can't make a used approval usable again.

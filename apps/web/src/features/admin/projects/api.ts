@@ -1,5 +1,5 @@
-import { api } from "../../../shared/api/client.ts";
-import type { Project, Repository, RepositoryProvider } from "../../../types/api.ts";
+import { api } from "@/shared/api/client.ts";
+import type { Project, Repository, RepositoryProvider } from "../types.ts";
 
 export interface RepositoryInput {
   provider: RepositoryProvider;

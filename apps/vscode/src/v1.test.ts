@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { addUserMessage, applyEvent, emptyChat, fromHistory, toolDetail } from "./chat/model.js";
-import { ciWorkflow, parseGitRemote, remoteMatches, withAuraIgnores } from "./project-setup.js";
+import { addUserMessage, applyEvent, emptyChat, fromHistory, markStopping, toolDetail } from "./chat/model.js";
+import { ciWorkflow, defaultSettings, parseGitRemote, remoteMatches, withAuraIgnores } from "./project-setup.js";
 
 describe("chat model", () => {
   it("streams text into one assistant message and tracks tool calls by id", () => {
@@ -26,12 +26,24 @@ describe("chat model", () => {
     expect(s.items.at(-1)).toMatchObject({ kind: "notice", tone: "error" });
   });
 
+  it("marks a Stop until the turn ends, and explains it once", () => {
+    let s = applyEvent(addUserMessage(emptyChat(), "go"), { event: "run", data: { runId: "r1", runtimeRunId: null, status: "PENDING" } });
+    s = markStopping(s);
+    expect(s).toMatchObject({ busy: true, stopping: true });
+    s = applyEvent(s, { event: "error", data: { message: "Stopped. Send a message to continue." } });
+    s = applyEvent(s, { event: "done", data: { runId: "r1", status: "INTERRUPTED", approvalId: null } });
+    expect(s).toMatchObject({ busy: false, stopping: false, runId: "r1" });
+    expect(s.items.filter((i) => i.kind === "notice").map((i) => (i as { text: string }).text)).toEqual(["Stopped. Send a message to continue."]);
+    expect(markStopping(s)).toBe(s);
+  });
+
   it("rebuilds a conversation from history", () => {
     const s = fromHistory([
       { id: "m1", role: "user", text: "hi", tools: [], createdAt: null },
       { id: "m2", role: "assistant", text: "Done.", tools: [{ toolCallId: "t", toolName: "mastra_workspace_read_file", state: "result", args: { path: "package.json" }, result: "{}" }], createdAt: null },
-    ]);
+    ], "KAN-45", "r9");
     expect(s.items.map((i) => i.kind)).toEqual(["user", "tool", "assistant"]);
+    expect(s.runId).toBe("r9");
   });
 
   it("describes a tool call by its file or command", () => {
@@ -58,7 +70,15 @@ describe("project setup", () => {
     const once = withAuraIgnores("node_modules/\n");
     expect(once).toContain(".aura/worktrees/");
     expect(withAuraIgnores(once)).toBe(once);
-    expect(withAuraIgnores("")).toContain(".aura/council/");
+    expect(withAuraIgnores("")).toContain(".aura/settings.local.json");
+  });
+
+  it("starts a project with settings the parser accepts", async () => {
+    const { parseSettings } = await import("./project-settings.js");
+    const s = parseSettings(defaultSettings(["frontend", "backend"]), ".aura/settings.json");
+    expect(s.problems).toEqual([]);
+    expect(s.hooks.beforeCommit).toEqual(["cd frontend && npm run lint --if-present", "cd backend && npm run lint --if-present"]);
+    expect(s.permissions.deny).toContain("Read(**/.env)");
   });
 
   it("writes one CI job per app folder", () => {

@@ -6,11 +6,9 @@ export interface AsyncState<T> {
   loading: boolean;
   error: string | null;
   reload: () => Promise<void>;
-  setData: (updater: T | ((prev: T | null) => T | null)) => void;
+  setData: (updater: T | null | ((prev: T | null) => T | null)) => void;
 }
 
-// Loads data on mount and whenever `deps` change. `reload` refetches without clearing the
-// current data so tables do not flash empty.
 export function useAsync<T>(loader: () => Promise<T>, deps: unknown[]): AsyncState<T> {
   const [data, setData] = useState<T | null>(null);
   const [loading, setLoading] = useState(true);
@@ -41,10 +39,14 @@ export function useAsync<T>(loader: () => Promise<T>, deps: unknown[]): AsyncSta
     loaderRef.current = loader;
     setLoading(true);
     void run();
+    const counter = version;
+    return () => {
+      counter.current++;
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, deps);
 
-  const setDataStable = useCallback((updater: T | ((prev: T | null) => T | null)) => {
+  const setDataStable = useCallback((updater: T | null | ((prev: T | null) => T | null)) => {
     setData((prev) => (typeof updater === "function" ? (updater as (p: T | null) => T | null)(prev) : updater));
   }, []);
 

@@ -1,26 +1,16 @@
 import { z } from 'zod';
+import type { DesignDocLink, DesignDocWrite } from './drafts';
+import { bullets } from './markdown';
 
-// The QA Agent's plan (Gate 6). Mirrors the Architect's draft/revise/file shape
-// (contracts/drafts.ts): the agent proposes structured content, deterministic code renders and
-// files it. Unlike Architect, QA's "file" writes real, runnable Playwright source files, not
-// only Markdown - the test plan is a human-readable summary of the same content that becomes
-// the .spec.ts files, never a separate, disconnected description of them.
 
 export const scenarioTypes = ['ui', 'api'] as const;
 
 export const testScenarioSchema = z.object({
   title: z.string().min(3).max(200).describe('Scenario title, one line'),
-  type: z.enum(scenarioTypes).describe('"ui" for a Playwright browser scenario, "api" for a Playwright request-fixture scenario'),
+  type: z.enum(scenarioTypes).describe('"ui" for a browser scenario, "api" for an API scenario'),
   storyKeys: z.array(z.string().min(1)).min(1).describe('Story key(s) this scenario tests'),
-  steps: z.array(z.string().min(1)).min(1).describe('Human-readable steps this scenario covers, for the test plan'),
+  steps: z.array(z.string().min(1)).min(1).describe('Steps and expected results, specific enough to write the test from'),
   fileName: z.string().min(3).max(120).describe('Kebab-case file name for this scenario, no extension, e.g. "submit-ticket-with-valid-fields"'),
-  playwrightSource: z.string().min(20).describe('Complete, runnable Playwright TypeScript test file content (@playwright/test) for this scenario - imports included'),
-  // Bumped only when the Tester Agent loop (or a human) revises this one scenario after a real
-  // failure - every other scenario in the same draft keeps its own revision untouched, since the
-  // loop is only ever allowed to touch the scenario that actually failed (see
-  // delegate-tools/qa.ts's reviseQaScenario - it never regenerates the whole plan).
-  revision: z.number().int().min(1).default(1).describe('Revision counter for this one scenario file'),
-  revisionNote: z.string().nullable().default(null).describe('Why this scenario was last revised (the failure evidence that triggered it) - null for the original version'),
 });
 export type TestScenario = z.infer<typeof testScenarioSchema>;
 
@@ -40,11 +30,7 @@ export const qaDraftSchema = z.object({
 export type QaDraft = z.infer<typeof qaDraftSchema>;
 
 const QA_PERSPECTIVE =
-  '*Drafted by the AURA QA Agent, from a test-coverage perspective: what to verify and how, for each approved Story - the generated Playwright source is the real test, not a description of one.*';
-
-function bullets(items: string[]): string {
-  return items.length ? items.map((i) => `- ${i}`).join('\n') : '- none';
-}
+  '*Drafted by the AURA QA Agent: what to verify for each approved Story. The test-writer coder turns each scenario into a test on the Task branch.*';
 
 export function renderTestPlan(draft: QaDraft): string {
   return [
@@ -62,22 +48,41 @@ export function renderTestPlan(draft: QaDraft): string {
     '',
     ...draft.scenarios.map(
       (s, i) =>
-        `### ${i + 1}. ${s.title} (${s.type.toUpperCase()})\n**Tests:** ${s.storyKeys.join(', ')} · **File:** tests/${s.fileName}.spec.ts${
-          s.revision > 1 ? ` · **Revision ${s.revision}** (${s.revisionNote ?? 'revised'})` : ''
-        }\n\n${bullets(s.steps)}\n`,
+        `### ${i + 1}. ${s.title} (${s.type.toUpperCase()})\n**Tests:** ${s.storyKeys.join(', ')} · **File:** tests/${s.fileName}.spec.ts\n\n${bullets(s.steps)}\n`,
     ),
   ].join('\n');
 }
 
-// Renders the Jira comment posted on the Epic after filing the test plan - points at the QA
-// workspace's real files, same pattern as architectureFiledComment.
-export function qaFiledComment(draft: QaDraft, testPlanPath: string, scenarioPaths: string[], stamp: string): string {
+// One scenario as a design document.
+export function renderScenarioDoc(scenario: TestScenario): string {
+  return [
+    `# ${scenario.title}`,
+    '',
+    `**Type:** ${scenario.type.toUpperCase()} · **Tests:** ${scenario.storyKeys.join(', ')} · **Spec file:** tests/${scenario.fileName}.spec.ts`,
+    '',
+    '## Steps',
+    '',
+    bullets(scenario.steps),
+  ].join('\n');
+}
+
+// Documents saved after test plan approval: the plan, and one per scenario.
+export function qaDocuments(draft: QaDraft): DesignDocWrite[] {
+  return [
+    { kind: 'qa-plan', slug: 'qa-plan', title: `Test plan for ${draft.epicKey}`, content: renderTestPlan(draft) },
+    ...draft.scenarios.map(
+      (s): DesignDocWrite => ({ kind: 'qa-scenario', slug: `qa/${s.fileName.toLowerCase().replace(/[^a-z0-9._-]+/g, '-')}`, title: s.title, content: renderScenarioDoc(s), issueKey: /^[A-Z][A-Z0-9_]*-\d+$/.test(s.storyKeys[0] ?? '') ? s.storyKeys[0] : undefined }),
+    ),
+  ];
+}
+
+// Jira comment on the Epic linking the saved test plan documents.
+export function qaFiledComment(draft: QaDraft, docs: DesignDocLink[], stamp: string): string {
   return [
     `AURA QA Agent filed a test plan with ${draft.scenarios.length} scenario${draft.scenarios.length === 1 ? '' : 's'} for this Epic.`,
     '',
-    `Test plan and Playwright source (QA workspace for ${draft.epicKey}):`,
-    `- ${testPlanPath}`,
-    ...scenarioPaths.map((p) => `- ${p}`),
+    `Test plan and scenarios for ${draft.epicKey} (AURA web app, QA):`,
+    ...docs.map((d) => `- ${d.title}: ${d.url}`),
     '',
     '----',
     stamp,

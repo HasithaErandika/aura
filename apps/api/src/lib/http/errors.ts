@@ -4,6 +4,7 @@ export type ErrorCode =
   | "forbidden"
   | "not_found"
   | "conflict"
+  | "gone"
   | "validation_failed"
   | "rate_limited"
   | "runtime_unavailable"
@@ -27,11 +28,12 @@ export class HttpError extends Error {
 
 export const badRequest = (message: string, details?: unknown) => new HttpError(400, "bad_request", message, details);
 export const unauthenticated = (message = "Authentication required") => new HttpError(401, "unauthenticated", message);
-export const forbidden = (message = "You do not have permission to do this", details?: unknown) =>
-  new HttpError(403, "forbidden", message, details);
+export const forbidden = (message = "You do not have permission to do this", details?: unknown) => new HttpError(403, "forbidden", message, details);
 export const notFound = (what = "Resource") => new HttpError(404, "not_found", `${what} not found`);
 export const conflict = (message: string) => new HttpError(409, "conflict", message);
+export const gone = (message: string) => new HttpError(410, "gone", message);
 export const validationFailed = (details: unknown) => new HttpError(422, "validation_failed", "Request validation failed", details);
+export const tooManyRequests = (message: string) => new HttpError(429, "rate_limited", message);
 export const runtimeUnavailable = (message: string) => new HttpError(503, "runtime_unavailable", message);
 export const jiraUnavailable = (message: string) => new HttpError(503, "jira_unavailable", message);
 export const upstreamError = (message: string, details?: unknown) => new HttpError(502, "upstream_error", message, details);

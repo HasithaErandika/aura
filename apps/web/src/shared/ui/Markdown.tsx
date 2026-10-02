@@ -1,8 +1,5 @@
 import { Fragment, type ReactNode } from "react";
 
-// Renders the subset of Markdown the agents produce (headings, lists, bold, inline and
-// fenced code, paragraphs) as React elements. No HTML is ever injected.
-
 type Block =
   | { type: "code"; lang: string; text: string }
   | { type: "heading"; level: number; text: string }
@@ -112,7 +109,7 @@ function withBreaks(text: string): ReactNode[] {
 export function Markdown({ source, className }: { source: string; className?: string }) {
   const blocks = parseBlocks(source);
   return (
-    <div className={className}>
+    <div className={["min-w-0 break-words", className].filter(Boolean).join(" ")}>
       {blocks.map((block, idx) => {
         switch (block.type) {
           case "code":

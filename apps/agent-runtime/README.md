@@ -5,41 +5,45 @@ Mastra Studio: http://localhost:4111.
 
 ```mermaid
 flowchart LR
-    API["apps/api"] -->|"runtime token"| ORCH{{"Orchestrator"}}
+    API["apps/api"] -->|"runtime token"| ORCH{{"Orchestrator<br/>web"}}
+    API -->|"runtime token"| VSA{{"vscode-agent<br/>VS Code"}}
     ORCH --> GW["Tool gateway"]
+    VSA --> GW
     GW --> DT["delegate_to_* tools"]
-    DT -->|"draft"| AG["Agents / workflows"] --> DS[("Draft store")]
-    DT -->|"execute after approval"| OUT["Jira · disk · git · Docker"]
+    DT -->|"draft"| AG["Agents / workflows / task loop"] --> DS[("Draft store")]
+    DT -->|"after approval"| OUT["Jira · design documents · developer's git"]
+    VSA -->|"bridge"| X["Developer's VS Code"]
 ```
 
 ## How a run works
 
-1. The **Orchestrator** chats with the user and calls a `delegate_to_*` tool in `draft` mode.
-2. The agent or workflow returns structured JSON. It is stored in the **draft store**.
-3. The Orchestrator pauses with `ask_user`. The API turns this into an approval request.
-4. **Revise** creates a new draft version. **Approve** runs the tool's execute mode: plain code
-   writes to Jira, disk or git, with a provenance stamp.
+1. The **Orchestrator** (web) or the **vscode-agent** (VS Code) calls a `delegate_to_*` tool in a
+   low-risk mode (`draft`, `revise`, `status`).
+2. The agent, workflow or code returns structured JSON, stored in the **draft store**.
+3. The agent pauses with `ask_user`. The API turns this into an approval request.
+4. **Revise** creates a new draft version. **Approve** lets the medium-risk mode run once: plain
+   code writes to Jira, design documents or the developer's git, with provenance.
 
-Agents hold no write tools (except the coding agents inside the Task worktree). The Orchestrator
-cannot reach Jira or the filesystem directly.
+Drafting agents hold no write tools. The vscode-agent's coders edit files only in the developer's
+workspace, through the bridge and the developer's permission rules.
 
 ## Layout (`src/mastra/`)
 
 | Folder | Contents |
 |---|---|
-| `agents/` | Orchestrator, PO, BA, Architect, Dev, QA, Tester, Deployer, council agents; `registry.ts` (versions, models) |
-| `workflows/` | `architect-workflow`, `coding-council`, `qa-workflow`, `tester-workflow` |
-| `tools/delegate-tools/` | One file per gate: draft / revise / execute |
+| `agents/` | Orchestrator, PO, BA, Architect, QA, Deployer, vscode-agent, coders, Evaluator; `registry.ts` (versions, models) |
+| `task/` | VS Code Task loop: router, plan split, coder ↔ Evaluator rounds, git operations, merge step, pull request |
+| `bridge/` | Bridge client, filesystem and sandbox: a Mastra `Workspace` on the developer's VS Code |
+| `workflows/` | `architect-workflow`, `qa-workflow` |
+| `tools/` | `delegate-tools/` (web gates), `task-tools.ts` (VS Code Gates 4–6) |
+| `skills/` | AURA's skill library for the vscode-agent and coders |
 | `gateway/` | Risk tiers, single-use approvals, loop guards, injection defense |
 | `contracts/` | Zod schemas, prompts, Markdown and Jira renderers |
-| `store/` | Draft store, token ledger, council notes, usage |
-| `workspace/` | Per-Epic architecture, dev (worktrees) and QA workspaces |
-| `git/` | `GitProvider` interface and `local` provider |
-| `terminal/` | Web terminal server, tickets, PTY, restricted mode |
-| `server/` | Custom HTTP routes, runtime auth, metrics |
-| `bridge/` | Bridge filesystem and sandbox: a Mastra `Workspace` on the developer's VS Code |
+| `store/` | Runtime database, draft store, token ledger |
 | `config/` | `AURA_MODE`, models, dashboard settings from the request context |
-| `lib/` | Docker exec, sandbox checks, metrics, structured-output helper |
+| `mcp/` | Jira MCP client used by the delegate tools |
+| `lib/` | API client helpers, metrics, structured-output helper |
+| `server/` | Custom HTTP routes, runtime auth, metrics |
 | `evals/` | Eval suites, scoring, baseline test |
 
 ## Commands

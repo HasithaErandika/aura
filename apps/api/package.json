@@ -11,6 +11,7 @@
     "start": "node dist/index.js",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "bootstrap-admin": "tsx scripts/bootstrap-admin.ts",
+    "import-design-docs": "tsx scripts/import-design-docs.ts",
     "lint": "echo \"no lint configured yet\"",
     "test": "vitest run",
     "test:watch": "vitest"

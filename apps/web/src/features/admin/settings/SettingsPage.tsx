@@ -1,17 +1,16 @@
 import { useState } from "react";
-import { useAsync } from "../../../shared/hooks/useAsync.ts";
-import { PageHeader } from "../../../shared/ui/PageHeader.tsx";
-import { Card, CardHeader } from "../../../shared/ui/Card.tsx";
-import { Alert } from "../../../shared/ui/Alert.tsx";
-import { Field, Select } from "../../../shared/ui/Field.tsx";
-import { SkeletonRows } from "../../../shared/ui/Skeleton.tsx";
+import { useAsync } from "@/shared/hooks/useAsync.ts";
+import { PageHeader } from "@/shared/ui/PageHeader.tsx";
+import { Card } from "@/shared/ui/Card.tsx";
+import { CardHeader } from "@/shared/ui/CardHeader.tsx";
+import { Alert } from "@/shared/ui/Alert.tsx";
+import { Field } from "@/shared/ui/Field.tsx";
+import { Select } from "@/shared/ui/Select.tsx";
+import { SkeletonRows } from "@/shared/ui/SkeletonRows.tsx";
 import { projectsApi } from "../projects/api.ts";
-import { GROUP_LABELS, settingsApi, type SettingDefinition, type SettingGroup, type SettingValue, type StoredSetting } from "../../settings/api.ts";
-import { SettingField } from "../../settings/SettingField.tsx";
+import { GROUP_LABELS, settingsApi, type SettingDefinition, type SettingGroup, type SettingValue, type StoredSetting } from "@/shared/settings/api.ts";
+import { SettingField } from "@/shared/settings/SettingField.tsx";
 
-// Admin → Settings (docs/plans/aura-automation-durability.md Part A): values that used to live
-// only in .env. Global values apply everywhere; a project value overrides the global one for that
-// project. Secrets, URLs and security switches stay in .env on purpose. Every change is audited.
 export function SettingsPage() {
   const [scopeId, setScopeId] = useState<string>("");
   const definitions = useAsync(() => settingsApi.definitions(), []);

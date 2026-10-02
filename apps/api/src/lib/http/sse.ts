@@ -1,12 +1,14 @@
 import type { Request, Response } from "express";
 
-// Minimal server-sent-events writer for Express. The browser consumes it with fetch + a
-// ReadableStream reader (EventSource cannot send a bearer token or a POST body).
+export function sseFrame(event: string, data: unknown, id?: number): string {
+  return `${id === undefined ? "" : `id: ${id}\n`}event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
+}
+
 export class SseWriter {
   private closed = false;
 
   constructor(
-    private readonly req: Request,
+    req: Request,
     private readonly res: Response,
   ) {
     res.status(200);
@@ -24,20 +26,12 @@ export class SseWriter {
     return this.closed;
   }
 
-  send(event: string, data: unknown) {
-    if (this.closed) return;
-    this.res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
-  }
-
-  // With the run event id, so a client can reconnect with GET /runs/:id/events?after=<id>.
-  sendWithId(id: number, event: string, data: unknown) {
-    if (this.closed) return;
-    this.res.write(`id: ${id}\nevent: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+  send(event: string, data: unknown, id?: number) {
+    if (!this.closed) this.res.write(sseFrame(event, data, id));
   }
 
   comment(text: string) {
-    if (this.closed) return;
-    this.res.write(`: ${text}\n\n`);
+    if (!this.closed) this.res.write(`: ${text}\n\n`);
   }
 
   end() {

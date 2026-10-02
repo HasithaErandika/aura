@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | Accepted · Frontend and Backend/NestJS built |
+| **Status** | Superseded by [ADR-4](0004-vscode-developer-workspace.md) D5 (scaffolds run on the developer's machine) · the Docker scaffold was removed in V7 |
 | **Date** | 2026-09-21 |
 | **Updated by** | [ADR-3](0003-git-workflow.md): scaffold only when a repository is new |
 

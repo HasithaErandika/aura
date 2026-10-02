@@ -1,5 +1,5 @@
 import { readSse } from "./sse.js";
-import type { Approval, ApprovalStatus, BridgeStatus, CouncilUsage, Decision, DeviceSignIn, GitIdentity, JiraEpicDetail, JiraIssueDetail, JiraIssueSummary, Me, Project, TaskWorktree, Thread, ThreadHistory, TurnEvent } from "./types.js";
+import type { Approval, AuraNotification, ApprovalStatus, BridgeStatus, Decision, DeviceSignIn, JiraEpicDetail, JiraIssueDetail, JiraIssueSummary, Me, Project, TaskPr, Thread, ThreadHistory, TurnEvent } from "./types.js";
 
 export interface AuraClientOptions {
   // apps/api base URL, e.g. http://localhost:4000
@@ -104,16 +104,11 @@ export function createAuraClient(options: AuraClientOptions) {
     baseUrl,
 
     me: () => request<Me>("GET", "/me"),
-    setGitIdentity: (identity: { name: string; email: string }) => request<{ gitIdentity: GitIdentity }>("PUT", "/me/git-identity", identity),
 
     jira: {
       epics: (q?: string) => request<{ epics: JiraIssueSummary[] }>("GET", `/jira/epics${q ? `?q=${encodeURIComponent(q)}` : ""}`).then((r) => r.epics),
       epic: (epicKey: string) => request<JiraEpicDetail>("GET", `/jira/epics/${encodeURIComponent(epicKey)}`),
       issue: (key: string) => request<{ issue: JiraIssueDetail }>("GET", `/jira/issues/${encodeURIComponent(key)}`).then((r) => r.issue),
-    },
-
-    devWorkspace: {
-      findTask: (taskKey: string) => request<TaskWorktree>("GET", `/dev-workspace/tasks/${encodeURIComponent(taskKey)}`),
     },
 
     threads: {
@@ -128,10 +123,19 @@ export function createAuraClient(options: AuraClientOptions) {
     runs: {
       // Follows a run's current turn (e.g. after reopening VS Code while it was still running).
       follow: (runId: string, signal?: AbortSignal) => stream(`/runs/${encodeURIComponent(runId)}/events?after=turn`, undefined, signal, runId, "GET"),
+      // Stops a running turn (VS Code Stop). Its stream then ends with an INTERRUPTED "done".
+      stop: (runId: string) => request<{ result: "stopped" | "dequeued" }>("POST", `/runs/${encodeURIComponent(runId)}/stop`).then((r) => r.result),
+      // A note to a running Task: the coders read it at their next step.
+      note: (runId: string, text: string) => request<{ note: { id: string; text: string; createdAt: string } }>("POST", `/runs/${encodeURIComponent(runId)}/notes`, { text }).then((r) => r.note),
     },
 
     projects: {
       list: () => request<{ projects: Project[] }>("GET", "/projects").then((r) => r.projects),
+    },
+
+    settings: {
+      // What applies to the signed-in user in a project: { key: { value, source } }.
+      effective: (projectId?: string) => request<{ projectId: string | null; settings: Record<string, { value: string | number | boolean; source: string }> }>("GET", `/settings/effective${q({ projectId })}`).then((r) => r.settings),
     },
 
     bridge: {
@@ -141,15 +145,19 @@ export function createAuraClient(options: AuraClientOptions) {
     approvals: {
       list: (status: ApprovalStatus[] = ["PENDING"]) => request<{ approvals: Approval[] }>("GET", `/approvals${q({ status: status.join(",") })}`).then((r) => r.approvals),
       get: (id: string) => request<{ approval: Approval }>("GET", `/approvals/${encodeURIComponent(id)}`).then((r) => r.approval),
-      // Records the decision, then yields the resumed run's live events (this is where an
-      // approved Gate 5 actually executes the coding agent / council).
+      // Records the decision, then yields the resumed run's live events.
       decide: (id: string, body: { decision: Decision; answer?: string; reason?: string; snapshotHash?: string }, signal?: AbortSignal) =>
         stream(`/approvals/${encodeURIComponent(id)}/decide`, body, signal),
     },
 
-    council: {
-      note: (draftId: string, text: string) => request<{ queued: number }>("POST", `/council/${encodeURIComponent(draftId)}/notes`, { text }),
-      usage: () => request<CouncilUsage>("GET", "/council/usage"),
+    // A Task's pull request and CI (V6): the VS Code PR view and the QA page.
+    taskPrs: {
+      list: (filter: { taskKey?: string; epicKey?: string } = {}) => request<{ taskPrs: TaskPr[] }>("GET", `/task-prs${q(filter)}`).then((r) => r.taskPrs),
+    },
+
+    notifications: {
+      list: () => request<{ notifications: AuraNotification[]; unread: number }>("GET", "/notifications"),
+      read: (ids?: string[]) => request<{ ok: true }>("POST", "/notifications/read", ids ? { ids } : {}),
     },
   };
 }

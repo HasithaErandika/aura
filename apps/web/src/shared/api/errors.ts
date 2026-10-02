@@ -13,11 +13,14 @@ export class ApiError extends Error {
 }
 
 export function describeError(error: unknown): string {
-  if (error instanceof ApiError) return error.message;
-  if (error instanceof Error) return error.message;
+  if (error instanceof Error && error.message) return error.message;
   return "Something went wrong";
 }
 
 export function isRuntimeUnavailable(error: unknown): boolean {
   return error instanceof ApiError && error.code === "runtime_unavailable";
+}
+
+export function isConflict(error: unknown): boolean {
+  return error instanceof ApiError && error.status === 409;
 }

@@ -1,8 +1,9 @@
 import { z } from 'zod';
+import { bullets } from './markdown';
 
 // Structured drafts the PO and BA and Architect agents produce. Agents propose JSON against these
 // schemas; rendering for humans and filing to Jira are deterministic code, so nothing a
-// human approved can drift on its way into Jira (docs/ARCHITECTURE.md section 1, principle 5).
+// human approved can drift on its way into Jira (docs/ARCHITECTURE.md principle 5).
 
 export const priorities = ['Highest', 'High', 'Medium', 'Low', 'Lowest'] as const;
 
@@ -78,7 +79,10 @@ export const architectureDraftSchema = z.object({
   techStack: techStackSchema,
   requirementsSummary: z.string().min(10).describe('Cross-story synthesis of the functional and non-functional requirement themes driving this design'),
   decomposition: z.string().min(10).describe('System decomposition: components/services and how they fit together'),
+  // Defaults keep drafts saved before these specialists existed parseable.
+  frontendDesign: z.string().default('').describe('Screens, routes, state and component structure of the React app; empty string if this Epic has no UI'),
   apiDesign: z.string().min(10).describe('Endpoints, contracts, versioning approach'),
+  integrationDesign: z.string().default('').describe('External systems, events, queues and third-party APIs this design talks to; empty string if none'),
   dataDesign: z.string().min(10).describe('Schema, storage choices, migrations needed'),
   securityDesign: z.string().min(10).describe('AuthN/AuthZ, data protection, risk tier of new tools or endpoints'),
   aiDesign: z.string().describe('Agent/LLM-specific design notes; empty string if this Epic has none'),
@@ -88,13 +92,9 @@ export const architectureDraftSchema = z.object({
 });
 export type ArchitectureDraft = z.infer<typeof architectureDraftSchema>;
 
-export type DraftKind = 'epic' | 'stories' | 'architecture' | 'dev-scaffold' | 'coding-task' | 'qa-plan' | 'test-run' | 'deploy-plan' | 'git-op' | 'ci-run';
+export type DraftKind = 'epic' | 'stories' | 'architecture' | 'qa-plan' | 'deploy-plan' | 'task-plan' | 'task-review' | 'task-pr';
 
 // Renders a bullet list, or a placeholder line when empty.
-function bullets(items: string[]): string {
-  return items.length ? items.map((i) => `- ${i}`).join('\n') : '- none';
-}
-
 const PO_PERSPECTIVE = '*Drafted by the AURA PO Agent, from a product-ownership perspective: business value, scope, and stakeholder impact.*';
 const BA_PERSPECTIVE = '*Drafted by the AURA BA Agent, from a business-analyst perspective: functional detail, testability, and delivery scope.*';
 const ARCHITECT_PERSPECTIVE = '*Drafted by the AURA Architect Agent, from a technical-design perspective: decomposition, API/data/security shape, and delivery tasks.*';
@@ -222,9 +222,11 @@ export function renderArchitecture(draft: ArchitectureDraft): string {
     '## System decomposition',
     draft.decomposition,
     '',
+    ...(draft.frontendDesign.trim() ? ['## Frontend design', draft.frontendDesign, ''] : []),
     '## API design',
     draft.apiDesign,
     '',
+    ...(draft.integrationDesign.trim() ? ['## Integration design', draft.integrationDesign, ''] : []),
     '## Data design',
     draft.dataDesign,
     '',
@@ -284,28 +286,54 @@ export function renderPlan(draft: ArchitectureDraft): string {
   ].join('\n');
 }
 
-// Workspace file paths this Epic's design documents were written to, relative to the
-// Architect's per-Epic workspace root (architectWorkspace(epicKey)).
-export interface ArchitectureDocPaths {
-  requirements: string;
-  architecture: string;
-  plan: string;
-  adrs: string[];
+// One design document saved to apps/api (design_documents, ADR-5): the slug is its stable name
+// within the Epic, so filing again adds a version instead of a second document.
+export interface DesignDocWrite {
+  kind: 'architecture' | 'srs' | 'plan' | 'adr' | 'qa-plan' | 'qa-scenario';
+  slug: string;
+  title: string;
+  content: string;
+  issueKey?: string;
 }
 
-// Renders the Jira comment pointing at the Architect workspace's design documents. Posted on
-// every Epic the design covers (relatedEpicKeys), not just the primary one that holds the
-// filed Tasks and the workspace files, so a human reading any of the combined Epics finds it.
-export function architectureFiledComment(draft: ArchitectureDraft, paths: ArchitectureDocPaths, stamp: string): string {
+// A saved document's title and its page in the web app, for the Jira comment.
+export interface DesignDocLink {
+  title: string;
+  url: string;
+}
+
+function docSlug(text: string): string {
+  return (
+    text
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/(^-|-$)/g, '')
+      .slice(0, 60) || 'untitled'
+  );
+}
+
+// The documents Gate 3 saves once the human approved the architecture.
+export function architectureDocuments(draft: ArchitectureDraft): DesignDocWrite[] {
+  const heading = epicsHeading(draft);
+  return [
+    { kind: 'architecture', slug: 'architecture', title: `Architecture for ${heading}`, content: renderArchitecture(draft) },
+    { kind: 'srs', slug: 'srs', title: `Requirements analysis for ${heading}`, content: renderRequirementsDoc(draft) },
+    { kind: 'plan', slug: 'plan', title: `Delivery plan for ${heading}`, content: renderPlan(draft) },
+    ...draft.adrs.map((adr, i): DesignDocWrite => {
+      const number = String(i + 1).padStart(4, '0');
+      return { kind: 'adr', slug: `adr/${number}-${docSlug(adr.title)}`, title: `ADR-${i + 1}. ${adr.title}`, content: renderAdr(adr, i).replace(/^## /, '# ') };
+    }),
+  ];
+}
+
+// Jira comment linking the Epic's design documents, posted on every Epic the design covers.
+export function architectureFiledComment(draft: ArchitectureDraft, docs: DesignDocLink[], stamp: string): string {
   const scopeNote = draft.relatedEpicKeys.length > 1 ? ` This is a shared design across ${draft.relatedEpicKeys.join(', ')}; Tasks are filed under ${draft.epicKey}.` : '';
   return [
     `AURA Architect Agent filed ${draft.tasks.length} architecture task${draft.tasks.length === 1 ? '' : 's'} and ${draft.adrs.length} ADR${draft.adrs.length === 1 ? '' : 's'}.${scopeNote}`,
     '',
-    `Design documents (Architect workspace for ${draft.epicKey}):`,
-    `- ${paths.architecture}`,
-    `- ${paths.requirements}`,
-    `- ${paths.plan}`,
-    ...paths.adrs.map((p) => `- ${p}`),
+    `Design documents for ${draft.epicKey} (AURA web app, Design documents):`,
+    ...docs.map((d) => `- ${d.title}: ${d.url}`),
     '',
     '----',
     stamp,
