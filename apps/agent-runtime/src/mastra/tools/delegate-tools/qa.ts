@@ -15,7 +15,7 @@ interface QaWorkflowStreamOutput {
   result: Promise<{ status: string; result?: unknown; error?: { message?: string } }>;
 }
 interface QaWorkflowRun {
-  stream: (args: { inputData: { epicKey: string; epicSummary: string; storiesText: string; codeContext: string } }) => QaWorkflowStreamOutput;
+  stream: (args: { inputData: { epicKey: string; epicSummary: string; storiesText: string } }) => QaWorkflowStreamOutput;
 }
 interface QaWorkflowLike {
   createRun: () => Promise<QaWorkflowRun>;
@@ -23,7 +23,7 @@ interface QaWorkflowLike {
 type QaMastra = (MastraLike & { getWorkflow?: (id: string) => QaWorkflowLike }) | undefined;
 
 // Runs the QA workflow, relaying each step into this tool's stream.
-async function runQaWorkflow(mastra: QaMastra, input: { epicKey: string; epicSummary: string; storiesText: string; codeContext: string }, writer: ToolWriterLike | undefined): Promise<QaDraft> {
+async function runQaWorkflow(mastra: QaMastra, input: { epicKey: string; epicSummary: string; storiesText: string }, writer: ToolWriterLike | undefined): Promise<QaDraft> {
   const workflow = mastra?.getWorkflow?.('qa-workflow');
   if (!workflow) throw new Error('qa-workflow is not registered');
   const run = await workflow.createRun();
@@ -52,7 +52,7 @@ const qaInputSchema = z
 const qaOutputSchema = z.object({
   ok: z.boolean().describe('false means the step failed; read error, tell the user, and stop.'),
   draftId: z.string().optional(),
-  markdown: z.string().optional().describe('draft/revise: the human-readable draft, show it verbatim. file: where the test plan and specs were filed - show it.'),
+  markdown: z.string().optional().describe('draft/revise: the human-readable draft, show it verbatim. file: where the test plan was saved - show it.'),
   epicKey: z.string().optional(),
   scenarioCount: z.number().optional(),
   error: z.string().optional(),
@@ -82,7 +82,7 @@ export const delegateToQaTool = createTool({
           const storyIssues = stories.filter((s) => s.issueType.toLowerCase() === 'story');
           if (!storyIssues.length) return qaFail(`${epicKey} has no Stories yet - run delegate_to_ba and file Stories before drafting a test plan`);
           const storiesText = untrusted(`jira:${epicKey} stories`, storyIssues.map((s) => `- ${s.key}: ${s.summary}\n${s.description || '(no description)'}`).join('\n\n'));
-          const content = await runQaWorkflow(mastra as QaMastra, { epicKey, epicSummary: untrustedInline(`jira:${epicKey} summary`, epic.summary), storiesText, codeContext: '' }, writer);
+          const content = await runQaWorkflow(mastra as QaMastra, { epicKey, epicSummary: untrustedInline(`jira:${epicKey} summary`, epic.summary), storiesText }, writer);
           const record = await draftStore.create({ kind: 'qa-plan', content, threadId, epicKey });
           return { ok: true, draftId: record.id, markdown: renderTestPlan(content), epicKey, scenarioCount: content.scenarios.length };
         }
@@ -90,7 +90,7 @@ export const delegateToQaTool = createTool({
           if (!input.draftId || !input.feedback?.trim()) return qaFail('revise needs draftId and feedback');
           const previous = await draftStore.get<QaDraft>(input.draftId);
           if (!previous || previous.kind !== 'qa-plan') return qaFail(`unknown QA draft ${input.draftId}`);
-          const prompt = `Revise this test plan according to the feedback. Return the complete updated plan, including full playwrightSource for every scenario (even unchanged ones). Keep epicKey "${previous.content.epicKey}".\n\nCurrent draft (JSON):\n${JSON.stringify(previous.content)}\n\nFeedback:\n${input.feedback.trim()}`;
+          const prompt = `Revise this test plan according to the feedback. Return the complete updated plan with every scenario, changed or not. Keep epicKey "${previous.content.epicKey}".\n\nCurrent draft (JSON):\n${JSON.stringify(previous.content)}\n\nFeedback:\n${input.feedback.trim()}`;
           const content = await generateObject<QaDraft>(mastra as MastraLike, 'qa', prompt, qaDraftSchema);
           content.epicKey = previous.content.epicKey;
           const record = await draftStore.create({ kind: 'qa-plan', content, threadId, epicKey: previous.epicKey, parentId: previous.id });

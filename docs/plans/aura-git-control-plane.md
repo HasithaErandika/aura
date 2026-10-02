@@ -114,7 +114,7 @@ Every Task runs through VS Code. No code path touches `.workspaces`, Docker or a
 | 7.4 | Docker exec and host checks removed; server mode checks only the runtime token and `DATABASE_URL` |
 | 7.5 | Web terminal, `TERMINAL_*` and the API terminal module removed |
 | 7.6 | Unused `git/` `GitProvider` module removed |
-| 7.7 | The `test-writer` coder writes QA's scenarios as tests on the Task branch; CI runs them |
+| 7.7 | QA drafts scenarios as steps only (one model call, no test code); the `test-writer` coder writes the tests on the Task branch; CI runs them |
 | 7.8 | The test plan has no gate number; the web pipeline shows Gates 1–3, test plan, Gates 4–6 in VS Code, Gate 8 |
 | 7.9 | Docker runs panel, Council views and removed gates gone from the web app, `@aura/client` and the extension |
 | 7.10 | ARCHITECTURE, SRS, ADRs, threat model, runbook, SETUP and story updated |
@@ -124,8 +124,6 @@ Follow-ups:
 
 | Item | Where |
 |---|---|
-| Stop generating `playwrightSource` in the QA workflow; scenarios carry steps only | `qa-agent.ts`, `qa-workflow.ts`, `contracts/qa-drafts.ts` (prompt version bump) |
-| Remove the always-empty `codeContext` input of the QA workflow | `qa-workflow.ts` |
 | Drop `profiles.git_name` and `git_email` (no longer read) | New migration |
 | Update `docs/clarify.md` Q6, Q8 and Q9 to the one-lane answers | Docs |
 

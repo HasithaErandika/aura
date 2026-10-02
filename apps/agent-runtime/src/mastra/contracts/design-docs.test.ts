@@ -22,7 +22,7 @@ const qa = qaDraftSchema.parse({
   epicKey: 'KAN-36',
   summary: 'UI and API scenarios for ticket submission.',
   coverageMatrix: [{ storyKey: 'KAN-40', covered: true, note: 'submit flow' }],
-  scenarios: [{ title: 'Submit a ticket', type: 'ui', storyKeys: ['KAN-40'], steps: ['Open the form', 'Submit'], fileName: 'submit-ticket', playwrightSource: "import { test } from '@playwright/test';\ntest('x', async () => {});" }],
+  scenarios: [{ title: 'Submit a ticket', type: 'ui', storyKeys: ['KAN-40'], steps: ['Open the form', 'Submit'], fileName: 'submit-ticket' }],
 });
 
 describe('design documents from drafts', () => {

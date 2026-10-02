@@ -66,9 +66,9 @@ export const AGENT_MANIFEST: Record<AgentId, AgentManifestEntry> = {
     label: 'QA Agent',
     modelId: QA_MODEL_ID,
     delegatesTo: [],
-    note: 'Drafts a test plan and scenarios from the approved Stories, invoked through delegate_to_qa. Holds no tools; file mode saves the plan and scenarios as design documents (Postgres) and comments the Epic.',
-    agentVersion: '3.0.0', // V7: no QA workspace, no revise-scenario
-    promptVersion: '2.2.0', // V7: results come from CI on the PR
+    note: 'Drafts a test plan and scenarios (steps only, no test code) from the approved Stories, invoked through delegate_to_qa. Holds no tools; file mode saves the plan and scenarios as design documents (Postgres) and comments the Epic.',
+    agentVersion: '3.1.0',
+    promptVersion: '3.0.0',
   },
   'deployer-agent': {
     label: 'Deployer Agent',
