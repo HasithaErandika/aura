@@ -20,12 +20,15 @@ import { runnersRouter } from "../modules/runners/runners.router.js";
 import { projectsRouter } from "../modules/projects/projects.router.js";
 import { settingsRouter } from "../modules/settings/settings.router.js";
 import { bridgeRouter } from "../modules/bridge/bridge.router.js";
+import { devicePublicRouter, deviceRouter } from "../modules/identity/device.router.js";
 import { requireAuth } from "../middleware/auth.js";
 import { perUserLimit } from "../middleware/limits.js";
 
 export const apiRouter = Router();
 
 apiRouter.use("/health", healthRouter);
+// VS Code device sign-in: the extension's two calls happen before it has a token.
+apiRouter.use("/auth/device", devicePublicRouter);
 // Everything below is authenticated, then rate limited per user.
 apiRouter.use(requireAuth, perUserLimit);
 apiRouter.use("/me", meRouter);
@@ -33,6 +36,7 @@ apiRouter.use("/users", usersRouter);
 apiRouter.use("/projects", projectsRouter);
 apiRouter.use("/settings", settingsRouter);
 apiRouter.use("/bridge", bridgeRouter);
+apiRouter.use("/device", deviceRouter);
 apiRouter.use("/agents", agentsRouter);
 apiRouter.use("/threads", threadsRouter);
 apiRouter.use("/runs", runsRouter);

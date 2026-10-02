@@ -4,13 +4,14 @@ The developer's client for AURA ([ADR-4](../../docs/adr/0004-vscode-developer-wo
 Agents run in the AURA cloud; every file they read or change and every command they run happens
 **on your machine, inside the open folder**, and every change asks you first.
 
-**Status: V0** — sign in, connect, and ask the VS Code agent to work in the open folder.
-The Tasks view, chat panel and the full flow come in V1–V6
+**Status: V1**: browser sign-in, the **AURA** sidebar (Tasks: Epic → Stories and Tasks; Chat
+with the agent, streamed, tool calls inline, resumes after a reload), **Start Work on Task**,
+**Connect Repository** and **Initialize Project**. Specialist agents, branches and PRs come in V2–V6
 ([plan](../../docs/plans/aura-vscode-agents.md)).
 
 ```mermaid
 flowchart LR
-    YOU["You in VS Code"] -->|"AURA: Ask the Agent"| API["AURA API"]
+    YOU["You in VS Code"] -->|"AURA Chat"| API["AURA API"]
     API --> RT["Agent (cloud)"]
     RT -->|"read · write · run"| API
     API -->|"WebSocket"| EXT["This extension"]
@@ -27,9 +28,12 @@ code --extensionDevelopmentPath="$PWD/apps/vscode" /path/to/your/project
 
 In that window:
 
-1. **AURA: Sign In**: paste an access token from the web app (Profile → Access tokens). Developers only.
-2. The status bar shows **AURA** connected. **AURA: Connect** / **AURA: Disconnect** toggle it.
-3. **AURA: Ask the Agent**: the answer and every action appear in the **AURA** output channel.
+1. **AURA: Sign In** opens the browser; approve the code shown (developers only). **AURA: Sign In
+   with a Token** still accepts a pasted access token.
+2. **AURA: Connect Repository** (existing repo) or **AURA: Initialize Project** (empty folder:
+   scaffold, `main` + `development`, CI, `.aura/`).
+3. In the **AURA** sidebar, pick a Task → **Start Work**, or type in **Chat**. Every file change
+   and command asks you first; the **AURA** output channel logs them.
 
 Set `aura.apiUrl` in Settings if the API isn't at `http://localhost:4000`. The runtime needs
 `AURA_API_URL` pointing at the same API.

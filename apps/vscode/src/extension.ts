@@ -1,147 +1,143 @@
 import * as vscode from "vscode";
-import { createAuraClient } from "@aura/client";
 import { BridgeClient, type Approval, type BridgeState } from "./bridge-client.js";
+import { ChatViewProvider } from "./chat/view.js";
 import { WorkspaceExecutor } from "./executor.js";
 import { PermissionPolicy } from "./permissions.js";
+import { connectRepository, initializeProject } from "./project.js";
+import { Session } from "./session.js";
+import { TasksProvider, type TaskNode } from "./tasks-tree.js";
 
-// AURA for VS Code, V0 (ADR-4, docs/plans/aura-vscode-agents.md §12): sign in with an access
-// token, connect this window's folder to AURA, and ask the VS Code agent to work in it. The agent
-// runs in the AURA cloud; every file and command it uses runs here, after your approval.
-
-const TOKEN_KEY = "aura.token";
-const AGENT_ID = "vscode-agent";
-const THREAD_KEY = "aura.vscodeThread";
+// AURA for VS Code (ADR-4, docs/plans/aura-vscode-agents.md). V1: browser sign-in, the Tasks view
+// (Epic → Stories and Tasks), the chat panel with the VS Code agent, and Connect Repository /
+// Initialize Project. Agents run in the AURA cloud; every file change and command they make runs
+// here, inside the open folder, after your approval.
 
 let bridge: BridgeClient | null = null;
-let output: vscode.OutputChannel;
-let status: vscode.StatusBarItem;
+let bridgeState: BridgeState = "disconnected";
 const policy = new PermissionPolicy();
 
-function apiUrl(): string {
-  return vscode.workspace.getConfiguration("aura").get<string>("apiUrl", "http://localhost:4000").replace(/\/+$/, "");
-}
-
-function log(line: string) {
-  output.appendLine(`[${new Date().toLocaleTimeString()}] ${line}`);
-}
-
-function showState(state: BridgeState) {
-  const text = { disconnected: "$(debug-disconnect) AURA", connecting: "$(sync~spin) AURA", connected: "$(plug) AURA" }[state];
-  status.text = text;
-  status.tooltip = { disconnected: "AURA: not connected. Click to connect.", connecting: "AURA: connecting…", connected: "AURA: connected. Agents can use this folder (with your approval)." }[state];
-  status.command = state === "disconnected" ? "aura.connect" : "aura.disconnect";
-}
-
-async function ask(question: string, detail: string): Promise<Approval> {
-  const choice = await vscode.window.showWarningMessage(question, { modal: true, detail }, "Allow once", "Allow for this session", "Deny");
-  return choice === "Allow once" ? "once" : choice === "Allow for this session" ? "session" : "deny";
-}
-
 export function activate(context: vscode.ExtensionContext) {
-  output = vscode.window.createOutputChannel("AURA");
-  status = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 100);
-  showState("disconnected");
-  status.show();
+  const output = vscode.window.createOutputChannel("AURA");
+  const status = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 100);
+  const session = new Session(context);
   context.subscriptions.push(output, status);
 
-  const token = async () => context.secrets.get(TOKEN_KEY);
-  const client = () => createAuraClient({ baseUrl: apiUrl(), token: async () => (await token()) ?? "" });
+  const log = (line: string) => output.appendLine(`[${new Date().toLocaleTimeString()}] ${line}`);
 
-  const connect = async () => {
-    const folder = vscode.workspace.workspaceFolders?.[0];
-    if (!folder) return void vscode.window.showErrorMessage("AURA: open a folder first. Agents work only inside it.");
-    if (!vscode.workspace.isTrusted) return void vscode.window.showErrorMessage("AURA: trust this workspace first. Agents can run commands in it.");
+  const showStatus = () => {
+    const project = session.project ? ` ${session.project.projectKey}` : "";
+    status.text = { disconnected: `$(debug-disconnect) AURA${project}`, connecting: `$(sync~spin) AURA${project}`, connected: `$(plug) AURA${project}` }[bridgeState];
+    status.tooltip = {
+      disconnected: "AURA: agents can't reach this folder. Click to connect.",
+      connecting: "AURA: connecting…",
+      connected: "AURA: connected. Agents can use this folder; every change asks you first.",
+    }[bridgeState];
+    status.command = bridgeState === "disconnected" ? "aura.connect" : "aura.disconnect";
+    status.show();
+  };
+
+  const ask = async (question: string, detail: string): Promise<Approval> => {
+    const choice = await vscode.window.showWarningMessage(question, { modal: true, detail }, "Allow once", "Allow for this session", "Deny");
+    return choice === "Allow once" ? "once" : choice === "Allow for this session" ? "session" : "deny";
+  };
+
+  const connect = async (): Promise<boolean> => {
+    const folder = session.folder;
+    if (!folder) return void vscode.window.showErrorMessage("AURA: open a folder first. Agents work only inside it."), false;
+    if (!vscode.workspace.isTrusted) return void vscode.window.showErrorMessage("AURA: trust this workspace first. Agents can run commands in it."), false;
+    if (!(await session.token())) return void vscode.commands.executeCommand("aura.signIn"), false;
+    if (bridge && bridgeState !== "disconnected") return true;
     bridge?.stop();
     policy.reset();
     bridge = new BridgeClient({
-      apiUrl: apiUrl(),
-      token,
+      apiUrl: session.apiUrl,
+      token: () => Promise.resolve(session.token()),
       executor: new WorkspaceExecutor(folder.uri.fsPath),
       policy,
       workspaceName: folder.name,
       ask,
       log,
-      onState: showState,
+      onState: (state) => {
+        bridgeState = state;
+        showStatus();
+      },
     });
     await bridge.start();
+    for (let i = 0; i < 40 && bridgeState === "connecting"; i++) await new Promise((r) => setTimeout(r, 100));
+    if (bridgeState !== "connected") void vscode.window.showWarningMessage("AURA: couldn't connect this folder yet. See the AURA output for details.");
+    return bridgeState === "connected";
   };
+
+  const disconnect = () => {
+    bridge?.stop();
+    bridge = null;
+    bridgeState = "disconnected";
+    showStatus();
+  };
+
+  const tasks = new TasksProvider(session);
+  const chat = new ChatViewProvider(context, session, connect);
+  context.subscriptions.push(
+    vscode.window.registerTreeDataProvider("aura.tasks", tasks),
+    vscode.window.registerWebviewViewProvider("aura.chat", chat, { webviewOptions: { retainContextWhenHidden: true } }),
+    session.onDidChange(showStatus),
+  );
+
+  const report = (error: unknown) => void vscode.window.showErrorMessage(`AURA: ${error instanceof Error ? error.message : String(error)}`);
 
   context.subscriptions.push(
     vscode.commands.registerCommand("aura.signIn", async () => {
+      try {
+        const who = await session.signInWithBrowser();
+        if (who) {
+          void vscode.window.showInformationMessage(`AURA: signed in as ${who}.`);
+          await connect();
+        }
+      } catch (error) {
+        report(error);
+      }
+    }),
+    vscode.commands.registerCommand("aura.signInWithToken", async () => {
       const value = await vscode.window.showInputBox({
-        title: "AURA: Sign In",
-        prompt: `Paste an access token from the AURA web app (Profile → Access tokens). API: ${apiUrl()}`,
+        title: "AURA: Sign In with a Token",
+        prompt: `Paste an access token from the AURA web app (Profile → Access tokens). API: ${session.apiUrl}`,
         password: true,
         ignoreFocusOut: true,
         validateInput: (v) => (v.trim().startsWith("aura_pat_") ? null : "An AURA access token starts with aura_pat_"),
       });
       if (!value) return;
-      await context.secrets.store(TOKEN_KEY, value.trim());
       try {
-        const me = await client().me();
-        if (me.role !== "developer") {
-          await context.secrets.delete(TOKEN_KEY);
-          return void vscode.window.showErrorMessage(`AURA: signed in as ${me.role}. The VS Code workspace is for developers.`);
-        }
-        vscode.window.showInformationMessage(`AURA: signed in as ${me.fullName ?? me.email}.`);
+        void vscode.window.showInformationMessage(`AURA: signed in as ${await session.useToken(value.trim())}.`);
         await connect();
       } catch (error) {
-        await context.secrets.delete(TOKEN_KEY);
-        vscode.window.showErrorMessage(`AURA: sign-in failed. ${error instanceof Error ? error.message : String(error)}`);
+        report(error);
       }
     }),
     vscode.commands.registerCommand("aura.signOut", async () => {
-      bridge?.stop();
-      bridge = null;
-      await context.secrets.delete(TOKEN_KEY);
-      await context.workspaceState.update(THREAD_KEY, undefined);
-      vscode.window.showInformationMessage("AURA: signed out.");
+      disconnect();
+      await session.signOut();
+      void vscode.window.showInformationMessage("AURA: signed out.");
     }),
     vscode.commands.registerCommand("aura.connect", connect),
-    vscode.commands.registerCommand("aura.disconnect", () => {
-      bridge?.stop();
-      bridge = null;
-      log("Disconnected.");
+    vscode.commands.registerCommand("aura.disconnect", disconnect),
+    vscode.commands.registerCommand("aura.refreshTasks", () => tasks.refresh()),
+    vscode.commands.registerCommand("aura.newChat", () => chat.newChat()),
+    vscode.commands.registerCommand("aura.startTask", async (node?: TaskNode) => {
+      if (node?.kind !== "issue") return;
+      await chat.startTask({ key: node.issue.key, summary: node.issue.summary, epicKey: node.epicKey });
     }),
-    vscode.commands.registerCommand("aura.ask", async () => {
-      if (!(await token())) return void vscode.commands.executeCommand("aura.signIn");
-      if (!bridge) await connect();
-      const message = await vscode.window.showInputBox({ title: "AURA: Ask the Agent", prompt: "What should the agent do in this workspace?", ignoreFocusOut: true });
-      if (!message?.trim()) return;
-      const api = client();
-      output.show(true);
-      log(`You: ${message}`);
-      try {
-        let threadId = context.workspaceState.get<string>(THREAD_KEY);
-        if (!threadId) {
-          threadId = (await api.threads.create(`VS Code: ${vscode.workspace.workspaceFolders?.[0]?.name ?? "workspace"}`, AGENT_ID)).id;
-          await context.workspaceState.update(THREAD_KEY, threadId);
-        }
-        let line = "";
-        for await (const e of api.threads.send(threadId, message, { agentId: AGENT_ID })) {
-          if (e.event === "text") {
-            line += e.data.delta;
-            const parts = line.split("\n");
-            line = parts.pop() ?? "";
-            for (const p of parts) output.appendLine(p);
-          } else if (e.event === "tool" && e.data.phase === "call") {
-            if (line) (output.appendLine(line), (line = ""));
-            log(`agent → ${e.data.toolName.replace(/^mastra_workspace_/, "")}`);
-          } else if (e.event === "error") {
-            log(`Error: ${e.data.message}`);
-          } else if (e.event === "done") {
-            if (line) output.appendLine(line);
-            log(`Done (${e.data.status}).`);
-          }
-        }
-      } catch (error) {
-        log(`Error: ${error instanceof Error ? error.message : String(error)}`);
-        vscode.window.showErrorMessage(`AURA: ${error instanceof Error ? error.message : String(error)}`);
-      }
+    vscode.commands.registerCommand("aura.openInJira", (node?: TaskNode) => {
+      const url = node && (node.kind === "issue" || node.kind === "epic") ? node.issue.url : null;
+      if (url) void vscode.env.openExternal(vscode.Uri.parse(url));
     }),
+    vscode.commands.registerCommand("aura.connectRepository", () => connectRepository(session).catch(report)),
+    vscode.commands.registerCommand("aura.initializeProject", () => initializeProject(session).catch(report)),
   );
 
-  void token().then((t) => (t ? connect() : undefined));
+  showStatus();
+  void session.refresh().then(async () => {
+    if (await session.token()) await connect();
+  });
 }
 
 export function deactivate() {

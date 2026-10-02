@@ -22,6 +22,7 @@ import {
   ProjectsPage,
   AiUsagePage,
   SettingsPage,
+  DeviceApprovalPage,
   WorkspacePage,
 } from "./pages.ts";
 
@@ -101,6 +102,14 @@ export const router = createBrowserRouter([
           <RequireRole roles={["admin"]}>{page(<AiUsagePage />)}</RequireRole>
         ),
         handle: { title: "AI Usage & Quality" },
+      },
+      {
+        // VS Code device sign-in (apps/vscode): opened from the extension with ?code=.
+        path: "device",
+        element: (
+          <RequireRole roles={["developer"]}>{page(<DeviceApprovalPage />)}</RequireRole>
+        ),
+        handle: { title: "Sign in to VS Code" },
       },
       {
         path: "admin/settings",

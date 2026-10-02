@@ -1,5 +1,5 @@
 import { readSse } from "./sse.js";
-import type { Approval, ApprovalStatus, CouncilUsage, Decision, GitIdentity, JiraEpicDetail, JiraIssueDetail, Me, TaskWorktree, Thread, TurnEvent } from "./types.js";
+import type { Approval, ApprovalStatus, BridgeStatus, CouncilUsage, Decision, DeviceSignIn, GitIdentity, JiraEpicDetail, JiraIssueDetail, JiraIssueSummary, Me, Project, TaskWorktree, Thread, ThreadHistory, TurnEvent } from "./types.js";
 
 export interface AuraClientOptions {
   // apps/api base URL, e.g. http://localhost:4000
@@ -51,16 +51,47 @@ export function createAuraClient(options: AuraClientOptions) {
     return (await res.json()) as T;
   }
 
-  async function* stream(path: string, body: unknown, signal?: AbortSignal): AsyncGenerator<TurnEvent> {
+  async function open(method: "GET" | "POST", path: string, body: unknown, signal?: AbortSignal): Promise<ReadableStream<Uint8Array>> {
     let res: Response;
     try {
-      res = await doFetch(`${baseUrl}${path}`, { method: "POST", headers: await headers("text/event-stream"), body: JSON.stringify(body), signal });
+      res = await doFetch(`${baseUrl}${path}`, { method, headers: await headers("text/event-stream"), body: body === undefined ? undefined : JSON.stringify(body), signal });
     } catch (error) {
+      if (signal?.aborted) throw error;
       throw new AuraApiError(0, "unreachable", `AURA API is unreachable at ${baseUrl}: ${error instanceof Error ? error.message : String(error)}`);
     }
     if (!res.ok) throw await toError(res);
     if (!res.body) throw new AuraApiError(502, "no_body", "The server returned an empty stream");
-    for await (const message of readSse(res.body)) yield message as TurnEvent;
+    return res.body;
+  }
+
+  // A turn's events. Turns run as background jobs on the server, so when the stream drops before
+  // the turn's "done" event it is resumed from the last event id (GET /runs/:id/events).
+  async function* stream(path: string, body: unknown, signal?: AbortSignal, knownRunId: string | null = null, method: "GET" | "POST" = "POST"): AsyncGenerator<TurnEvent> {
+    let runId = knownRunId;
+    let lastId = 0;
+    let finished = false;
+    const relay = async function* (source: ReadableStream<Uint8Array>): AsyncGenerator<TurnEvent> {
+      for await (const message of readSse(source)) {
+        if (message.id) lastId = message.id;
+        const event = message as TurnEvent;
+        if (event.event === "run") runId = event.data.runId;
+        if (event.event === "done") finished = true;
+        yield event;
+      }
+    };
+    try {
+      yield* relay(await open(method, path, body, signal));
+    } catch (error) {
+      if (signal?.aborted || error instanceof AuraApiError) throw error;
+    }
+    for (let attempt = 1; !finished && runId && !signal?.aborted && attempt <= 6; attempt++) {
+      await new Promise((resolve) => setTimeout(resolve, Math.min(1000 * attempt, 5000)));
+      try {
+        yield* relay(await open("GET", `/runs/${encodeURIComponent(runId)}/events?after=${lastId || "turn"}`, undefined, signal));
+      } catch (error) {
+        if (signal?.aborted) throw error;
+      }
+    }
   }
 
   const q = (params: Record<string, string | undefined>) => {
@@ -76,6 +107,7 @@ export function createAuraClient(options: AuraClientOptions) {
     setGitIdentity: (identity: { name: string; email: string }) => request<{ gitIdentity: GitIdentity }>("PUT", "/me/git-identity", identity),
 
     jira: {
+      epics: (q?: string) => request<{ epics: JiraIssueSummary[] }>("GET", `/jira/epics${q ? `?q=${encodeURIComponent(q)}` : ""}`).then((r) => r.epics),
       epic: (epicKey: string) => request<JiraEpicDetail>("GET", `/jira/epics/${encodeURIComponent(epicKey)}`),
       issue: (key: string) => request<{ issue: JiraIssueDetail }>("GET", `/jira/issues/${encodeURIComponent(key)}`).then((r) => r.issue),
     },
@@ -90,6 +122,20 @@ export function createAuraClient(options: AuraClientOptions) {
       // Starts a turn and yields its live events until the turn finishes or suspends at a gate.
       send: (threadId: string, message: string, opts: { agentId?: string; signal?: AbortSignal } = {}) =>
         stream(`/threads/${encodeURIComponent(threadId)}/messages`, { agentId: opts.agentId ?? ORCHESTRATOR_AGENT_ID, message }, opts.signal),
+      history: (threadId: string, agentId = ORCHESTRATOR_AGENT_ID) => request<ThreadHistory>("GET", `/threads/${encodeURIComponent(threadId)}/messages${q({ agentId })}`),
+    },
+
+    runs: {
+      // Follows a run's current turn (e.g. after reopening VS Code while it was still running).
+      follow: (runId: string, signal?: AbortSignal) => stream(`/runs/${encodeURIComponent(runId)}/events?after=turn`, undefined, signal, runId, "GET"),
+    },
+
+    projects: {
+      list: () => request<{ projects: Project[] }>("GET", "/projects").then((r) => r.projects),
+    },
+
+    bridge: {
+      status: () => request<BridgeStatus>("GET", "/bridge/status"),
     },
 
     approvals: {
@@ -109,3 +155,20 @@ export function createAuraClient(options: AuraClientOptions) {
 }
 
 export type AuraClient = ReturnType<typeof createAuraClient>;
+
+// Device sign-in (no token yet): start, show the code, open the browser, then poll.
+export async function startDeviceSignIn(baseUrl: string, clientName: string, doFetch: typeof fetch = globalThis.fetch): Promise<DeviceSignIn> {
+  const res = await doFetch(`${baseUrl.replace(/\/+$/, "")}/auth/device/start`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ clientName }) });
+  if (!res.ok) throw new AuraApiError(res.status, "device_start_failed", `Could not start sign-in (${res.status})`);
+  return (await res.json()) as DeviceSignIn;
+}
+
+export type DevicePoll = { status: "approved"; token: string } | { status: "authorization_pending" | "slow_down" | "access_denied" | "expired_token" };
+
+export async function pollDeviceSignIn(baseUrl: string, deviceCode: string, doFetch: typeof fetch = globalThis.fetch): Promise<DevicePoll> {
+  const res = await doFetch(`${baseUrl.replace(/\/+$/, "")}/auth/device/token`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ deviceCode }) });
+  const body = (await res.json().catch(() => ({}))) as { token?: string; error?: string };
+  if (res.ok && body.token) return { status: "approved", token: body.token };
+  const status = body.error;
+  return { status: status === "slow_down" || status === "access_denied" || status === "expired_token" ? status : "authorization_pending" };
+}

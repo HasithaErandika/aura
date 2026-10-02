@@ -54,6 +54,64 @@ export interface TaskWorktree {
   branch: string;
 }
 
+export interface ChatToolActivity {
+  toolCallId: string;
+  toolName: string;
+  state: string;
+  args?: unknown;
+  result?: unknown;
+  isError?: boolean;
+}
+
+export interface ChatMessage {
+  id: string;
+  role: "user" | "assistant" | "system" | "tool";
+  text: string;
+  tools: ChatToolActivity[];
+  createdAt: string | null;
+}
+
+export interface RunSummary {
+  id: string;
+  agentId: string;
+  threadId: string;
+  status: RunStatus;
+  lastError: string | null;
+  startedAt: string;
+  finishedAt: string | null;
+}
+
+export interface ThreadHistory {
+  thread: Thread;
+  messages: ChatMessage[];
+  latestRun: RunSummary | null;
+  pendingApproval: Approval | null;
+}
+
+export interface Project {
+  id: string;
+  key: string;
+  name: string;
+  jiraProjectKey: string;
+  repository: { provider: "github" | "local"; owner: string; name: string; fullName: string; defaultBranch: string } | null;
+}
+
+export interface BridgeStatus {
+  connected: boolean;
+  workspace?: string | null;
+  client?: string | null;
+  since?: string;
+}
+
+export interface DeviceSignIn {
+  deviceCode: string;
+  userCode: string;
+  verificationUri: string;
+  verificationUriComplete: string;
+  expiresIn: number;
+  interval: number;
+}
+
 export interface Thread {
   id: string;
   title: string | null;
