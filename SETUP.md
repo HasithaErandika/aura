@@ -232,6 +232,12 @@ Add it to every project repository AURA works on. After saving, **Recent Deliver
 
 **Check:** every accepted delivery appears in **Admin → Audit** as `webhook.received`.
 
+**5. Jira status names.** AURA moves each Task to *In Progress*, *In Review*, *Ready for Release*
+and *Done* as its work progresses. If your Jira workflow uses other names, set them in
+**Admin → Settings → Jira workflow** (exact names, or `none` to skip a move). A default Jira
+software workflow has only To Do, In Progress and Done: add *In Review* and *Ready for Release* in
+Jira (Project settings → Workflows), or point those settings at statuses you have.
+
 ---
 
 ## 9. Where data is stored

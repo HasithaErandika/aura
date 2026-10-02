@@ -49,7 +49,7 @@ describe("Task PRs and CI", () => {
     expect(() => ciReportSchema.parse({ status: "completed", branch: "feat/KAN-45", runUrl: "https://evil.example/run" })).toThrow();
   });
 
-  const existing: TaskPrView = { taskKey: "KAN-45", epicKey: "KAN-36", repo: "acme/tickets", branch: "feat/KAN-36/KAN-45", prNumber: 7, prUrl: "https://github.com/acme/tickets/pull/7", prTitle: "x", prState: "open", reviewers: [], headSha: "abc1234", ciState: "running", ciUrl: null, ciSummary: {}, ciUpdatedAt: null, openedBy: "u1", runId: null, updatedAt: "" };
+  const existing: TaskPrView = { taskKey: "KAN-45", epicKey: "KAN-36", repo: "acme/tickets", branch: "feat/KAN-36/KAN-45", prNumber: 7, prUrl: "https://github.com/acme/tickets/pull/7", prTitle: "x", prState: "open", reviewers: [], headSha: "abc1234", mergedAt: null, mergeSha: null, ciState: "running", ciUrl: null, ciSummary: {}, ciUpdatedAt: null, openedBy: "u1", runId: null, updatedAt: "" };
 
   it("notifies once when CI finishes, not while it runs or when the same result is re-sent", () => {
     const failed = ciReportSchema.parse({ status: "completed", conclusion: "failure", branch: existing.branch, headSha: "abc1234", jobs: [{ name: "frontend", result: "failure" }] });

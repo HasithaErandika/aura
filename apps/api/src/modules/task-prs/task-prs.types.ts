@@ -21,6 +21,8 @@ export interface TaskPrRow {
   pr_state: TaskPrView["prState"];
   reviewers: string[] | null;
   head_sha: string | null;
+  merged_at: string | null;
+  merge_sha: string | null;
   ci_state: CiState | null;
   ci_url: string | null;
   ci_summary: CiSummary | null;
@@ -41,6 +43,8 @@ export interface TaskPrView {
   prState: "open" | "merged" | "closed" | null;
   reviewers: string[];
   headSha: string | null;
+  mergedAt: string | null;
+  mergeSha: string | null;
   ciState: CiState | null;
   ciUrl: string | null;
   ciSummary: CiSummary;
@@ -62,6 +66,8 @@ export function toTaskPrView(r: TaskPrRow): TaskPrView {
     prState: r.pr_state,
     reviewers: r.reviewers ?? [],
     headSha: r.head_sha,
+    mergedAt: r.merged_at,
+    mergeSha: r.merge_sha,
     ciState: r.ci_state,
     ciUrl: r.ci_url,
     ciSummary: r.ci_summary ?? {},

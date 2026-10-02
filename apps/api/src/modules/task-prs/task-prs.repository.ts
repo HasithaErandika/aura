@@ -2,7 +2,7 @@ import { dbError } from "../../lib/db.js";
 import { supabaseAdmin } from "../../lib/supabase.js";
 import type { TaskPrRow } from "./task-prs.types.js";
 
-const COLUMNS = "task_key, epic_key, repo_full_name, branch, pr_number, pr_url, pr_title, pr_state, reviewers, head_sha, ci_state, ci_url, ci_summary, ci_updated_at, opened_by, run_id, updated_at";
+const COLUMNS = "task_key, epic_key, repo_full_name, branch, pr_number, pr_url, pr_title, pr_state, reviewers, head_sha, merged_at, merge_sha, ci_state, ci_url, ci_summary, ci_updated_at, opened_by, run_id, updated_at";
 const LIST_LIMIT = 200;
 
 export const taskPrsRepository = {
@@ -40,7 +40,7 @@ export const taskPrsRepository = {
 
   async update(taskKey: string, patch: Record<string, unknown>): Promise<TaskPrRow> {
     const { data, error } = await supabaseAdmin.from("task_branches").update(patch).eq("task_key", taskKey).select(COLUMNS).single();
-    if (error) throw dbError("Could not record the CI result", error);
+    if (error) throw dbError("Could not update the Task's pull request", error);
     return data as TaskPrRow;
   },
 };

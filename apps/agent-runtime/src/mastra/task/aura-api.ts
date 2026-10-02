@@ -51,6 +51,16 @@ export async function readTaskPr(taskKey: string, fetchImpl: typeof fetch = fetc
   return ((await res.json()) as { taskPr: TaskPrState }).taskPr;
 }
 
+// Work started (Gate 4) or an Epic released (Gate 8): AURA moves the Jira status. Best-effort.
+export async function reportTaskEvent(event: { event: 'started'; taskKey: string } | { event: 'released'; epicKey: string }, fetchImpl: typeof fetch = fetch): Promise<boolean> {
+  try {
+    const { url, headers } = api('/events');
+    return (await fetchImpl(url, { method: 'POST', headers, body: JSON.stringify(event) })).ok;
+  } catch {
+    return false;
+  }
+}
+
 export function renderPrStatus(pr: TaskPrState): string {
   const jobs = pr.ciSummary.jobs ?? [];
   const tests = pr.ciSummary.tests;

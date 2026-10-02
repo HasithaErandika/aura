@@ -166,7 +166,7 @@ export interface TaskPr {
 
 export interface AuraNotification {
   id: string;
-  kind: "pr_opened" | "ci_passed" | "ci_failed";
+  kind: "pr_opened" | "pr_merged" | "ci_passed" | "ci_failed";
   title: string;
   body: string;
   link: string | null;

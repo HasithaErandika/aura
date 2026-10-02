@@ -4,6 +4,8 @@ import { userIdsWithRole } from "../identity/index.js";
 import { notify } from "../notifications/index.js";
 import { githubRepositoryId } from "../projects/index.js";
 import { applyCiReport } from "./ci-report.js";
+import { applyPrEvent, pullRequestEventSchema } from "./pr-event.js";
+import { moveTaskStatus } from "./task-status.js";
 import { taskPrsRepository } from "./task-prs.repository.js";
 import type { CiReport, RecordPrInput } from "./task-prs.schemas.js";
 import { taskFromBranch, toTaskPrView, type TaskPrView } from "./task-prs.types.js";
@@ -24,7 +26,7 @@ export async function listTaskPrs(filter: { epicKey?: string; taskKey?: string }
   return (await taskPrsRepository.list(filter)).map(toTaskPrView);
 }
 
-export async function recordPrOpened(input: RecordPrInput, openedBy: string | null): Promise<TaskPrView> {
+export async function recordPrOpened(input: RecordPrInput, openedBy: string | null, requestId?: string): Promise<TaskPrView> {
   const view = toTaskPrView(
     await taskPrsRepository.upsert({
       task_key: input.taskKey,
@@ -53,26 +55,36 @@ export async function recordPrOpened(input: RecordPrInput, openedBy: string | nu
       link: prLink(view.taskKey),
       taskKey: view.taskKey,
     });
+    await moveTaskStatus(view.taskKey, "in_review", requestId);
   }
   return view;
 }
 
-// A CI report updates its own repository's row, or creates one for a registered repository.
-async function reportTarget(repo: string, report: CiReport): Promise<{ taskKey: string; existing: TaskPrView | null }> {
-  const byRepo = await taskPrsRepository.findByRepoBranch(repo, report.branch);
+type Target = { taskKey: string; existing: TaskPrView | null } | { ignored: string };
+
+// A repository's Task branch: its recorded row, or a new row when the repository is registered.
+async function taskTarget(repo: string, branch: string, headSha: string | null): Promise<Target> {
+  const byRepo = await taskPrsRepository.findByRepoBranch(repo, branch);
   if (byRepo) return { taskKey: byRepo.task_key, existing: toTaskPrView(byRepo) };
 
-  const task = taskFromBranch(report.branch);
-  if (!task) ignoreReport(repo, report, `${report.branch} is not a Task branch (feat/<EPIC>/<TASK>)`);
+  const task = taskFromBranch(branch);
+  if (!task) return { ignored: `${branch} is not a Task branch (feat/<EPIC>/<TASK>)` };
   const existing = await getTaskPr(task.taskKey);
-  if (existing && existing.branch !== report.branch) ignoreReport(repo, report, `${task.taskKey} is recorded on ${existing.branch}, not ${report.branch}`);
-  if (existing?.repo && existing.repo !== repo) ignoreReport(repo, report, `${task.taskKey} belongs to ${existing.repo}, not ${repo}`);
+  if (existing && existing.branch !== branch) return { ignored: `${task.taskKey} is recorded on ${existing.branch}, not ${branch}` };
+  if (existing?.repo && existing.repo !== repo) return { ignored: `${task.taskKey} belongs to ${existing.repo}, not ${repo}` };
   if (existing) return { taskKey: task.taskKey, existing };
 
   const repositoryId = await githubRepositoryId(repo);
-  if (!repositoryId) ignoreReport(repo, report, `${repo} is not registered to an AURA project`);
-  await taskPrsRepository.insert({ task_key: task.taskKey, epic_key: task.epicKey, branch: report.branch, base_sha: report.headSha ?? "0000000", repo_full_name: repo, repository_id: repositoryId });
+  if (!repositoryId) return { ignored: `${repo} is not registered to an AURA project` };
+  await taskPrsRepository.insert({ task_key: task.taskKey, epic_key: task.epicKey, branch, base_sha: headSha ?? "0000000", repo_full_name: repo, repository_id: repositoryId });
   return { taskKey: task.taskKey, existing: null };
+}
+
+// A CI report updates its own repository's row, or creates one for a registered repository.
+async function reportTarget(repo: string, report: CiReport): Promise<{ taskKey: string; existing: TaskPrView | null }> {
+  const target = await taskTarget(repo, report.branch, report.headSha ?? null);
+  if ("ignored" in target) ignoreReport(repo, report, target.ignored);
+  return target;
 }
 
 function ciNotificationBody(view: TaskPrView): string {
@@ -95,4 +107,32 @@ export async function recordCiReport(repo: string, report: CiReport): Promise<Ta
     });
   }
   return view;
+}
+
+// GitHub's pull_request webhook: PRs opened outside AURA, merges by a person, closes.
+export async function recordPrEvent(payload: Record<string, unknown>, requestId?: string): Promise<"handled" | "ignored"> {
+  const parsed = pullRequestEventSchema.safeParse(payload);
+  if (!parsed.success) return "ignored";
+  const event = parsed.data;
+  const repo = event.repository.full_name;
+  const target = await taskTarget(repo, event.pull_request.head.ref, event.pull_request.head.sha);
+  if ("ignored" in target) {
+    logger.info("pull request event ignored", { repo, branch: event.pull_request.head.ref, reason: target.ignored });
+    return "ignored";
+  }
+  const effect = applyPrEvent(target.existing, event);
+  if (!effect) return "ignored";
+  const view = toTaskPrView(await taskPrsRepository.update(target.taskKey, effect.patch));
+  if (effect.notify) {
+    const merged = effect.notify === "pr_merged";
+    await notify([...(await userIdsWithRole("qa_engineer")), ...(merged ? [view.openedBy] : [])], {
+      kind: effect.notify,
+      title: `${view.taskKey}: pull request #${view.prNumber} ${merged ? "merged" : "opened"}`,
+      body: view.prTitle ?? "",
+      link: prLink(view.taskKey),
+      taskKey: view.taskKey,
+    });
+  }
+  if (effect.status) await moveTaskStatus(view.taskKey, effect.status, requestId);
+  return "handled";
 }

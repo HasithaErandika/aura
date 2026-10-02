@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { taskPlanSchema, type TaskPlanDraft, type TaskReviewDraft } from './contracts';
 import { compareUrl, parsePrUrl, parseRemote, prBody, prTitle, renderPrDraft, validReviewers, type TaskPrDraft } from './pr';
 import { commitAll, ghPrCreate, type Git } from './git-ops';
-import { recordTaskPr, renderPrStatus } from './aura-api';
+import { recordTaskPr, renderPrStatus, reportTaskEvent } from './aura-api';
 import type { BridgeCaller } from '../bridge/client';
 
 const plan: TaskPlanDraft = {
@@ -91,6 +91,18 @@ describe('AURA API for Task PRs', () => {
     const [url, init] = fetchImpl.mock.calls[0] as unknown as [string, RequestInit];
     expect(url).toBe('http://api.test/internal/task-prs');
     expect((init.headers as Record<string, string>).Authorization).toBe('Bearer secret');
+    vi.unstubAllEnvs();
+  });
+
+  it('reports work started and an Epic released, and never throws when AURA is down', async () => {
+    vi.stubEnv('AURA_API_URL', 'http://api.test');
+    const fetchImpl = vi.fn(async () => new Response('{"accepted":true}', { status: 202 }));
+    expect(await reportTaskEvent({ event: 'started', taskKey: 'KAN-45' }, fetchImpl as unknown as typeof fetch)).toBe(true);
+    const [url, init] = fetchImpl.mock.calls[0] as unknown as [string, RequestInit];
+    expect(url).toBe('http://api.test/internal/task-prs/events');
+    expect(JSON.parse(init.body as string)).toEqual({ event: 'started', taskKey: 'KAN-45' });
+    const down = vi.fn(async () => { throw new Error('ECONNREFUSED'); });
+    expect(await reportTaskEvent({ event: 'released', epicKey: 'KAN-36' }, down as unknown as typeof fetch)).toBe(false);
     vi.unstubAllEnvs();
   });
 

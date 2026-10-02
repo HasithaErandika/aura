@@ -169,6 +169,19 @@ sequenceDiagram
 | Notes | Text typed while a Task runs goes to `POST /runs/:id/notes`; coders read it at their next step |
 | Gate 5 revise | Another pass of the same approved plan with the developer's feedback |
 | Gate 6 | Commit, push and PR use the developer's own git and `gh`; without `gh`, the branch is pushed and a compare link is given |
+| Merge | A person merges on GitHub; the GitHub webhook records it (`merged_at`, `merge_sha`) and notifies QA and the developer. The extension then removes the parts' leftover worktrees and `_sN` branches (`git worktree remove`, `git branch -d`; never forced) |
+
+**Jira status follows the work** (`task-prs/task-status.ts`). Each move is best-effort and audited
+as `jira.status_moved`; a Task never moves backwards, and a status the workflow cannot reach is
+logged, never invented. Status names are settings (Admin → Settings → *Jira workflow*); `none`
+skips a move.
+
+| Event | Reported by | Jira status (default) |
+|---|---|---|
+| Gate 4 approved, Task branch created | Runtime → `POST /internal/task-prs/events` | In Progress |
+| PR opened (Gate 6, or on GitHub) | API, GitHub webhook | In Review |
+| PR merged by a person | GitHub webhook | Ready for Release |
+| Gate 8 release plan approved | Runtime → `POST /internal/task-prs/events` | Done, for every Task of the Epic |
 
 ### 4.2 Parallel parts and the merge step
 
@@ -310,8 +323,8 @@ flowchart LR
 |---|---|
 | Runtime state | With `DATABASE_URL`, agent memory and the runtime's tables are in Postgres, so a restart or a second replica sees the same gates and drafts. `migrate-state` copies an old local `aura-drafts.db` once |
 | Design documents | Migration `0010`. Architecture plan, SRS, delivery plan, ADRs, QA test plan and scenarios per Epic. Saved after approval through `/internal/design-docs`; edited on the web with `baseVersion` (stale save → 409); every version kept |
-| Task PRs and CI | Migration `0012`. `task_branches` holds each Task's PR, reviewers and CI state; `aura-ci.yml` reports to `POST /ci/report` |
-| Webhook deliveries | Migration `0013`. Each accepted GitHub or Jira delivery is claimed once by `(source, delivery_id)`, so retries are not handled twice; a failed one is released for the retry. Audited as `webhook.received`; payloads are not stored. No event handlers yet |
+| Task PRs and CI | Migrations `0012`, `0014`. `task_branches` holds each Task's PR, reviewers, CI state and merge; `aura-ci.yml` reports to `POST /ci/report` |
+| Webhook deliveries | Migration `0013`. Each accepted GitHub or Jira delivery is claimed once by `(source, delivery_id)`, so retries are not handled twice; a failed one is released for the retry. Audited as `webhook.received`; payloads are not stored. Handled: GitHub `pull_request` (opened, reopened, synchronize, closed/merged) |
 | Notifications | Migration `0012`. In-app: QA hears when a PR opens; QA and the developer hear when CI passes or fails |
 | Source code | Not stored. Code lives in the developer's clone and on GitHub |
 

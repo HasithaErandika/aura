@@ -5,6 +5,7 @@ import type { AppNotification } from "./notifications.ts";
 
 const DOT: Record<AppNotification["kind"], string> = {
   pr_opened: "bg-brand",
+  pr_merged: "bg-success",
   ci_passed: "bg-success",
   ci_failed: "bg-danger",
 };

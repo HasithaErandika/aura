@@ -48,6 +48,8 @@ export interface PrView {
   step: string | null;
   url: string | null;
   number: number | null;
+  // open, merged (a person merged it on GitHub) or closed; from AURA through the GitHub webhook.
+  prState: string | null;
   ciState: string | null;
   ciUrl: string | null;
   jobs: { name: string; result: string }[];
@@ -72,7 +74,7 @@ export interface TaskBoard {
   pr: PrView | null;
 }
 
-const EMPTY_PR: PrView = { draftId: null, title: "", branch: "", base: "development", reviewers: [], step: null, url: null, number: null, ciState: null, ciUrl: null, jobs: [], tests: null };
+const EMPTY_PR: PrView = { draftId: null, title: "", branch: "", base: "development", reviewers: [], step: null, url: null, number: null, prState: null, ciState: null, ciUrl: null, jobs: [], tests: null };
 
 function parts(v: unknown): PartView[] {
   return arr<Record<string, unknown>>(v).map((p) => ({
@@ -219,6 +221,7 @@ export function applyTaskEvent(board: TaskBoard | null, data: Record<string, unk
           branch: str(data.branch) || prev.branch || board.branch,
           base: str(data.base) || prev.base,
           reviewers: Array.isArray(data.reviewers) ? arr<string>(data.reviewers) : prev.reviewers,
+          prState: "prState" in data ? (str(data.prState) || null) : prev.prState,
           ciState: "ciState" in data ? (str(data.ciState) || null) : prev.ciState,
           ciUrl: str(data.ciUrl) || prev.ciUrl,
           jobs: Array.isArray(summary.jobs) ? arr<{ name: string; result: string }>(summary.jobs) : prev.jobs,
@@ -241,6 +244,6 @@ export const STATUS_LABEL: Record<TaskStatus, string> = {
 };
 
 // A PR from AURA's API (GET /task-prs) as a Task event, so the PR view refreshes its CI status.
-export function prEventFrom(pr: { prUrl: string | null; prNumber: number | null; branch: string; reviewers: string[]; ciState: string | null; ciUrl: string | null; ciSummary: unknown }): Record<string, unknown> {
-  return { kind: "pr", url: pr.prUrl, number: pr.prNumber, branch: pr.branch, reviewers: pr.reviewers, ciState: pr.ciState, ciUrl: pr.ciUrl, ciSummary: pr.ciSummary };
+export function prEventFrom(pr: { prUrl: string | null; prNumber: number | null; prState?: string | null; branch: string; reviewers: string[]; ciState: string | null; ciUrl: string | null; ciSummary: unknown }): Record<string, unknown> {
+  return { kind: "pr", url: pr.prUrl, number: pr.prNumber, prState: pr.prState ?? null, branch: pr.branch, reviewers: pr.reviewers, ciState: pr.ciState, ciUrl: pr.ciUrl, ciSummary: pr.ciSummary };
 }

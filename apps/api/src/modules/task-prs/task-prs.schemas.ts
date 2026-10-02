@@ -39,4 +39,10 @@ export type CiReport = z.infer<typeof ciReportSchema>;
 
 export const listQuerySchema = z.object({ epicKey: jiraKeySchema.optional(), taskKey: jiraKeySchema.optional() }).strict();
 
+// The runtime reports lifecycle events AURA cannot see itself: Gate 4 approved, Gate 8 approved.
+export const taskEventSchema = z.discriminatedUnion("event", [
+  z.object({ event: z.literal("started"), taskKey: jiraKeySchema }).strict(),
+  z.object({ event: z.literal("released"), epicKey: jiraKeySchema }).strict(),
+]);
+
 export const taskKeyParamsSchema = z.object({ taskKey: jiraKeySchema });
