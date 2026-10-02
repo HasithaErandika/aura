@@ -1,0 +1,29 @@
+{
+  "name": "@aura/bridge",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Protocol between the AURA cloud (apps/api, apps/agent-runtime) and the AURA VS Code extension: tool requests the agents make and the results the extension returns (ADR-4).",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "prepare": "tsc -p tsconfig.json"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.3",
+    "vitest": "^5.0.2"
+  }
+}

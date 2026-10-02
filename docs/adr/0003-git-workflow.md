@@ -1,76 +1,55 @@
-# ADR-3. Git workflow: product repositories, Task branches, pull requests, merge queue
+# ADR-3: Git workflow — project repositories, Task branches, pull requests
 
-**Status:** Accepted (2026-09-25). Implementation is planned in
-[plans/aura-git-control-plane.md](../plans/aura-git-control-plane.md) (Phase 0 in progress, Phase 1 next).
-Supersedes the per-Epic scaffold model described in ADR-1 and `docs/ARCHITECTURE.md` §2.4 once
-Phase 1 lands. Complements [ADR-2](0002-team-scale-deployment.md) (where work runs) by deciding
-**how code flows**.
+| | |
+|---|---|
+| **Status** | Accepted · in progress ([Roadmap](../plans/aura-git-control-plane.md) Phase 1) |
+| **Date** | 2026-09-25 |
+| **Replaces** | The per-Epic scaffold model of [ADR-1](0001-dev-agent-scaffold-and-template-strategy.md) |
+| **Questions** | [clarify.md](../clarify.md) |
 
 ## Context
 
-AURA governs AI agents across the delivery lifecycle: gates, policy, approvals, audit and
-provenance. The code side, though, was built for one machine:
+The code side of AURA works on one machine only:
 
-- Gate 4 scaffolds **a new app per Epic** under `.workspaces/<EPIC>/dev/<discipline>/`.
-- Task branches (`feature/<TASK>`, one git worktree each) **never leave the machine**: no push, no
-  pull request, no CI, no merge, so the code part of a Task has no "done".
-- Task dependencies are implicit. KAN-47 was built on KAN-43's code, which was only discovered
-  from file timestamps.
-- The QA agent and the Coding agent each read the Architect's **prose** API design and diverged:
-  QA tested `/api/password-reset/...`, the code implemented `/v1/auth/...`.
-- Coding could be delegated to Claude Code / Codex, which run on **developers' personal CLI
-  logins**, outside AURA's model governance.
-
-A mentor review (760/1000) confirmed the governance core is sound and named remote Git + PRs as the
-most important missing piece. The questions and answers are recorded in [clarify.md](../clarify.md).
+- Gate 4 creates a **new app per Epic**.
+- Task branches never leave the machine: no push, PR, CI or merge.
+- Task dependencies are hidden.
+- QA and Coding read a prose API design and disagree on paths.
 
 ## Decision
 
-| # | Decision |
-|---|---|
-| **D1** | **One repository per Project.** Epics and Tasks are units of *work*, not code boundaries; every Epic changes the Project's existing repository. Scaffolding happens only when a repository is new. Multi-repository Projects are a later step. |
-| **D2** | **GitHub, through a GitHub App** that AURA owns (short-lived installation tokens, narrowly scoped: contents, pull requests, checks), behind a `GitProvider` interface. A `local` provider (bare repository on disk) serves AURA's own tests and offline use. Developers keep their own credentials for their own pushes. |
-| **D3** | **Merged is not Done.** PR merged → Jira *Ready for Release*; released (Gate 8) → *Done*. Branch created → *In Progress*; PR opened → *In Review*. Status names are configurable per Jira project. |
-| **D4** | **Dependencies are data.** Architect Tasks carry `dependsOn`, filed as Jira "is blocked by" links. Gate 4 refuses a Task whose dependencies are not merged, unless a human explicitly chooses to stack it on the dependency's branch (recorded in the audit log). The Architect should decompose work so most Tasks merge independently. |
-| **D5** | **Contract-first APIs.** The Architect produces an **OpenAPI 3.1** file (`openapi/openapi.yaml`, through its own PR). The Coding Council and QA both receive it, and a deterministic **contract check** in verification compares implemented routes and QA request paths against it. |
-| **D6** | **AURA's own agents do the coding.** The Claude Code and Codex providers (and their CLI-login/Docker path and credentials table) are removed. Models are chosen per role in the agent registry (any provider), later through a model gateway. |
-| **D7** | **CI and QA run in parallel on the PR.** Merge requires CI ✓ + AURA QA (Gate 7 check run) ✓ + one human approval (CODEOWNERS), through a merge queue into a protected `main`. |
-| **D8** | **Artifacts that describe the software live in the repository**: `openapi/`, `docs/adr/`, `docs/architecture/`, `e2e/` (Playwright). **AURA keeps operational evidence**: runs, approvals, audit, provenance, traces. |
-| **D9** | **Local mode stays.** Developers work in their own IDE on clones/worktrees of the repository; the CLI, web terminal and Project Files operate on those. |
-
-### Flow
+| # | Decision | Status |
+|---|---|---|
+| D1 | **One repository per project.** Scaffold only when the repo is new | 🟡 Data model built; Gate 4 not switched |
+| D2 | **GitHub through a GitHub App**, behind a `GitProvider` interface; a `local` provider for tests | 🟡 Interface + local provider built |
+| D3 | **Merged is not Done.** Branch → In Progress · PR → In Review · merged → Ready for Release · released → Done | 🔴 |
+| D4 | **Dependencies are data.** `dependsOn` → Jira links; Gate 4 waits for dependencies to merge | 🟡 Table only |
+| D5 | **Contract-first APIs.** Architect writes OpenAPI 3.1; Coding and QA use it; a contract check verifies | 🔴 |
+| D6 | **AURA's own agents do the coding.** No Claude Code / Codex providers | 🟢 Done |
+| D7 | **CI and QA run in parallel on the PR.** Merge needs CI ✓, AURA QA ✓ and one human approval | 🔴 |
+| D8 | **Engineering files live in the repo** (`openapi/`, `docs/`, `e2e/`); AURA keeps run evidence | 🔴 |
+| D9 | **Local mode stays**, working on clones of the repo | 🟢 |
 
 ```mermaid
 flowchart LR
-    T["Jira Task<br/>(deps merged)"] --> B["Gate 4<br/>branch from main"]
-    B --> C["Gate 5<br/>Coding Council + verification"]
-    C --> PR["PR (GitHub App)<br/>with provenance"]
-    PR --> CI["CI"] & QA["AURA QA<br/>(Gate 7 check run)"]
+    T["Jira Task<br/>deps merged"] --> B["Gate 4<br/>branch from main"]
+    B --> C["Gate 5<br/>council + verify"]
+    C --> PR["PR via GitHub App"]
+    PR --> CI["CI"]
+    PR --> QA["AURA QA check"]
     CI --> R{"Human review"}
     QA --> R
-    R -- "approve" --> M["Merge queue → main<br/>Jira: Ready for Release"]
-    R -- "changes" --> C
+    R -- approve --> M["Merge queue → main"]
+    R -- changes --> C
 ```
 
 ## Consequences
 
-**Positive**
-- The code part of every Task has a clear end: a reviewed, CI-green, QA-green merge to `main`.
-- Many developers work in parallel through standard Git practice (short-lived branches, protected
-  `main`, merge queue) that companies already know how to operate.
-- AI output never reaches `main` without CI, AURA QA and a human reviewer.
-- One contract removes a whole class of disagreement between generated code and generated tests.
-- All model use flows through AURA's governance (registry now, gateway later), not personal
-  subscriptions.
+| Positive | Negative |
+|---|---|
+| Every Task's code has a clear end: a reviewed merge | Needs a GitHub App and webhook handling |
+| Standard Git practice scales to many developers | KAN-36 must be migrated once |
+| AI code never reaches `main` without CI, QA and a human | The contract check starts as a heuristic |
+| One contract removes code/test mismatches | |
 
-**Negative**
-- AURA needs a GitHub App, webhook handling (with a polling fallback for local use), and a
-  projects/repositories data model.
-- Existing per-Epic workspaces (KAN-36) must be migrated once into a registered repository.
-- The contract check starts as a static heuristic (NestJS/Express route scan) and will miss some
-  cases.
-- Removing Claude Code/Codex removes an option some developers may like. Claude models remain
-  available to AURA's own agents through the registry.
-
-**Not decided here:** GitLab support, multi-repository Projects, deployment pipelines (Gate 8
-automation), stronger sandboxing (ADR-2).
+**Not decided here:** GitLab, multi-repo projects, deployment pipelines.

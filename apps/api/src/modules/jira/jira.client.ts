@@ -157,12 +157,36 @@ function toDetail(raw: RawJiraIssue): JiraIssueDetail {
 const SUMMARY_FIELDS = "summary,issuetype,status,priority,assignee,updated";
 const DETAIL_FIELDS = `${SUMMARY_FIELDS},created,reporter,description`;
 
-// /rest/api/3/search was removed by Atlassian in favor of /rest/api/3/search/jql
-// (https://developer.atlassian.com/changelog/#CHANGE-2046).
+// /rest/api/3/search was removed by Atlassian in favor of /rest/api/3/search/jql.
+// The newer endpoint uses nextPageToken/isLast pagination and accepts a JSON body for
+// POST requests. Keep this in one helper so listEpics and child lookups behave consistently.
 async function search(jql: string, fields: string, maxResults: number): Promise<RawJiraIssue[]> {
-  const params = new URLSearchParams({ jql, fields, maxResults: String(maxResults) });
-  const { issues } = await jiraFetch<{ issues: RawJiraIssue[] }>(`/rest/api/3/search/jql?${params.toString()}`);
-  return issues ?? [];
+  const requestedFields = fields.split(",").map((field) => field.trim()).filter(Boolean);
+  const issues: RawJiraIssue[] = [];
+  let nextPageToken: string | undefined;
+
+  // Jira may return fewer results than requested while still providing a next page token,
+  // so isLast (rather than the page length) is the termination condition. The page cap is a
+  // defensive guard against a broken upstream token response.
+  for (let page = 0; page < 100; page += 1) {
+    const response = await jiraFetch<{ issues?: RawJiraIssue[]; nextPageToken?: string; isLast?: boolean }>(
+      "/rest/api/3/search/jql",
+      {
+        method: "POST",
+        body: {
+          jql,
+          fields: requestedFields,
+          maxResults: Math.min(maxResults - issues.length, 100),
+          ...(nextPageToken ? { nextPageToken } : {}),
+        },
+      },
+    );
+    issues.push(...(response.issues ?? []));
+    if (response.isLast !== false || !response.nextPageToken || issues.length >= maxResults) break;
+    nextPageToken = response.nextPageToken;
+  }
+
+  return issues.slice(0, maxResults);
 }
 
 // Jira JQL string literal quoting (backslash and double-quote are the only characters that

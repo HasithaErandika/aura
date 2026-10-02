@@ -1,4 +1,4 @@
-import { api, streamRequest } from "../../shared/api/client.ts";
+import { api, followRunStream, streamRequest } from "../../shared/api/client.ts";
 import type { Decision, RegistryAgent, StreamEvent, Thread, ThreadHistory } from "../../types/api.ts";
 
 export type StreamListener = (event: StreamEvent) => void;
@@ -29,6 +29,16 @@ export const workspaceApi = {
 
   send: (agentId: string, threadId: string, message: string, listener: StreamListener, signal?: AbortSignal) =>
     streamRequest(`/threads/${threadId}/messages`, { agentId, message }, {
+      signal,
+      onEvent: (event, data) => {
+        const parsed = asStreamEvent(event, data);
+        if (parsed) listener(parsed);
+      },
+    }),
+
+  // Re-attach to a turn that is still running (it runs as a background job on the server).
+  follow: (runId: string, listener: StreamListener, signal?: AbortSignal) =>
+    followRunStream(runId, {
       signal,
       onEvent: (event, data) => {
         const parsed = asStreamEvent(event, data);

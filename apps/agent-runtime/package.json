@@ -11,7 +11,8 @@
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "test": "vitest run",
     "eval": "vitest run --config vitest.evals.config.ts",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "migrate-state": "tsx scripts/migrate-state.ts"
   },
   "keywords": [],
   "author": "",
@@ -28,11 +29,16 @@
     "@mastra/mcp": "^1.17.3",
     "@mastra/memory": "1.30.0",
     "@mastra/observability": "1.17.8",
+    "@mastra/pg": "1.25.0",
+    "pg": "^8.23.1",
     "ws": "^8.21.3",
     "zod": "^4.4.3"
   },
   "devDependencies": {
+    "@aura/bridge": "workspace:*",
+    "@electric-sql/pglite": "^0.5.8",
     "@types/node": "latest",
+    "@types/pg": "^8.23.1",
     "@types/ws": "^8.18.1",
     "mastra": "1.30.0",
     "typescript": "^6.0.3",

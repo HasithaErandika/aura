@@ -36,6 +36,9 @@ function runtimeToken(mode: "local" | "server"): string | undefined {
 }
 
 const mode = auraMode();
+if (mode === "server" && !optionalString("DATABASE_URL")) {
+  throw new Error("AURA_MODE=server requires DATABASE_URL (Postgres for the turn queue)");
+}
 
 export const env = {
   mode,
@@ -56,6 +59,12 @@ export const env = {
   runtimeTimeoutMs: optionalNumber("MASTRA_RUNTIME_TIMEOUT_MS", 15_000),
   runtimeToken: runtimeToken(mode),
   runTurnTimeoutMs: optionalNumber("RUN_TURN_TIMEOUT_MS", 10 * 60_000),
+  // Postgres for the turn queue (pg-boss, schema "pgboss"). Unset: turns run in this process
+  // without a queue (fine for one developer; a restart interrupts running turns either way).
+  databaseUrl: optionalString("DATABASE_URL"),
+  // Agent turns running at once on this API process, and per user across all processes.
+  turnConcurrency: optionalNumber("TURN_CONCURRENCY", 4),
+  turnConcurrencyPerUser: optionalNumber("TURN_CONCURRENCY_PER_USER", 2),
   approvalSlaHours: optionalNumber("APPROVAL_SLA_HOURS", 72),
   
   // Web terminal (modules/terminal): shared with apps/agent-runtime, which verifies the tickets

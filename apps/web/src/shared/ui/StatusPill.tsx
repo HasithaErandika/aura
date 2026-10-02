@@ -10,6 +10,7 @@ const runTone: Record<RunStatus, Tone> = {
   REJECTED: "neutral",
   EXPIRED: "danger",
   HALTED_LOOP_GUARD: "danger",
+  INTERRUPTED: "warning",
 };
 
 const runLabel: Record<RunStatus, string> = {
@@ -21,6 +22,7 @@ const runLabel: Record<RunStatus, string> = {
   REJECTED: "Rejected",
   EXPIRED: "Expired",
   HALTED_LOOP_GUARD: "Halted",
+  INTERRUPTED: "Interrupted",
 };
 
 export function RunStatusPill({ status }: { status: RunStatus }) {

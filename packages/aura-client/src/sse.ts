@@ -5,22 +5,26 @@
 export interface SseMessage {
   event: string;
   data: unknown;
+  // The run event id (apps/api run_events), for resuming with GET /runs/:id/events?after=<id>.
+  id?: number;
 }
 
 function parseFrame(frame: string): SseMessage | null {
   let event = "message";
+  let id: number | undefined;
   const dataLines: string[] = [];
   for (const line of frame.split("\n")) {
     if (line.startsWith("event:")) event = line.slice(6).trim();
     else if (line.startsWith("data:")) dataLines.push(line.slice(5).trimStart());
+    else if (line.startsWith("id:")) id = Number(line.slice(3).trim()) || undefined;
   }
   // Comment-only frames (": keepalive") carry no data.
   if (dataLines.length === 0) return null;
   const raw = dataLines.join("\n");
   try {
-    return { event, data: JSON.parse(raw) };
+    return { event, data: JSON.parse(raw), ...(id ? { id } : {}) };
   } catch {
-    return { event, data: raw };
+    return { event, data: raw, ...(id ? { id } : {}) };
   }
 }
 

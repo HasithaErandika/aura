@@ -51,28 +51,21 @@ export interface SseHandlers {
   signal?: AbortSignal;
 }
 
-// POST with a JSON body and consume the server-sent-events response. EventSource cannot send
-// a bearer token or a body, so this reads the stream with fetch.
-export async function streamRequest(path: string, body: unknown, handlers: SseHandlers): Promise<void> {
-  const res = await fetch(`${env.apiUrl}${path}`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", Accept: "text/event-stream", ...(await authHeader()) },
-    body: JSON.stringify(body),
-    signal: handlers.signal,
-  });
-  if (!res.ok) throw await toApiError(res);
+// Reads one SSE response, calling onFrame per event with its id (if the server sent one).
+async function readSse(res: Response, onFrame: (event: string, data: unknown, id: number | null) => void): Promise<void> {
   if (!res.body) throw new ApiError(502, "no_body", "The server returned an empty stream");
-
   const reader = res.body.getReader();
   const decoder = new TextDecoder();
   let buffer = "";
 
   const dispatch = (frame: string) => {
     let event = "message";
+    let id: number | null = null;
     const dataLines: string[] = [];
     for (const line of frame.split("\n")) {
       if (line.startsWith("event:")) event = line.slice(6).trim();
       else if (line.startsWith("data:")) dataLines.push(line.slice(5).trimStart());
+      else if (line.startsWith("id:")) id = Number(line.slice(3).trim()) || null;
     }
     if (dataLines.length === 0) return;
     let data: unknown = dataLines.join("\n");
@@ -81,7 +74,7 @@ export async function streamRequest(path: string, body: unknown, handlers: SseHa
     } catch {
       // keep as text
     }
-    handlers.onEvent(event, data);
+    onFrame(event, data, id);
   };
 
   while (true) {
@@ -96,4 +89,65 @@ export async function streamRequest(path: string, body: unknown, handlers: SseHa
     }
   }
   if (buffer.trim()) dispatch(buffer);
+}
+
+const RECONNECT_ATTEMPTS = 6;
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+// Consumes a run's SSE stream; if it drops before the turn's "done" event, resumes from the last
+// event id with GET /runs/:id/events (the turn keeps running on the server meanwhile).
+async function consumeRunStream(first: Response, handlers: SseHandlers, knownRunId: string | null): Promise<void> {
+  let runId = knownRunId;
+  let lastId = 0;
+  let finished = false;
+  const onFrame = (event: string, data: unknown, id: number | null) => {
+    if (id) lastId = id;
+    if (event === "run" && data && typeof (data as { runId?: unknown }).runId === "string") runId = (data as { runId: string }).runId;
+    if (event === "done") finished = true;
+    handlers.onEvent(event, data);
+  };
+
+  const aborted = () => handlers.signal?.aborted === true;
+  try {
+    await readSse(first, onFrame);
+  } catch (error) {
+    if (aborted()) throw error;
+  }
+
+  for (let attempt = 1; !finished && runId && !aborted() && attempt <= RECONNECT_ATTEMPTS; attempt++) {
+    await sleep(Math.min(1000 * attempt, 5000));
+    try {
+      const again = await fetch(`${env.apiUrl}/runs/${runId}/events?after=${lastId || "turn"}`, {
+        headers: { Accept: "text/event-stream", ...(await authHeader()) },
+        signal: handlers.signal,
+      });
+      if (again.ok) await readSse(again, onFrame);
+    } catch (error) {
+      if (aborted()) throw error;
+    }
+  }
+}
+
+// POST with a JSON body and consume the server-sent-events response. EventSource cannot send
+// a bearer token or a body, so this reads the stream with fetch. The turn runs as a background
+// job on the server, so a dropped stream is resumed automatically.
+export async function streamRequest(path: string, body: unknown, handlers: SseHandlers): Promise<void> {
+  const res = await fetch(`${env.apiUrl}${path}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Accept: "text/event-stream", ...(await authHeader()) },
+    body: JSON.stringify(body),
+    signal: handlers.signal,
+  });
+  if (!res.ok) throw await toApiError(res);
+  await consumeRunStream(res, handlers, null);
+}
+
+// Attaches to a run's current turn (e.g. after a page reload while a turn is still running).
+export async function followRunStream(runId: string, handlers: SseHandlers): Promise<void> {
+  const res = await fetch(`${env.apiUrl}/runs/${runId}/events?after=turn`, {
+    headers: { Accept: "text/event-stream", ...(await authHeader()) },
+    signal: handlers.signal,
+  });
+  if (!res.ok) throw await toApiError(res);
+  await consumeRunStream(res, handlers, runId);
 }

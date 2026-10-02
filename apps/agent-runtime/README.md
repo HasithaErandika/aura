@@ -1,43 +1,53 @@
-# AURA agent-runtime
+# AURA Agent Runtime
 
-Mastra runtime for the Phase 1/2 agents: the Orchestrator, the PO Agent, the BA Agent, and the Architect Agent (Gates 1-3). Reached only through `apps/api`; Mastra Studio at `http://localhost:4111` stays available to engineers.
+Mastra server with every AURA agent, workflow and the tool gateway. Only `apps/api` may call it.
+Mastra Studio: http://localhost:4111.
+
+```mermaid
+flowchart LR
+    API["apps/api"] -->|"runtime token"| ORCH{{"Orchestrator"}}
+    ORCH --> GW["Tool gateway"]
+    GW --> DT["delegate_to_* tools"]
+    DT -->|"draft"| AG["Agents / workflows"] --> DS[("Draft store")]
+    DT -->|"execute after approval"| OUT["Jira · disk · git · Docker"]
+```
 
 ## How a run works
 
-1. A human briefs the **Orchestrator** (`agents/orchestrator.ts`). It decides what to do next; nothing in the API or web encodes a step order.
-2. It calls `delegate_to_po`, `delegate_to_ba`, or `delegate_to_architect` (`tools/delegate-tools.ts`) in `draft` mode. For PO/BA the tool runs the sub-agent once with a **structured output schema** (`contracts/drafts.ts`); for the Architect it runs the **Architect Workflow** (`workflows/architect-workflow.ts`) - several narrow, sequenced LLM calls (requirements analysis → decomposition → API/data/security/AI design in parallel → deployment/testing notes → ADRs + tasks) instead of one big call, with per-step progress relayed live through the same tool call via Mastra's `writer.custom()` API. Either way the tool stores the resulting JSON in the **draft store** (`store/draft-store.ts`) and returns a `draftId` plus rendered Markdown.
-3. The Orchestrator shows the Markdown once and pauses with `ask_user` (options Approve, Revise, Reject). The API turns that pause into a durable approval request.
-4. Revise: the tool receives only the `draftId` and the feedback, produces a new version (as one holistic call, even for the Architect - a revision is a smaller, targeted change), and the loop repeats.
-5. Approve: the tool's `file` mode reads the stored draft and creates the Jira Epic, Stories, or Tasks **in code** through the Jira MCP client, with the parent link, a provenance stamp, and idempotency on retry. The Architect's `file` also writes ADRs, a requirements summary, `architecture.md`, and `plan.md` to its per-Epic workspace (`workspace/architect-workspace.ts`, browsable (and Architect-editable) from the web app's Project Files page via `server/workspace-routes.ts`). No model is involved in any step that must be exact.
+1. The **Orchestrator** chats with the user and calls a `delegate_to_*` tool in `draft` mode.
+2. The agent or workflow returns structured JSON. It is stored in the **draft store**.
+3. The Orchestrator pauses with `ask_user`. The API turns this into an approval request.
+4. **Revise** creates a new draft version. **Approve** runs the tool's execute mode: plain code
+   writes to Jira, disk or git, with a provenance stamp.
 
-Every sub-agent holds no tools. The Orchestrator holds no Jira tools and no filesystem tools. A model can propose; only code, after a recorded human approval, writes to Jira or the workspace.
+Agents hold no write tools (except the coding agents inside the Task worktree). The Orchestrator
+cannot reach Jira or the filesystem directly.
 
-## Token discipline
+## Layout (`src/mastra/`)
 
-- A draft crosses a model boundary at most twice per version: once when the sub-agent produces it and once when the Orchestrator shows it to the human. Revise and file calls carry ids, not text.
-- Sub-agents run a single step with no memory and no tool schemas in context.
-- The Orchestrator keeps a bounded message window (`lastMessages`) and uses a small model for thread titles.
+| Folder | Contents |
+|---|---|
+| `agents/` | Orchestrator, PO, BA, Architect, Dev, QA, Tester, Deployer, council agents; `registry.ts` (versions, models) |
+| `workflows/` | `architect-workflow`, `coding-council`, `qa-workflow`, `tester-workflow` |
+| `tools/delegate-tools/` | One file per gate: draft / revise / execute |
+| `gateway/` | Risk tiers, single-use approvals, loop guards, injection defense |
+| `contracts/` | Zod schemas, prompts, Markdown and Jira renderers |
+| `store/` | Draft store, token ledger, council notes, usage |
+| `workspace/` | Per-Epic architecture, dev (worktrees) and QA workspaces |
+| `git/` | `GitProvider` interface and `local` provider |
+| `terminal/` | Web terminal server, tickets, PTY, restricted mode |
+| `server/` | Custom HTTP routes, runtime auth, metrics |
+| `bridge/` | Bridge filesystem and sandbox: a Mastra `Workspace` on the developer's VS Code |
+| `config/` | `AURA_MODE`, models, dashboard settings from the request context |
+| `lib/` | Docker exec, sandbox checks, metrics, structured-output helper |
+| `evals/` | Eval suites, scoring, baseline test |
 
-## Layout
+## Commands
 
-```
-src/mastra/
-  index.ts               registers agents, workflows, tools, storage, observability, MCP proxies, custom routes
-  agents/                orchestrator, po-agent, ba-agent, architect-agent, registry.ts (tool/model manifest)
-  workflows/             architect-workflow.ts - the Architect's multi-step design workflow
-  workspace/             architect-workspace.ts - per-Epic LocalFilesystem for design documents
-  server/                workspace-routes.ts - read-only HTTP routes onto that workspace
-  tools/                 delegate-tools (draft / revise / file per agent)
-  contracts/drafts.ts    Zod schemas for Epic/Story/Architecture drafts, Markdown and Jira renderers
-  store/draft-store.ts   libsql-backed draft store (AURA_DRAFTS_DB_URL)
-  mcp/jira-client.ts     Jira MCP connection and the typed facade the tools call
-  lib/generate-object.ts shared "ask an agent for one structured object, retry once" helper
-```
+| Command | Does |
+|---|---|
+| `pnpm --filter agent-runtime dev` | Run (or `make runtime`) |
+| `pnpm --filter agent-runtime test` | Unit tests |
+| `pnpm --filter agent-runtime eval` | Evals (uses model quota) |
 
-## Setup
-
-1. Copy `.env.example` to `.env`: `GROQ_API_KEY`, the Jira MCP transport, `JIRA_PROJECT_KEY`, and `AURA_WORKSPACE_ROOT` (an absolute path - see the file for why).
-2. `pnpm install` at the repo root (applies the root `patches/@mastra__schema-compat@1.3.10.patch` for Groq tool calling - see `pnpm-workspace.yaml`).
-3. `pnpm --filter agent-runtime dev` (or `make runtime`) and open Studio at `http://localhost:4111`, or drive it from the AURA web app through `apps/api`.
-
-The schema-compat patch needs a full process restart to take effect, not a hot reload.
+The Groq patch in `patches/` needs a full restart, not a hot reload. Setup: [SETUP.md](../../SETUP.md).

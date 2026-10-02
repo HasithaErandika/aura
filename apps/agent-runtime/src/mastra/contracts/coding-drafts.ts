@@ -28,6 +28,17 @@ export const codingTaskDraftSchema = z.object({
   // Council only: lean or full, chosen at draft time so the approved plan says which runs.
   councilMode: z.enum(councilModes).optional(),
   councilModeReason: z.string().optional(),
+  // Council only: the loop limits in force when the plan was drafted (dashboard → .env →
+  // defaults), shown on the gate card and used by execute, so the run is exactly what was approved.
+  councilSettings: z
+    .object({
+      planRounds: z.number().int(),
+      maxRounds: z.number().int(),
+      implementerSteps: z.number().int(),
+      fixSteps: z.number().int(),
+      tokenBudget: z.number().int(),
+    })
+    .optional(),
   prompt: z.string().min(1).describe('Exact, deterministic prompt built from the Task - never model-authored'),
 });
 export type CodingTaskDraft = z.infer<typeof codingTaskDraftSchema>;
@@ -44,6 +55,7 @@ export function renderCodingPlan(draft: CodingTaskDraft): string {
     `**Discipline:** ${draft.discipline}`,
     `**Coding agent:** ${codingProviderLabel[draft.provider] ?? draft.provider}${draft.provider === 'council' ? '' : ' (single agent, no review)'}`,
     ...(draft.provider === 'council' ? [`**Council mode:** ${councilModeLine(draft)}`] : []),
+    ...(draft.councilSettings ? [`**Council limits:** ${councilLimitsLine(draft.councilSettings)}`] : []),
     `**Directory:** ${draft.targetDir}`,
     '',
     '## Exact prompt it will receive',
@@ -57,6 +69,10 @@ function councilModeLine(draft: CodingTaskDraft): string {
   const mode = draft.councilMode ?? 'full';
   const what = mode === 'lean' ? 'lean - Implementer plans inline, then checks and Reviewer rounds' : 'full - Planner, plan review, Implementer, checks and Reviewer rounds';
   return draft.councilModeReason ? `${what} (${draft.councilModeReason})` : what;
+}
+
+function councilLimitsLine(s: NonNullable<CodingTaskDraft['councilSettings']>): string {
+  return `plan review rounds ${s.planRounds} · review rounds ${s.maxRounds} · implementer steps ${s.implementerSteps} · fix steps ${s.fixSteps} · token budget ${s.tokenBudget.toLocaleString('en-US')}`;
 }
 
 // Renders the Jira comment posted on the Task after a coding-agent run, success or failure.

@@ -1,81 +1,65 @@
-# AURA api
+# AURA API
 
-Express + TypeScript. Owns authentication, the deterministic policy tables, the governance record of every agent run, human approvals, and the audit trail. It is the only service that talks to `apps/agent-runtime`; the browser never reaches the runtime directly.
+Express + TypeScript. Owns authentication, policy, approvals, the run record and the audit log.
+It is the only service that calls `apps/agent-runtime`.
+
+```mermaid
+flowchart LR
+    C["web / VS Code extension"] --> AUTH["Auth<br/>session or token"] --> POL["Policy"] --> RT["agent-runtime"]
+    RT -->|"stream"| ORCH["Orchestration<br/>runs · steps · gates"] --> C
+    ORCH --> DB[("Supabase")]
+```
 
 ## Layout
 
-```
-src/
-  index.ts                 process bootstrap
-  app.ts                   express app factory (helmet, cors, json, routes, error handler)
-  config/env.ts            typed environment
-  lib/                     supabase client, logger, hash, http helpers (errors, sse, validate)
-  middleware/              auth (Supabase JWT + profile role), request id, error handler
-  modules/
-    identity/              roles, /me, /users (admin), profile lookups
-    policy/                role -> agent grants and agent -> approver role (data, not prompts)
-    runtime/               Mastra HTTP client, SSE parser, message normalizer
-    orchestration/         mirrors a runtime stream into runs, steps, approvals
-    threads/               conversations (runtime memory) and the SSE message endpoint
-    runs/                  run records and step timeline
-    approvals/             approval inbox, decide + resume
-    audit/                 append-only audit writer and explorer feed
-    dashboard/             summary for the signed-in role
-    workspace/             read-only proxy onto the Architect's per-Epic design documents
-    health/                liveness for the API and the runtime
-  routes/index.ts          mounts every module
-supabase/migrations/       0001 identity, 0002 runs/approvals/audit, 0003 run_steps 'progress' kind
-```
-
-The Orchestrator in the runtime decides the workflow. The API observes its stream (delegations, tool results, `ask_user` pauses) and records what happened; it never encodes a step order. Authorization is the one thing decided here, from two tables in `modules/policy/policy.ts`: who may run an agent and which role answers when the runtime pauses after delegating to an agent.
-
-## Setup
-
-1. Create a Supabase project and run every file in `supabase/migrations/` in order (`0001` … `0006`) in the SQL editor.
-2. Copy `.env.example` to `.env` and fill in the Supabase URL, anon key, service role key, and the runtime URL.
-3. `pnpm install` at the repo root.
-4. Create the first admin (no self-serve signup):
-   ```bash
-   pnpm --filter api bootstrap-admin -- --email you@company.com --name "Your Name" --password "a-strong-password"
-   ```
-5. Start `apps/agent-runtime` (`make runtime`, port 4111), then this API (`make api`, port 4000) - or both plus the web app with `make dev`.
-
-## Security controls
-
-- Authentication: Supabase access token on every request. Verified locally (HS256) when `SUPABASE_JWT_SECRET` is set, otherwise via Supabase Auth. Verified sessions are cached for `SESSION_CACHE_TTL_MS` keyed by a hash of the token; a role change or removal invalidates the cache immediately, and a removed account fails the profile lookup even while its token is unexpired.
-- Authorization: every grant is data in `modules/policy/policy.ts`, evaluated in code. Admins cannot decide gates. Approval decisions are bound to the snapshot hash the human reviewed.
-- Input: strict Zod schemas on bodies and queries (unknown fields rejected), uuid or safe-charset validation on every path id, `256kb` JSON limit.
-- Abuse: fixed-window rate limits per client address, per user, and a tighter one on agent turns (`POST /threads/:id/messages`, `POST /approvals/:id/decide`). One agent turn is capped at `RUN_TURN_TIMEOUT_MS`.
-- Transport: helmet headers, CORS restricted to `WEB_ORIGIN` with an explicit method and header list, `trust proxy` configured by `TRUST_PROXY_HOPS`.
-- Data: RLS enabled with no client policies on governance tables; `audit_logs` is append-only via trigger; `.env` is git-ignored and `.env.example` holds placeholders only.
-- Runtime: the browser never reaches the runtime; the API can present `MASTRA_RUNTIME_TOKEN` when the runtime is deployed behind auth.
+| Path | Contents |
+|---|---|
+| `src/app.ts` · `src/index.ts` | App factory and bootstrap |
+| `src/middleware/` | Auth, request id, rate limits, errors |
+| `src/modules/policy/` | Role → agent grants and gate approver roles (data) |
+| `src/modules/orchestration/` | Turns the runtime stream into runs, steps and approval requests |
+| `src/modules/approvals/` | Inbox, decide, resume |
+| `src/modules/audit/` | Append-only writer, explorer, export |
+| `src/modules/identity/` | `/me`, users, access tokens, git identity |
+| `src/modules/projects/` | Projects and repositories (admin) |
+| `src/modules/terminal/` | Web terminal tickets |
+| `src/modules/*` | `threads`, `runs`, `agents`, `jira`, `council`, `dashboard`, workspaces, `runners`, `health` |
+| `src/modules/settings/` | Settings registry, resolution, API |
+| `src/modules/bridge/` | VS Code bridge: hub, tickets, WebSocket, internal call route |
+| `src/modules/orchestration/turn-jobs.ts` | Turn queue (pg-boss), heartbeat, stale-run sweep |
+| `supabase/migrations/` | SQL migrations `0001`–`0009` |
 
 ## Routes
 
-| Route | Who | Purpose |
+| Mount | Who | Purpose |
 |---|---|---|
-| `GET /health`, `GET /health/runtime` | anyone | API liveness, runtime reachability |
-| `GET /me` | signed in | profile, role, and the role's grants |
-| `GET/POST /users`, `PATCH /users/:id/role`, `DELETE /users/:id` | admin | account provisioning |
-| `GET /agents`, `GET /agents/:id` | signed in | registry as exposed by the runtime, with grants |
-| `GET/POST /threads`, `GET /threads/:id/messages`, `DELETE /threads/:id` | run grant | conversations with an agent |
-| `POST /threads/:id/messages` | run grant | send a message; responds with an SSE stream of the turn |
-| `GET /runs`, `GET /runs/:id` | requester, approver role, admin | run list and step timeline |
-| `GET /approvals`, `GET /approvals/:id` | approver role, requester, admin | inbox |
-| `POST /approvals/:id/decide` | approver role (or requester for clarifications) | record the decision, resume the run, stream the continuation |
-| `GET /audit` | admin | audit explorer feed |
-| `GET /dashboard/summary` | signed in | counts, pending decisions, recent runs, runtime status |
+| `/health` | Anyone | API and runtime liveness |
+| `/me` | Signed in | Profile, grants, access tokens, git identity |
+| `/users` · `/projects` | Admin | Users, projects and repositories |
+| `/bridge` | Developer | `POST /bridge/tickets` (WebSocket ticket), `GET /bridge/status`; WebSocket at `/bridge?ticket=` |
+| `/internal/bridge/calls` | Runtime token | The runtime's file and command calls, forwarded to the developer's VS Code |
+| `/settings` | Signed in (shared values: admin) | Settings registry, effective values, global/project/user values |
+| `/threads` | Run grant | Conversations; `POST /threads/:id/messages` streams a turn (SSE) |
+| `/approvals` | Approver role | Inbox; `POST /approvals/:id/decide` streams the continuation (SSE) |
+| `/runs` | Requester, approver, admin | Runs and step timeline; `GET /runs/:id/events?after=` replays and follows a run's events (SSE) |
+| `/audit` | Admin | Audit explorer and export |
+| `/dashboard` | Signed in | Summary, agent quality, token usage |
+| `/agents` · `/jira` · `/council` · `/terminal` · `/runners` | Per grant | Registry, Jira reads, council notes, terminal tickets, runners |
+| `/workspace` · `/dev-workspace` · `/qa-workspace` · `/test-runs` · `/docker` | Per grant | Project Files data |
 
-### SSE events
+SSE events: `run`, `text`, `tool`, `progress`, `council`, `gate`, `decision`, `error`, `done`.
 
-`POST /threads/:id/messages` and `POST /approvals/:id/decide` respond with `text/event-stream`:
+## Security
 
-| event | data |
+| Control | Detail |
 |---|---|
-| `run` | `{ runId, runtimeRunId, status }` |
-| `text` | `{ delta }` streamed assistant text |
-| `tool` | `{ phase: call\|result\|error, toolName, toolCallId, args?, result?, agent? }` |
-| `gate` | `{ approvalId, producingAgent, gate, requiredRole, question, options, selectionMode, snapshot, expiresAt, canDecide }` |
-| `decision` | `{ approvalId, status, decision }` (decide endpoint only) |
-| `error` | `{ message }` |
-| `done` | `{ runId, status, approvalId }` |
+| Auth | Supabase token or `aura_pat_…`; both resolve to the same role checks |
+| Policy | Grants are data in `modules/policy/policy.ts`; admins cannot decide gates |
+| Input | Strict Zod schemas; 256 KB JSON limit |
+| Abuse | Rate limits per IP, per user and per agent turn; `RUN_TURN_TIMEOUT_MS` per turn |
+| Transport | Helmet, CORS limited to `WEB_ORIGIN` |
+| Data | RLS on; `audit_logs` append-only |
+
+## Run
+
+See [SETUP.md](../../SETUP.md). Quick: `make api` (port 4000).

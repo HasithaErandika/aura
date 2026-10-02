@@ -60,6 +60,26 @@ export const runsRepository = {
     return data as RunRow;
   },
 
+  // Heartbeat of a running turn job (modules/orchestration/turn-jobs.ts).
+  async touch(id: string): Promise<void> {
+    const { error } = await supabaseAdmin.from("workflow_runs").update({ updated_at: new Date().toISOString() }).eq("id", id).eq("status", "RUNNING");
+    if (error) throw dbError("touch run", error);
+  },
+
+  // RUNNING runs whose heartbeat stopped before `before`: their process is gone.
+  async listStale(before: string): Promise<RunRow[]> {
+    const { data, error } = await supabaseAdmin.from("workflow_runs").select(RUN_COLUMNS).eq("status", "RUNNING").lt("updated_at", before).limit(100);
+    if (error) throw dbError("list stale runs", error);
+    return (data ?? []) as RunRow[];
+  },
+
+  // Runs a user has queued or running right now, across all conversations.
+  async countActiveForUser(userId: string): Promise<number> {
+    const { count, error } = await supabaseAdmin.from("workflow_runs").select("id", { count: "exact", head: true }).eq("requested_by", userId).in("status", ["PENDING", "RUNNING"]);
+    if (error) throw dbError("count active runs", error);
+    return count ?? 0;
+  },
+
   async findById(id: string): Promise<RunRow | null> {
     const { data, error } = await supabaseAdmin.from("workflow_runs").select(RUN_COLUMNS).eq("id", id).maybeSingle();
     if (error) throw dbError("find run", error);

@@ -1,0 +1,179 @@
+{
+  "name": "aura-vscode",
+  "displayName": "AURA",
+  "description": "AURA for developers: pick a Jira Task, work on it with AURA's agents in a chat panel, and keep every file change and command under your approval. Agents run in the AURA cloud; your code stays on your machine.",
+  "version": "0.2.0",
+  "private": true,
+  "publisher": "aura",
+  "license": "UNLICENSED",
+  "engines": {
+    "vscode": "^1.90.0"
+  },
+  "categories": [
+    "AI",
+    "Other"
+  ],
+  "main": "./dist/extension.cjs",
+  "activationEvents": [],
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "aura",
+          "title": "AURA",
+          "icon": "media/aura.svg"
+        }
+      ]
+    },
+    "views": {
+      "aura": [
+        {
+          "id": "aura.tasks",
+          "name": "Tasks"
+        },
+        {
+          "type": "webview",
+          "id": "aura.chat",
+          "name": "Chat"
+        }
+      ]
+    },
+    "viewsWelcome": [
+      {
+        "view": "aura.tasks",
+        "contents": "Sign in to see your Epics, Stories and Tasks.\n[Sign In](command:aura.signIn)\n[Sign In with a Token](command:aura.signInWithToken)",
+        "when": "!aura.signedIn"
+      },
+      {
+        "view": "aura.tasks",
+        "contents": "This folder isn't an AURA project yet.\n[Connect Repository](command:aura.connectRepository)\n[Initialize Project](command:aura.initializeProject)",
+        "when": "aura.signedIn && !aura.projectConnected"
+      }
+    ],
+    "commands": [
+      {
+        "command": "aura.signIn",
+        "title": "Sign In",
+        "category": "AURA"
+      },
+      {
+        "command": "aura.signInWithToken",
+        "title": "Sign In with a Token",
+        "category": "AURA"
+      },
+      {
+        "command": "aura.signOut",
+        "title": "Sign Out",
+        "category": "AURA"
+      },
+      {
+        "command": "aura.connect",
+        "title": "Connect",
+        "category": "AURA"
+      },
+      {
+        "command": "aura.disconnect",
+        "title": "Disconnect",
+        "category": "AURA"
+      },
+      {
+        "command": "aura.refreshTasks",
+        "title": "Refresh Tasks",
+        "category": "AURA",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "aura.startTask",
+        "title": "Start Work on Task",
+        "category": "AURA",
+        "icon": "$(play)"
+      },
+      {
+        "command": "aura.openInJira",
+        "title": "Open in Jira",
+        "category": "AURA",
+        "icon": "$(link-external)"
+      },
+      {
+        "command": "aura.newChat",
+        "title": "New Chat",
+        "category": "AURA",
+        "icon": "$(add)"
+      },
+      {
+        "command": "aura.connectRepository",
+        "title": "Connect Repository",
+        "category": "AURA"
+      },
+      {
+        "command": "aura.initializeProject",
+        "title": "Initialize Project",
+        "category": "AURA"
+      }
+    ],
+    "menus": {
+      "view/title": [
+        {
+          "command": "aura.refreshTasks",
+          "when": "view == aura.tasks",
+          "group": "navigation"
+        },
+        {
+          "command": "aura.newChat",
+          "when": "view == aura.chat",
+          "group": "navigation"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "aura.startTask",
+          "when": "view == aura.tasks && viewItem == task",
+          "group": "inline"
+        },
+        {
+          "command": "aura.openInJira",
+          "when": "view == aura.tasks && viewItem =~ /^(epic|story|task|bug)$/",
+          "group": "inline"
+        }
+      ],
+      "commandPalette": [
+        {
+          "command": "aura.startTask",
+          "when": "false"
+        },
+        {
+          "command": "aura.openInJira",
+          "when": "false"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "AURA",
+      "properties": {
+        "aura.apiUrl": {
+          "type": "string",
+          "default": "http://localhost:4000",
+          "description": "The AURA API URL."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "build": "esbuild src/extension.ts --bundle --platform=node --format=cjs --target=node20 --external:vscode --outfile=dist/extension.cjs",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@aura/bridge": "workspace:*",
+    "@aura/client": "workspace:*",
+    "ws": "^8.21.3"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "@types/vscode": "^1.90.0",
+    "@types/ws": "^8.18.1",
+    "esbuild": "^0.28.2",
+    "typescript": "^5.9.3",
+    "vitest": "^5.0.2"
+  }
+}

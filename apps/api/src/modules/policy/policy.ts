@@ -49,6 +49,7 @@ export const ROLE_AGENT_GRANTS: Record<Role, Record<string, AgentAccess>> = {
     "tester-agent": "read",
     "deployer-agent": "read",
     "git-tool": "read",
+    "vscode-agent": "read",
   },
   // "Architect (read)" on Dev/Coding/QA/Tester/Deployer output matches the RACI table in
   // docs/ARCHITECTURE.md section 4.2 (Architect has oversight, not ownership, past Gate 3).
@@ -67,7 +68,8 @@ export const ROLE_AGENT_GRANTS: Record<Role, Record<string, AgentAccess>> = {
   // run = may start it through the Coding Agent and steer it with notes (council.router.ts).
   // qa-agent "read": developers see the test plan, the Playwright specs and the test-run history
   // their code has to pass, next to the code on Project Files (they cannot edit or run them).
-  developer: { orchestrator: "run", "dev-agent": "run", "coding-agent": "run", "coding-council": "run", "git-tool": "run", "architect-agent": "read", "qa-agent": "read" },
+  // vscode-agent: the developer's agent in VS Code (ADR-4), run from the AURA extension.
+  developer: { orchestrator: "run", "dev-agent": "run", "coding-agent": "run", "coding-council": "run", "git-tool": "run", "vscode-agent": "run", "architect-agent": "read", "qa-agent": "read" },
   // "QA Engineer | QA, Tester, Dev (read) | Approves test plans; verifies results" - QA Engineer
   // runs both QA and Tester agents and is the sole approver of both their gates (6 and 7). There
   // is no separate Tester role (removed - see supabase/migrations/0005_remove_tester_role.sql):

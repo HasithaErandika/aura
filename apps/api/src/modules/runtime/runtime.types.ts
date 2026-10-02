@@ -133,6 +133,11 @@ export interface RuntimeApprover {
   gitEmail: string | null;
 }
 
+// Every turn: dashboard settings for the runtime (Coding Council limits, injection policy), only
+// the ones set in the dashboard; the runtime's .env covers the rest and the runtime re-checks
+// every bound (agent-runtime gateway/context.ts SETTINGS_CONTEXT_KEY, apps/api modules/settings).
+export const SETTINGS_CONTEXT_KEY = "auraSettings";
+
 // GET /usage/tokens on the runtime (agent-runtime store/token-ledger.ts TokenReport).
 export interface TokenUsageReport {
   since: string;

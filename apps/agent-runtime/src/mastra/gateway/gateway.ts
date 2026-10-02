@@ -7,6 +7,7 @@ import { authorizesGatedStep, decisionFrom, runFrom } from './context';
 import { LoopGuard, limitsFromEnv } from './loop-guard';
 import { riskOf } from './risk';
 import { collectFindings, findingsBanner, injectionPolicy, type Finding } from './untrusted';
+import { settingsFrom } from '../config/settings';
 
 // The tool gateway (docs/ARCHITECTURE.md §5 "Unify the Tool Gateway into one real pipeline").
 // Every Orchestrator tool except ask_user is wrapped by governed(), so each call goes through the
@@ -146,7 +147,7 @@ export async function runGoverned(tool: ToolLike, input: Record<string, unknown>
   }
 
   for (const f of findings) metrics.untrustedFindings.inc({ rule: f.rule, severity: f.severity });
-  if (findings.some((f) => f.severity === 'high') && injectionPolicy() === 'block') {
+  if (findings.some((f) => f.severity === 'high') && (settingsFrom(context.requestContext).injectionPolicy ?? injectionPolicy()) === 'block') {
     loopGuard.record(threadId ?? 'no-thread', tool.id, false, base.approvalId);
     metrics.gatewayBlocks.inc({ tool: tool.id, reason: 'injection' });
     metrics.toolCalls.inc({ tool: tool.id, mode, tier: risk.tier, outcome: 'blocked' });

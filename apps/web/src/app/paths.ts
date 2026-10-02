@@ -17,4 +17,6 @@ export const paths = {
   users: "/app/admin/users",
   projects: "/app/admin/projects",
   aiUsage: "/app/admin/ai-usage",
+  settings: "/app/admin/settings",
+  device: "/app/device",
 } as const;

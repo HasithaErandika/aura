@@ -9,6 +9,8 @@ export const RUN_STATUSES = [
   "REJECTED",
   "EXPIRED",
   "HALTED_LOOP_GUARD",
+  // The process running the turn stopped mid-turn (migration 0009); continued with a new message.
+  "INTERRUPTED",
 ] as const;
 export type RunStatus = (typeof RUN_STATUSES)[number];
 

@@ -18,7 +18,7 @@ export function RequireAuth({ children }: { children: ReactNode }) {
   const location = useLocation();
 
   if (loading) return <FullScreenLoading />;
-  if (!session) return <Navigate to={paths.login} replace state={{ from: location.pathname }} />;
+  if (!session) return <Navigate to={paths.login} replace state={{ from: `${location.pathname}${location.search}` }} />;
   if (!profile) {
     return (
       <div className="flex h-screen items-center justify-center bg-canvas px-6">

@@ -51,6 +51,7 @@ export const navigation: NavGroup[] = [
       { label: "User Management", to: paths.users, icon: UsersIcon, visible: isAdmin },
       { label: "Projects & Repositories", to: paths.projects, icon: GitIcon, visible: isAdmin },
       { label: "AI Usage & Quality", to: paths.aiUsage, icon: BoltIcon, visible: isAdmin },
+      { label: "Settings", to: paths.settings, icon: SettingsIcon, visible: isAdmin },
     ],
   },
 ];

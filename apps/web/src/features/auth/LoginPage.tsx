@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from "react";
-import { Link, Navigate, useNavigate } from "react-router-dom";
+import { Link, Navigate, useLocation, useNavigate } from "react-router-dom";
 import { paths } from "../../app/paths.ts";
 import { useAuth } from "../../shared/auth/useAuth.ts";
 import { LogoMark, LogoWordmark } from "../../shared/brand/Logo.tsx";
@@ -14,13 +14,17 @@ const trustPoints = [
 export function LoginPage() {
   const { session, signIn } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
+  // Back to the page that sent you here (e.g. a VS Code sign-in), only ever inside the app.
+  const from = (location.state as { from?: unknown } | null)?.from;
+  const returnTo = typeof from === "string" && from.startsWith("/app") ? from : paths.dashboard;
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
   if (session) {
-    return <Navigate to={paths.dashboard} replace />;
+    return <Navigate to={returnTo} replace />;
   }
 
   async function handleSubmit(e: FormEvent) {
@@ -33,7 +37,7 @@ export function LoginPage() {
       setError("Incorrect email or password.");
       return;
     }
-    navigate(paths.dashboard, { replace: true });
+    navigate(returnTo, { replace: true });
   }
 
   return (

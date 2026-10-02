@@ -8,6 +8,8 @@ import { profilesById } from "../identity/profiles.service.js";
 import { agentsApprovedByRole, canViewRun } from "../policy/policy.js";
 import { approvalsRepository } from "../approvals/approvals.repository.js";
 import { toApprovalViews } from "../approvals/approvals.service.js";
+import { streamRunEvents } from "../orchestration/follow-http.js";
+import { supabaseRunEventStore } from "../orchestration/run-events.js";
 import { runsRepository } from "./runs.repository.js";
 import { RUN_STATUSES, toRunStepView, toRunView, type RunRow } from "./runs.types.js";
 
@@ -56,5 +58,23 @@ runsRouter.get(
       withRequesters([run]),
     ]);
     res.json({ run: view, steps: steps.map(toRunStepView), approvals: await toApprovalViews(approvals, user) });
+  }),
+);
+
+// after: an event id, or "turn" for the start of the current turn (after the last "done").
+const eventsQuery = z.object({ after: z.union([z.literal("turn"), z.coerce.number().int().min(0)]).default(0) }).strict();
+
+// GET /runs/:id/events?after=<event id>: the run's stored events after that id, then live until
+// the current turn ends (SSE with event ids). Used to reconnect after a dropped stream, or to
+// watch a run another client started.
+runsRouter.get(
+  "/:id/events",
+  asyncHandler(async (req, res) => {
+    const user = currentUser(req);
+    const run = await runsRepository.findById(uuidParam(req.params.id, "Run"));
+    if (!run) throw notFound("Run");
+    if (!canViewRun(user, { requestedBy: run.requested_by, currentAgent: run.current_agent })) throw forbidden("You cannot view this run");
+    const { after } = parseOrThrow(eventsQuery, req.query);
+    await streamRunEvents(req, res, run.id, after === "turn" ? await supabaseRunEventStore.lastIdOf(run.id, "done") : after);
   }),
 );

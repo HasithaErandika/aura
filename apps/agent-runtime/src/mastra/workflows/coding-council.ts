@@ -4,7 +4,7 @@ import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import type { Agent } from '@mastra/core/agent';
 import { createImplementer, createPlanner, createReviewer } from '../agents/council-agents';
-import { reviewVerdictSchema, type CouncilMode, type CouncilPhase, type CouncilResult, type CouncilRole, type CouncilTurn, type ReviewIssue, type ReviewVerdict } from '../contracts/council';
+import { councilSettings, reviewVerdictSchema, type CouncilSettings, type CouncilMode, type CouncilPhase, type CouncilResult, type CouncilRole, type CouncilTurn, type ReviewIssue, type ReviewVerdict } from '../contracts/council';
 import { generateObjectWith, type AgentLike } from '../lib/generate-object';
 import { runAllChecks, type CheckResult } from '../lib/sandbox';
 import { takeCouncilNotes } from '../store/council-notes';
@@ -42,28 +42,9 @@ const execFileAsync = promisify(execFile);
 // profile has a git identity, AURA otherwise, and always committed by AURA; `aura commit` later
 // folds them into one commit authored by the developer.
 
-export interface CouncilSettings {
-  planRounds: number;
-  maxRounds: number;
-  implementerSteps: number;
-  fixSteps: number;
-  tokenBudget: number;
-}
-
-function intFromEnv(name: string, fallback: number, min: number, max: number): number {
-  const raw = Number(process.env[name]);
-  return Number.isInteger(raw) && raw >= min && raw <= max ? raw : fallback;
-}
-
-export function councilSettings(): CouncilSettings {
-  return {
-    planRounds: intFromEnv('COUNCIL_PLAN_ROUNDS', 1, 0, 3),
-    maxRounds: intFromEnv('COUNCIL_MAX_ROUNDS', 2, 1, 5),
-    implementerSteps: intFromEnv('COUNCIL_IMPLEMENTER_STEPS', 15, 3, 40),
-    fixSteps: intFromEnv('COUNCIL_FIX_STEPS', 8, 2, 30),
-    tokenBudget: intFromEnv('COUNCIL_TOKEN_BUDGET', 150_000, 10_000, 5_000_000),
-  };
-}
+// Loop limits: contracts/council.ts councilSettings (dashboard → .env → code default). Re-exported
+// for server/council-routes.ts.
+export { councilSettings, type CouncilSettings };
 
 const MAX_DIFF_CHARS = 60_000;
 // What the Reviewer is told in place of a plan in lean mode; the Implementer's summary opens
@@ -184,6 +165,8 @@ export interface CouncilInput {
   mode?: CouncilMode;
   // Who approved Gate 5 - the author of the checkpoint commits (null: AURA authors them).
   approver?: Approver | null;
+  // The limits recorded in the approved Gate 5 draft; the current ones when the draft has none.
+  settings?: CouncilSettings;
   writer?: ToolWriterLike;
 }
 
@@ -196,7 +179,7 @@ export async function runCodingCouncil(input: CouncilInput): Promise<CouncilResu
 }
 
 async function runCouncil(input: CouncilInput): Promise<CouncilResult> {
-  const settings = councilSettings();
+  const settings = input.settings ?? councilSettings();
   const mode: CouncilMode = input.mode ?? 'full';
   const { draftId, targetDir: cwd } = input;
   const identity: CheckpointIdentity = { approver: input.approver ?? null, taskKey: input.taskKey, draftId };
