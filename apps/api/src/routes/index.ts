@@ -17,6 +17,7 @@ import { runsInternalRouter, runsRouter } from "../modules/runs/index.js";
 import { settingsRouter } from "../modules/settings/index.js";
 import { ciRouter, taskPrsInternalRouter, taskPrsRouter } from "../modules/task-prs/index.js";
 import { threadsRouter } from "../modules/threads/index.js";
+import { webhooksRouter } from "../modules/webhooks/index.js";
 
 export const apiRouter = Router();
 
@@ -49,3 +50,6 @@ internalRouter.use("/bridge", bridgeInternalRouter);
 internalRouter.use("/runs", runsInternalRouter);
 internalRouter.use("/design-docs", designDocsInternalRouter);
 internalRouter.use("/task-prs", taskPrsInternalRouter);
+
+// Signed by GitHub or Jira, not by a user; app.ts mounts it with the raw body parser.
+export { webhooksRouter };

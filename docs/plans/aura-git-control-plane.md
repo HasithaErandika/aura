@@ -150,7 +150,7 @@ flowchart LR
 
 | Step | Build | Proves |
 |---|---|---|
-| 3.1 | **Webhook endpoints** in a new `webhooks` API module: `POST /webhooks/github` (HMAC `X-Hub-Signature-256`) and `POST /webhooks/jira` (shared secret); a `webhook_deliveries` table drops repeats; every delivery audited | Events reach AURA safely |
+| 3.1 ✅ | **Webhook endpoints** in a new `webhooks` API module: `POST /webhooks/github` (HMAC `X-Hub-Signature-256`) and `POST /webhooks/jira` (shared secret); a `webhook_deliveries` table drops repeats; every delivery audited | Events reach AURA safely |
 | 3.2 | **Task status from Git events** through one `jira.transitionTo(key, status)` in the API, matched by status name from a per-project mapping in Settings: Start Work → In Progress, PR opened → In Review, PR merged → Ready for Release, Gate 8 release → Done (the Tasks, not only the Epic) | Jira follows the code with no manual moves |
 | 3.3 | **Merge tracking**: `pr_state = merged`, `merged_at` and `merge_sha` on `task_branches` (new migration) from the GitHub webhook; the extension removes the Task's worktrees and `_sN` branches | AURA knows what shipped |
 | 3.4 | **Dependencies**: the Task Planner's `dependsOn` → Jira "blocks" links → `task_dependencies`; Start Work waits until each dependency is merged | Tasks land in a safe order |

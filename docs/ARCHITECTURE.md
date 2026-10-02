@@ -276,6 +276,7 @@ flowchart LR
 | Extension → API | Browser device sign-in; bridge ticket, 60 s, single use |
 | API → runtime | `MASTRA_RUNTIME_TOKEN` bearer token |
 | GitHub Actions → API | OIDC token, audience `AURA_CI_AUDIENCE`; proves the repository, no stored secret |
+| GitHub, Jira webhooks → API | `POST /webhooks/github`, `/webhooks/jira`: HMAC-SHA256 of the raw body with `GITHUB_WEBHOOK_SECRET` / `JIRA_WEBHOOK_SECRET`; an endpoint without a secret is off |
 | Approval | Decision bound to the hash of the exact payload shown |
 | Audit | `audit_logs` is append-only (database trigger) |
 
@@ -310,6 +311,7 @@ flowchart LR
 | Runtime state | With `DATABASE_URL`, agent memory and the runtime's tables are in Postgres, so a restart or a second replica sees the same gates and drafts. `migrate-state` copies an old local `aura-drafts.db` once |
 | Design documents | Migration `0010`. Architecture plan, SRS, delivery plan, ADRs, QA test plan and scenarios per Epic. Saved after approval through `/internal/design-docs`; edited on the web with `baseVersion` (stale save → 409); every version kept |
 | Task PRs and CI | Migration `0012`. `task_branches` holds each Task's PR, reviewers and CI state; `aura-ci.yml` reports to `POST /ci/report` |
+| Webhook deliveries | Migration `0013`. Each accepted GitHub or Jira delivery is claimed once by `(source, delivery_id)`, so retries are not handled twice; a failed one is released for the retry. Audited as `webhook.received`; payloads are not stored. No event handlers yet |
 | Notifications | Migration `0012`. In-app: QA hears when a PR opens; QA and the developer hear when CI passes or fails |
 | Source code | Not stored. Code lives in the developer's clone and on GitHub |
 
