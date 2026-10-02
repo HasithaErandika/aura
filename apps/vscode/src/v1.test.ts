@@ -70,7 +70,7 @@ describe("project setup", () => {
     const once = withAuraIgnores("node_modules/\n");
     expect(once).toContain(".aura/worktrees/");
     expect(withAuraIgnores(once)).toBe(once);
-    expect(withAuraIgnores("")).toContain(".aura/council/");
+    expect(withAuraIgnores("")).toContain(".aura/settings.local.json");
   });
 
   it("starts a project with settings the parser accepts", async () => {

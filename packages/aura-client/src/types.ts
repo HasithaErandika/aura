@@ -46,14 +46,6 @@ export interface JiraEpicDetail {
   bugs: JiraIssueSummary[];
 }
 
-export interface TaskWorktree {
-  taskKey: string;
-  epicKey: string;
-  discipline: string;
-  path: string;
-  branch: string;
-}
-
 export interface ChatToolActivity {
   toolCallId: string;
   toolName: string;
@@ -148,35 +140,13 @@ export interface Approval {
 
 export type RunStatus = "PENDING" | "RUNNING" | "SUSPENDED_FOR_APPROVAL" | "SUCCEEDED" | "FAILED" | "REJECTED" | "EXPIRED" | "HALTED_LOOP_GUARD" | "INTERRUPTED";
 
-// One Coding Council turn (agent-runtime workflows/coding-council.ts), relayed by the API as
-// SSE event "council".
-export interface CouncilTurn {
-  draftId: string;
-  round: number;
-  phase: "plan" | "plan-review" | "build" | "checks" | "review" | "fix" | "done";
-  role: "planner" | "implementer" | "reviewer" | "system";
-  model?: string;
-  status: "started" | "done" | "waiting" | "error";
-  text?: string;
-  verdict?: "APPROVE" | "CHANGES";
-  issues?: { file: string; line?: number; severity: string; problem: string; fix: string }[];
-  checks?: { id: string; ok: boolean; output: string }[];
-  usage?: { totalTokens: number; budget: number };
-}
-
-export interface CouncilUsage {
-  date: string;
-  providers: Record<string, { requests: number; tokens: number; dailyRequestLimit: number | null }>;
-}
-
 // Events of a streamed turn (POST /threads/:id/messages, POST /approvals/:id/decide).
 export type TurnEvent =
   | { event: "run"; data: { runId: string; runtimeRunId: string | null; status: RunStatus } }
   | { event: "text"; data: { delta: string } }
   | { event: "tool"; data: { phase: "call" | "result" | "error"; toolName: string; toolCallId: string; args?: unknown; result?: unknown; error?: string; agent?: string | null } }
   | { event: "progress"; data: { source?: string; chunk?: string } & Record<string, unknown> }
-  | { event: "council"; data: CouncilTurn }
-  | { event: "gate"; data: { approvalId: string; runId: string; producingAgent: string | null; gate: { number: number; name: string; outcome: string } | null; question: string; options: AskUserOption[]; snapshot: string | null; canDecide: boolean } }
+  | { event: "gate"; data: { approvalId: string; runId: string; producingAgent: string | null; gate: { number: number | null; name: string; outcome: string } | null; question: string; options: AskUserOption[]; snapshot: string | null; canDecide: boolean } }
   | { event: "decision"; data: { approvalId: string; status: ApprovalStatus; decision: Decision } }
   | { event: "error"; data: { message: string } }
   | { event: "done"; data: { runId: string; status: RunStatus; approvalId: string | null } };

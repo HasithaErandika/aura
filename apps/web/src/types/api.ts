@@ -1,4 +1,3 @@
-import type { CouncilTurnEvent } from "../shared/lib/council.ts";
 import type { Role } from "../shared/lib/roles.ts";
 import type { GatewayEvent } from "../shared/lib/gateway.ts";
 
@@ -322,6 +321,5 @@ export type StreamEvent =
     }
   | { event: "decision"; data: { approvalId: string; status: ApprovalStatus; decision: Decision } }
   | { event: "progress"; data: { stepId?: string; phase?: string; status?: string; source?: "dev" | "code" | "gateway"; chunk?: string } & GatewayEvent }
-  | { event: "council"; data: CouncilTurnEvent }
   | { event: "error"; data: { message: string } }
   | { event: "done"; data: { runId: string; status: RunStatus; approvalId: string | null } };

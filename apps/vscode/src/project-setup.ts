@@ -25,7 +25,7 @@ export function remoteMatches(remote: { owner: string; name: string } | null, re
   return remote.owner.toLowerCase() === registered.owner.toLowerCase() && remote.name.toLowerCase() === registered.name.toLowerCase();
 }
 
-const AURA_IGNORES = [".aura/worktrees/", ".aura/council/", ".aura/settings.local.json"];
+const AURA_IGNORES = [".aura/worktrees/", ".aura/settings.local.json"];
 
 // .gitignore with AURA's local folders added once.
 export function withAuraIgnores(gitignore: string): string {

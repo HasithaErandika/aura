@@ -1,5 +1,5 @@
 import { readSse } from "./sse.js";
-import type { Approval, AuraNotification, ApprovalStatus, BridgeStatus, CouncilUsage, Decision, DeviceSignIn, GitIdentity, JiraEpicDetail, JiraIssueDetail, JiraIssueSummary, Me, Project, TaskPr, TaskWorktree, Thread, ThreadHistory, TurnEvent } from "./types.js";
+import type { Approval, AuraNotification, ApprovalStatus, BridgeStatus, Decision, DeviceSignIn, GitIdentity, JiraEpicDetail, JiraIssueDetail, JiraIssueSummary, Me, Project, TaskPr, Thread, ThreadHistory, TurnEvent } from "./types.js";
 
 export interface AuraClientOptions {
   // apps/api base URL, e.g. http://localhost:4000
@@ -112,10 +112,6 @@ export function createAuraClient(options: AuraClientOptions) {
       issue: (key: string) => request<{ issue: JiraIssueDetail }>("GET", `/jira/issues/${encodeURIComponent(key)}`).then((r) => r.issue),
     },
 
-    devWorkspace: {
-      findTask: (taskKey: string) => request<TaskWorktree>("GET", `/dev-workspace/tasks/${encodeURIComponent(taskKey)}`),
-    },
-
     threads: {
       list: (agentId = ORCHESTRATOR_AGENT_ID) => request<{ threads: Thread[] }>("GET", `/threads${q({ agentId })}`).then((r) => r.threads),
       create: (title: string, agentId = ORCHESTRATOR_AGENT_ID) => request<{ thread: Thread }>("POST", "/threads", { agentId, title }).then((r) => r.thread),
@@ -150,8 +146,7 @@ export function createAuraClient(options: AuraClientOptions) {
     approvals: {
       list: (status: ApprovalStatus[] = ["PENDING"]) => request<{ approvals: Approval[] }>("GET", `/approvals${q({ status: status.join(",") })}`).then((r) => r.approvals),
       get: (id: string) => request<{ approval: Approval }>("GET", `/approvals/${encodeURIComponent(id)}`).then((r) => r.approval),
-      // Records the decision, then yields the resumed run's live events (this is where an
-      // approved Gate 5 actually executes the coding agent / council).
+      // Records the decision, then yields the resumed run's live events.
       decide: (id: string, body: { decision: Decision; answer?: string; reason?: string; snapshotHash?: string }, signal?: AbortSignal) =>
         stream(`/approvals/${encodeURIComponent(id)}/decide`, body, signal),
     },
@@ -164,11 +159,6 @@ export function createAuraClient(options: AuraClientOptions) {
     notifications: {
       list: () => request<{ notifications: AuraNotification[]; unread: number }>("GET", "/notifications"),
       read: (ids?: string[]) => request<{ ok: true }>("POST", "/notifications/read", ids ? { ids } : {}),
-    },
-
-    council: {
-      note: (draftId: string, text: string) => request<{ queued: number }>("POST", `/council/${encodeURIComponent(draftId)}/notes`, { text }),
-      usage: () => request<CouncilUsage>("GET", "/council/usage"),
     },
   };
 }

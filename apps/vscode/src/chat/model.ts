@@ -110,7 +110,7 @@ export function applyEvent(state: ChatState, e: TurnEvent): ChatState {
         kind: "gate",
         id: `gate-${e.data.approvalId}`,
         approvalId: e.data.approvalId,
-        title: e.data.gate ? `Gate ${e.data.gate.number}: ${e.data.gate.name}` : "Your decision",
+        title: e.data.gate ? (e.data.gate.number === null ? e.data.gate.name : `Gate ${e.data.gate.number}: ${e.data.gate.name}`) : "Your decision",
         question: e.data.question,
         options: e.data.options,
         canDecide: e.data.canDecide,

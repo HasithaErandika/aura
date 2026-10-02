@@ -3,7 +3,6 @@ import { describeError } from "../../../shared/api/errors.ts";
 import { usePolling } from "../../../shared/hooks/usePolling.ts";
 import type { Approval, ChatMessage, ChatToolActivity, Decision, Run, RunStatus, StreamEvent, Thread } from "../../../types/api.ts";
 import { workspaceApi } from "../api.ts";
-import { formatCouncilTurn } from "../../../shared/lib/council.ts";
 
 export interface PendingGate {
   approvalId: string;
@@ -167,43 +166,17 @@ export function useConversation(agentId: string, threadId: string | null) {
           // A workflow-backed delegate tool (e.g. the Architect) reports its own internal
           // step progress; shown as a synthetic tool-activity row so it appears in the same
           // list as delegate_to_* calls without a separate UI element.
-          const { stepId, phase, status, source, chunk } = event.data;
+          const { stepId, phase, status, source } = event.data;
           if (source === "gateway") {
             // The runtime's safety checkpoint: a gated step that ran, a refusal, or an
             // injection warning. One row each, finished (it reports after the fact).
             const tools = [...streaming.tools, { toolCallId: `gateway-${streaming.tools.length}-${event.data.tool ?? ""}`, toolName: "gateway", state: "result", result: event.data, isError: event.data.outcome === "blocked" }];
             return { ...s, streaming: { ...streaming, tools } };
           }
-          if (source === "dev" || source === "code") {
-            // The Dev/Coding agent's live Docker/CLI output - many small chunks, one growing
-            // row (not one row per chunk) so it reads like a scrolling log, not a flood.
-            const toolCallId = `progress-${source}-output`;
-            const tools = [...streaming.tools];
-            const idx = tools.findIndex((t) => t.toolCallId === toolCallId);
-            const soFar = idx >= 0 && typeof tools[idx]!.result === "string" ? (tools[idx]!.result as string) : "";
-            const next: ChatToolActivity = { toolCallId, toolName: `${source}_output`, state: "call", result: soFar + (chunk ?? "") };
-            if (idx >= 0) tools[idx] = next;
-            else tools.push(next);
-            return { ...s, streaming: { ...streaming, tools } };
-          }
           const toolCallId = `progress-${stepId ?? "step"}`;
           const tools = [...streaming.tools];
           const idx = tools.findIndex((t) => t.toolCallId === toolCallId);
           const next: ChatToolActivity = { toolCallId, toolName: `architect_step_${stepId ?? "unknown"}`, state: phase === "start" ? "call" : "result", result: status };
-          if (idx >= 0) tools[idx] = next;
-          else tools.push(next);
-          return { ...s, streaming: { ...streaming, tools } };
-        }
-        case "council": {
-          // The Coding Council's discussion - one growing live-log row, like the Dev/Coding
-          // agents' output above, with each finished turn appended as a block.
-          const toolCallId = `council-${event.data.draftId}`;
-          const tools = [...streaming.tools];
-          const idx = tools.findIndex((t) => t.toolCallId === toolCallId);
-          const soFar = idx >= 0 && typeof tools[idx]!.result === "string" ? (tools[idx]!.result as string) : "";
-          const block = formatCouncilTurn(event.data);
-          const finished = event.data.phase === "done" && event.data.status !== "started";
-          const next: ChatToolActivity = { toolCallId, toolName: "council_discussion", state: finished ? "result" : "call", result: block ? `${soFar}${soFar ? "\n\n" : ""}${block}` : soFar, isError: event.data.status === "error" && finished };
           if (idx >= 0) tools[idx] = next;
           else tools.push(next);
           return { ...s, streaming: { ...streaming, tools } };
