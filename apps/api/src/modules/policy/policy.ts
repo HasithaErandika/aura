@@ -166,6 +166,12 @@ export function canNoteRun(user: Actor, run: { requestedBy: string }): boolean {
   return run.requestedBy === user.id;
 }
 
+// Project access (roadmap step 4.1): admins use every project, others the projects they are
+// members of. Before any project is registered (null) nothing is project-scoped yet.
+export function canUseProject(user: Actor, projectId: string | null, memberOf: ReadonlySet<string>): boolean {
+  return projectId === null || user.role === "admin" || memberOf.has(projectId);
+}
+
 export function canChangeSharedSettings(role: Role): boolean {
   return role === "admin";
 }

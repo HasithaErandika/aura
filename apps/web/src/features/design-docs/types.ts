@@ -1,4 +1,4 @@
-export type DocKind = "architecture" | "srs" | "plan" | "adr" | "qa-plan" | "qa-scenario";
+export type DocKind = "architecture" | "srs" | "plan" | "adr" | "openapi" | "qa-plan" | "qa-scenario";
 
 export interface DesignDoc {
   id: string;
@@ -53,5 +53,8 @@ export interface TaskPr {
   ciUrl: string | null;
   ciSummary: { jobs?: { name: string; result: string }[]; tests?: { passed: number; failed: number; skipped: number } };
   ciUpdatedAt: string | null;
+  // The AURA QA check: every QA scenario of the Task's Stories has a passing test.
+  qaState: "pending" | "success" | "failure" | null;
+  qaSummary: { required: string[]; passed: string[]; failed: string[]; missing: string[] } | null;
   updatedAt: string;
 }

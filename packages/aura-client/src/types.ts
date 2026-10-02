@@ -29,6 +29,8 @@ export interface JiraIssueDetail extends JiraIssueSummary {
   description: string;
   created: string | null;
   reporter: string | null;
+  // The Epic (or other parent) the issue sits under.
+  parentKey: string | null;
 }
 
 export interface JiraEpicDetail {
@@ -159,6 +161,8 @@ export interface TaskPr {
   ciUrl: string | null;
   ciSummary: { jobs?: { name: string; result: string }[]; tests?: { passed: number; failed: number; skipped: number } };
   ciUpdatedAt: string | null;
+  qaState: "pending" | "success" | "failure" | null;
+  qaSummary: { required: string[]; passed: string[]; failed: string[]; missing: string[] } | null;
   openedBy: string | null;
   runId: string | null;
   updatedAt: string;
@@ -166,11 +170,16 @@ export interface TaskPr {
 
 export interface AuraNotification {
   id: string;
-  kind: "pr_opened" | "ci_passed" | "ci_failed";
+  kind: "task_ready" | "pr_opened" | "pr_merged" | "ci_passed" | "ci_failed";
   title: string;
   body: string;
   link: string | null;
   taskKey: string | null;
   createdAt: string;
   readAt: string | null;
+}
+
+export interface TaskDependencies {
+  dependencies: { taskKey: string; prState: "open" | "merged" | "closed" | null; merged: boolean }[];
+  waitingFor: string[];
 }

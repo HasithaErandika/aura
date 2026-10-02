@@ -8,6 +8,8 @@ import { LoopGuard, limitsFromEnv } from './loop-guard';
 import { riskOf } from './risk';
 import { collectFindings, findingsBanner, injectionPolicy, type Finding } from './untrusted';
 import { settingsFrom } from '../config/settings';
+import { withTurnContext } from '../config/turn-context';
+import { redactionBanner } from './redaction';
 
 // The tool gateway (docs/ARCHITECTURE.md §6.2).
 // Every delegate tool of the Orchestrator and the vscode-agent is wrapped by governed(), so each call goes through the
@@ -42,6 +44,10 @@ export interface GatewayEvent {
   decidedBy: string | null;
   durationMs: number;
   findings?: Finding[];
+  // provider/model ids that answered inside this call, for the audit trail (step 4.2).
+  models?: string[];
+  // What redaction removed before the model saw it, by rule (step 4.3).
+  redactions?: Record<string, number>;
 }
 
 // Structural view of what a Mastra tool looks like to the gateway.
@@ -132,7 +138,14 @@ export async function runGoverned(tool: ToolLike, input: Record<string, unknown>
     'aura.decided_by': base.decidedBy,
   };
   const execute = tool.execute as (input: unknown, context: unknown) => Promise<unknown>;
-  const call = () => execute(input, context);
+  let models: string[] = [];
+  let redactions: Record<string, number> = {};
+  const call = async () => {
+    const ran = await withTurnContext(context.requestContext, () => execute(input, context));
+    models = ran.models;
+    redactions = ran.redactions;
+    return ran.result;
+  };
 
   let result: unknown;
   let findings: Finding[] = [];
@@ -142,7 +155,7 @@ export async function runGoverned(tool: ToolLike, input: Record<string, unknown>
     loopGuard.record(threadId ?? 'no-thread', tool.id, false, base.approvalId);
     metrics.toolCalls.inc({ tool: tool.id, mode, tier: risk.tier, outcome: 'error' });
     const message = error instanceof Error ? error.message : String(error);
-    await emit(context, { ...base, outcome: 'error', message, durationMs: elapsed() });
+    await emit(context, { ...base, outcome: 'error', message, durationMs: elapsed(), ...(models.length ? { models } : {}) });
     return { ok: false, error: message };
   }
 
@@ -151,13 +164,14 @@ export async function runGoverned(tool: ToolLike, input: Record<string, unknown>
     loopGuard.record(threadId ?? 'no-thread', tool.id, false, base.approvalId);
     metrics.gatewayBlocks.inc({ tool: tool.id, reason: 'injection' });
     metrics.toolCalls.inc({ tool: tool.id, mode, tier: risk.tier, outcome: 'blocked' });
-    await emit(context, { ...base, outcome: 'blocked', reason: 'injection', message: 'high-severity prompt-injection finding (INJECTION_POLICY=block)', findings, durationMs: elapsed() });
+    await emit(context, { ...base, outcome: 'blocked', reason: 'injection', message: 'high-severity prompt-injection finding (INJECTION_POLICY=block)', findings, durationMs: elapsed(), ...(models.length ? { models } : {}) });
     return { ok: false, error: `AURA gateway withheld the result of ${tool.id} (${mode}): the source content looks like a prompt-injection attempt (${findings.map((f) => `${f.rule} in ${f.source}`).join('; ')}). A human should check the Jira content first.` };
   }
 
   const record = result && typeof result === 'object' ? (result as Record<string, unknown>) : null;
-  if (record && findings.length && typeof record.markdown === 'string') {
-    result = { ...record, markdown: `${findingsBanner(findings)}\n${record.markdown}` };
+  if (record && typeof record.markdown === 'string' && (findings.length || Object.keys(redactions).length)) {
+    const banners = [findings.length ? findingsBanner(findings) : '', Object.keys(redactions).length ? redactionBanner(redactions) : ''].filter(Boolean).join('\n');
+    result = { ...record, markdown: `${banners}\n${record.markdown}` };
   }
   result = await deliverDraft(tool.id, mode, result, context);
 
@@ -166,10 +180,10 @@ export async function runGoverned(tool: ToolLike, input: Record<string, unknown>
   loopGuard.record(threadId ?? 'no-thread', tool.id, ok, base.approvalId);
   metrics.toolCalls.inc({ tool: tool.id, mode, tier: risk.tier, outcome });
   metrics.toolDuration.observe({ tool: tool.id, mode }, (performance.now() - started) / 1000);
-  // Every gated step and every finding is worth a run step; routine low-risk calls already
-  // appear as tool-call/tool-result steps and only go to the log.
-  const event: GatewayEvent = { ...base, outcome, durationMs: elapsed(), ...(findings.length ? { findings } : {}) };
-  if (risk.tier === 'medium' || findings.length) await emit(context, event);
+  // Every gated step, every finding and every model call is worth a run step (the audit records
+  // which provider saw the data); routine low-risk calls without a model only go to the log.
+  const event: GatewayEvent = { ...base, outcome, durationMs: elapsed(), ...(findings.length ? { findings } : {}), ...(models.length ? { models } : {}), ...(Object.keys(redactions).length ? { redactions } : {}) };
+  if (risk.tier === 'medium' || findings.length || models.length) await emit(context, event);
   else console.log(`[aura-gateway] ${JSON.stringify({ ...event, findings: 0 })}`);
   return result;
 }

@@ -3,10 +3,11 @@ import { jiraUnavailable, notFound, upstreamError } from "../../lib/http/errors.
 import { safeJson } from "../../lib/json.js";
 import { errorMessage } from "../../lib/logger.js";
 import { jqlString, textToAdf, toComment, toDetail, toSummary, type RawJiraComment, type RawJiraIssue } from "./jira.mapper.js";
+import { chooseTransition, type StatusMove } from "./jira.status.js";
 import type { JiraComment, JiraEpicDetail, JiraIssueDetail, JiraIssueSummary, JiraTransition } from "./jira.types.js";
 
 const SUMMARY_FIELDS = "summary,issuetype,status,priority,assignee,updated";
-const DETAIL_FIELDS = `${SUMMARY_FIELDS},created,reporter,description`;
+const DETAIL_FIELDS = `${SUMMARY_FIELDS},created,reporter,description,parent`;
 const SEARCH_PAGE_SIZE = 100;
 const MAX_SEARCH_PAGES = 100;
 
@@ -83,6 +84,18 @@ export const jira = {
 
   async transitionIssue(key: string, transitionId: string): Promise<void> {
     await jiraFetch(issuePath(key, "/transitions"), { method: "POST", body: { transition: { id: transitionId } } });
+  },
+
+  // The Task's status after the move, or why it did not move.
+  async moveToStatus(key: string, target: string, order: readonly string[]): Promise<{ from: string; outcome: StatusMove["kind"] }> {
+    const [issue, transitions] = await Promise.all([jira.getIssue(key), jira.getTransitions(key)]);
+    const move = chooseTransition(issue.status, target, transitions, order);
+    if (move.kind === "move") await jira.transitionIssue(key, move.transitionId);
+    return { from: issue.status, outcome: move.kind };
+  },
+
+  async getEpicTaskKeys(epicKey: string): Promise<string[]> {
+    return (await jira.getEpic(epicKey)).tasks.map((t) => t.key);
   },
 
   async getComments(key: string): Promise<JiraComment[]> {

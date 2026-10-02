@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { preview, runtimeErrorMessage } from "./run-stream.service.js";
+import { modelFromFinish, preview, runtimeErrorMessage } from "./run-stream.service.js";
 
 describe("preview", () => {
   it("truncates long strings", () => {
@@ -26,5 +26,16 @@ describe("runtimeErrorMessage", () => {
 
   it("falls back to a generic message", () => {
     expect(runtimeErrorMessage(undefined)).toBe("runtime error");
+  });
+});
+
+describe("modelFromFinish", () => {
+  it("names the answering model as provider/model for the audit trail", () => {
+    expect(modelFromFinish({ response: { modelId: "openai/gpt-oss-120b", modelMetadata: { modelProvider: "groq.chat" } } })).toBe("groq/openai/gpt-oss-120b");
+    expect(modelFromFinish({ response: { modelId: "groq/openai/gpt-oss-120b", modelMetadata: { modelProvider: "groq.chat" } } })).toBe("groq/openai/gpt-oss-120b");
+    expect(modelFromFinish({ response: { modelId: "gemini-3.5-flash-lite", modelMetadata: { modelProvider: "google.generative-ai" } } })).toBe("google/gemini-3.5-flash-lite");
+    expect(modelFromFinish({ response: { modelId: "x" } })).toBe("x");
+    expect(modelFromFinish({})).toBeNull();
+    expect(modelFromFinish(undefined)).toBeNull();
   });
 });

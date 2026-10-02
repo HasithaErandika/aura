@@ -51,6 +51,40 @@ export async function readTaskPr(taskKey: string, fetchImpl: typeof fetch = fetc
   return ((await res.json()) as { taskPr: TaskPrState }).taskPr;
 }
 
+// Work started (Gate 4) or an Epic released (Gate 8): AURA moves the Jira status. Best-effort.
+export async function reportTaskEvent(event: { event: 'started'; taskKey: string } | { event: 'released'; epicKey: string }, fetchImpl: typeof fetch = fetch): Promise<boolean> {
+  try {
+    const { url, headers } = api('/events');
+    return (await fetchImpl(url, { method: 'POST', headers, body: JSON.stringify(event) })).ok;
+  } catch {
+    return false;
+  }
+}
+
+// Gate 3: the order the Epic's Tasks merge in.
+export async function recordDependencies(dependencies: { taskKey: string; dependsOn: string }[], fetchImpl: typeof fetch = fetch): Promise<void> {
+  if (!dependencies.length) return;
+  const { url, headers } = api('/dependencies');
+  const res = await fetchImpl(url, { method: 'POST', headers, body: JSON.stringify({ dependencies }) });
+  if (!res.ok) throw new Error(`AURA could not record the Task dependencies (${res.status}): ${(await res.text()).slice(0, 300)}`);
+}
+
+// Gate 3: which Stories each Task implements, for the AURA QA check.
+export async function recordStories(stories: { taskKey: string; storyKey: string }[], fetchImpl: typeof fetch = fetch): Promise<void> {
+  if (!stories.length) return;
+  const { url, headers } = api('/stories');
+  const res = await fetchImpl(url, { method: 'POST', headers, body: JSON.stringify({ stories }) });
+  if (!res.ok) throw new Error(`AURA could not record the Tasks' Stories (${res.status}): ${(await res.text()).slice(0, 300)}`);
+}
+
+// The Tasks this one waits for (not merged yet). Gate 4 does not start until it is empty.
+export async function waitingFor(taskKey: string, fetchImpl: typeof fetch = fetch): Promise<string[]> {
+  const { url, headers } = api(`/${encodeURIComponent(taskKey)}/dependencies`);
+  const res = await fetchImpl(url, { headers });
+  if (!res.ok) throw new Error(`AURA could not read the Task's dependencies (${res.status})`);
+  return ((await res.json()) as { waitingFor: string[] }).waitingFor;
+}
+
 export function renderPrStatus(pr: TaskPrState): string {
   const jobs = pr.ciSummary.jobs ?? [];
   const tests = pr.ciSummary.tests;

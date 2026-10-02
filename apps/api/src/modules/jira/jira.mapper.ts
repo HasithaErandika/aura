@@ -18,6 +18,7 @@ export interface RawJiraIssue {
     updated?: string;
     created?: string;
     description?: AdfNode | null;
+    parent?: { key?: string } | null;
   };
 }
 
@@ -77,7 +78,7 @@ export function toSummary(raw: RawJiraIssue, baseUrl: string | undefined): JiraI
 }
 
 export function toDetail(raw: RawJiraIssue, baseUrl: string | undefined): JiraIssueDetail {
-  return { ...toSummary(raw, baseUrl), description: adfToText(raw.fields.description), created: raw.fields.created ?? null, reporter: raw.fields.reporter?.displayName ?? null };
+  return { ...toSummary(raw, baseUrl), description: adfToText(raw.fields.description), created: raw.fields.created ?? null, reporter: raw.fields.reporter?.displayName ?? null, parentKey: raw.fields.parent?.key ?? null };
 }
 
 export function toComment(raw: RawJiraComment): JiraComment {

@@ -24,6 +24,7 @@ import { metricsRoute } from './server/metrics-route';
 import { tokenUsageRoute } from './server/usage-routes';
 import { runtimeAuth, runtimeTokenFromEnv } from './server/runtime-auth';
 import { assertServerModeSafe } from './config/aura-mode';
+import { providerTerms } from './config/model-policy';
 
 const toolIds = (agent: { listTools: () => Promise<Record<string, unknown>> | Record<string, unknown> }) => Promise.resolve(agent.listTools()).then((tools) => Object.keys(tools));
 
@@ -81,3 +82,7 @@ export const mastra = new Mastra({
     },
   }),
 });
+{
+  const terms = providerTerms();
+  console.log(`[aura-models] policy: public any provider · internal ${[...terms.contracted].join(', ') || 'none (refused)'} · confidential ${[...terms.zeroRetention].join(', ') || 'none (refused)'}`);
+}

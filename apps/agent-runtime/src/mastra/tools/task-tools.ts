@@ -18,7 +18,8 @@ import { collectChange, projectChecks, projectReviewers, runChecks, takeNotes } 
 import { splitPlan, taskBranch } from '../task/split';
 import { abortMerge, addWorktree, commitAll, commitWorktree, concludeMerge, currentBranch, ensureTaskBranch, ghPrCreate, gitOn, headSha, mergeBranch, originUrl, pushBranch, removeWorktree } from '../task/git-ops';
 import { PR_BASE, compareUrl, parsePrUrl, parseRemote, prBody, prTitle, renderPrDraft, validReviewers, type TaskPrDraft } from '../task/pr';
-import { readTaskPr, recordTaskPr, renderPrStatus } from '../task/aura-api';
+import { writeContract } from '../task/contract';
+import { readTaskPr, recordTaskPr, renderPrStatus, reportTaskEvent, waitingFor } from '../task/aura-api';
 import { checkResolution, conflictPrompt, mergeResolutionSchema, runParallel, sharedNotes, type ParallelEvent } from '../task/parallel';
 
 // A Task worked on in VS Code, through three gates (docs/ARCHITECTURE.md §4.1):
@@ -131,6 +132,14 @@ export const delegateToPlannerTool = createTool({
       if (input.mode === 'draft') {
         const taskKey = input.taskKey?.trim().toUpperCase();
         if (!taskKey || !/^[A-Z][A-Z0-9_]*-\d+$/.test(taskKey)) return taskFail('draft needs taskKey, e.g. KAN-45');
+        // Code decides when a Task may start: every Task it depends on must be merged first.
+        let blockers: string[];
+        try {
+          blockers = await waitingFor(taskKey);
+        } catch (error) {
+          return taskFail(`could not check ${taskKey}'s dependencies (${error instanceof Error ? error.message : String(error)}); try again`);
+        }
+        if (blockers.length) return taskFail(`${taskKey} waits for ${blockers.join(', ')}: ${blockers.length === 1 ? 'it is' : 'they are'} not merged yet. Tell the developer; the plan can start once ${blockers.length === 1 ? 'it is' : 'they are'} merged.`);
         const { task, backend } = await loadTask(taskKey);
         content = { task, route: routeTask({ issueType: task.issueType, discipline: task.discipline, labels: task.labels, backend }), plan: input.plan, branch: taskBranch(task) };
       } else {
@@ -240,6 +249,7 @@ export const delegateToCoderTool = createTool({
       const branch = planRecord.content.branch ?? taskBranch(task);
       // Gate 4 passed: work on the Task branch (created now, from development).
       const onBranch = await ensureTaskBranch(git, branch);
+      if (input.mode === 'execute') await reportTaskEvent({ event: 'started', taskKey: task.taskKey });
       const base = input.mode === 'revise' ? (previousReview?.content.baseRef ?? onBranch.base) : onBranch.base;
       const checks = (await projectChecks(bridge)) ?? plan.checks;
       const designContext = task.epicKey ? `The Epic's design documents (${task.epicKey}) are available with design_docs.` : '';
@@ -425,6 +435,8 @@ export const delegateToPrTool = createTool({
       const branch = await currentBranch(git);
       if (branch !== d.branch) return taskFail(`VS Code is on ${branch}, not the Task branch ${d.branch}. Ask the developer to switch back (git checkout ${d.branch}), then open the pull request again.`);
       await emit(context.writer, { kind: 'pr-step', taskKey: d.taskKey, step: 'commit' });
+      // Best effort: a missing or unreadable contract never blocks the pull request.
+      await writeContract(bridge, d.epicKey).catch(() => false);
       await commitAll(git, d.title);
       const sha = await headSha(git);
       await emit(context.writer, { kind: 'pr-step', taskKey: d.taskKey, step: 'push' });

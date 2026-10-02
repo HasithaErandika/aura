@@ -1,5 +1,5 @@
 import { api } from "@/shared/api/client.ts";
-import type { Project, Repository, RepositoryProvider } from "../types.ts";
+import type { Project, ProjectMember, Repository, RepositoryProvider } from "../types.ts";
 
 export interface RepositoryInput {
   provider: RepositoryProvider;
@@ -15,4 +15,7 @@ export const projectsApi = {
   remove: (id: string) => api.delete<void>(`/projects/${id}`),
   setRepository: (id: string, body: RepositoryInput) => api.put<Repository>(`/projects/${id}/repository`, body),
   removeRepository: (id: string) => api.delete<void>(`/projects/${id}/repository`),
+  members: (id: string) => api.get<{ members: ProjectMember[] }>(`/projects/${id}/members`).then((r) => r.members),
+  addMember: (id: string, userId: string) => api.post<{ added: boolean }>(`/projects/${id}/members`, { userId }),
+  removeMember: (id: string, userId: string) => api.delete<void>(`/projects/${id}/members/${userId}`),
 };

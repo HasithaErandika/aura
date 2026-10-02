@@ -5,7 +5,7 @@
 | **Status** | Approved 2026-10-02 · Parts A–C **completed** · Parts D–G planned (Roadmap Phases 3–4) |
 | **Date** | 2026-10-02 |
 | **Moves** | Automation L2 → L3 (part L4) · company reliability ~30 → ~60 |
-| **Covers** | Durable execution (done), RLS and budgets (roadmap Phase 3), stages A1–A3, dashboard settings |
+| **Covers** | Durable execution (done), RLS and budgets (roadmap Phase 4), stages A1–A3, dashboard settings |
 
 **Today:**
 - A person starts every step.

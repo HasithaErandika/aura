@@ -1,5 +1,6 @@
 import { runtimeDb } from './runtime-db';
 import { metrics } from '../lib/metrics';
+import { noteModel } from '../config/turn-context';
 
 // Token accounting per day, agent and model, plus Prometheus counters; recording never fails a call.
 
@@ -55,6 +56,7 @@ export async function recordTokens(agent: string, model: string, usage: TokenUsa
 
 // Fire-and-forget form for call sites that must not wait on the database.
 export function trackTokens(agent: string, model: string, usage: TokenUsage | undefined | null): void {
+  noteModel(model);
   void recordTokens(agent, model, usage);
 }
 

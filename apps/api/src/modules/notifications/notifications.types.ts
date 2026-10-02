@@ -1,4 +1,4 @@
-type NotificationKind = "pr_opened" | "ci_passed" | "ci_failed";
+type NotificationKind = "task_ready" | "pr_opened" | "pr_merged" | "ci_passed" | "ci_failed";
 
 export interface NotificationInput {
   kind: NotificationKind;

@@ -60,7 +60,7 @@ export const AGENT_MANIFEST: Record<AgentId, AgentManifestEntry> = {
     delegatesTo: [],
     note: 'Drafts/revises a decomposition, frontend/API/integration/data/security/AI design, ADRs, and architecture tasks as structured JSON, invoked through delegate_to_architect. Holds no tools: cannot read or write Jira itself. Filed documents are saved to Postgres (design_documents), not to disk.',
     agentVersion: '1.1.0',
-    promptVersion: '1.2.0', // frontend and integration specialists added to architect-workflow
+    promptVersion: '1.3.0', // Tasks carry dependsOn (merge order, step 3.4)
   },
   'qa-agent': {
     label: 'QA Agent',
@@ -68,7 +68,7 @@ export const AGENT_MANIFEST: Record<AgentId, AgentManifestEntry> = {
     delegatesTo: [],
     note: 'Drafts a test plan and scenarios (steps only, no test code) from the approved Stories, invoked through delegate_to_qa. Holds no tools; file mode saves the plan and scenarios as design documents (Postgres) and comments the Epic.',
     agentVersion: '3.1.0',
-    promptVersion: '3.0.0',
+    promptVersion: '3.1.0', // api scenarios name the contract operationIds (step 3.6)
   },
   'deployer-agent': {
     label: 'Deployer Agent',
@@ -108,7 +108,7 @@ export const AGENT_MANIFEST: Record<AgentId, AgentManifestEntry> = {
     delegatesTo: ['evaluator'],
     note: 'Implements an approved Task plan in the developer\'s VS Code, invoked through delegate_to_coder (execute after Gate 4; revise after a Gate 5 "Revise"). The router picks one of frontend-react, backend-nestjs, backend-spring, issue-solver, test-writer (agents/coders.ts); code runs the checks and reads the diff; the Evaluator reviews; code decides whether a round passed (task/loop.ts), up to vscode.evaluatorRounds rounds. delegate_to_review accept records Gate 5.',
     agentVersion: '1.0.0',
-    promptVersion: '1.0.0',
+    promptVersion: '1.2.0', // contract (3.5, 3.6); tests tagged [qa:<scenario>], JUnit to reports/ (3.7)
   },
   evaluator: {
     label: 'Evaluator',

@@ -1,6 +1,6 @@
 import { createTool } from '@mastra/core/tools';
 import { z } from 'zod';
-import { qaDocuments, qaDraftSchema, qaFiledComment, renderTestPlan, type QaDraft } from '../../contracts/qa-drafts';
+import { keepKnownOperations, qaDocuments, qaDraftSchema, qaFiledComment, renderTestPlan, type QaDraft } from '../../contracts/qa-drafts';
 import type { DesignDocLink } from '../../contracts/drafts';
 import { designDocs } from '../../lib/design-docs-client';
 import { draftStore } from '../../store/draft-store';
@@ -9,6 +9,7 @@ import { QA_MODEL_ID } from '../../agents/registry';
 import { generateObject, type MastraLike } from '../../lib/generate-object';
 import { provenance, buildProvenance, type ProvenanceStamp, type ToolWriterLike } from './shared';
 import { untrusted, untrustedInline } from '../../gateway/untrusted';
+import { checkOpenApi, type OpenApiCheck } from '../../lib/openapi';
 
 interface QaWorkflowStreamOutput {
   fullStream: AsyncIterable<{ type: string; id?: string; payload?: { status?: string; id?: string } }>;
@@ -22,8 +23,20 @@ interface QaWorkflowLike {
 }
 type QaMastra = (MastraLike & { getWorkflow?: (id: string) => QaWorkflowLike }) | undefined;
 
+// The Epic's API contract operations, or none when it has no (valid) contract.
+async function contractOperations(epicKey: string): Promise<OpenApiCheck['operations']> {
+  try {
+    const [doc] = await designDocs.list(epicKey, ['openapi']);
+    if (!doc) return [];
+    const check = checkOpenApi((await designDocs.read(doc.id)).content);
+    return check.problems.length ? [] : check.operations;
+  } catch {
+    return [];
+  }
+}
+
 // Runs the QA workflow, relaying each step into this tool's stream.
-async function runQaWorkflow(mastra: QaMastra, input: { epicKey: string; epicSummary: string; storiesText: string }, writer: ToolWriterLike | undefined): Promise<QaDraft> {
+async function runQaWorkflow(mastra: QaMastra, input: { epicKey: string; epicSummary: string; storiesText: string; operationsText: string }, writer: ToolWriterLike | undefined): Promise<QaDraft> {
   const workflow = mastra?.getWorkflow?.('qa-workflow');
   if (!workflow) throw new Error('qa-workflow is not registered');
   const run = await workflow.createRun();
@@ -82,7 +95,9 @@ export const delegateToQaTool = createTool({
           const storyIssues = stories.filter((s) => s.issueType.toLowerCase() === 'story');
           if (!storyIssues.length) return qaFail(`${epicKey} has no Stories yet - run delegate_to_ba and file Stories before drafting a test plan`);
           const storiesText = untrusted(`jira:${epicKey} stories`, storyIssues.map((s) => `- ${s.key}: ${s.summary}\n${s.description || '(no description)'}`).join('\n\n'));
-          const content = await runQaWorkflow(mastra as QaMastra, { epicKey, epicSummary: untrustedInline(`jira:${epicKey} summary`, epic.summary), storiesText }, writer);
+          const operations = await contractOperations(epicKey);
+          const operationsText = operations.map((o) => `- ${o.operationId}: ${o.method.toUpperCase()} ${o.path}`).join('\n');
+          const content = keepKnownOperations(await runQaWorkflow(mastra as QaMastra, { epicKey, epicSummary: untrustedInline(`jira:${epicKey} summary`, epic.summary), storiesText, operationsText }, writer), operations.map((o) => o.operationId));
           const record = await draftStore.create({ kind: 'qa-plan', content, threadId, epicKey });
           return { ok: true, draftId: record.id, markdown: renderTestPlan(content), epicKey, scenarioCount: content.scenarios.length };
         }
@@ -91,7 +106,8 @@ export const delegateToQaTool = createTool({
           const previous = await draftStore.get<QaDraft>(input.draftId);
           if (!previous || previous.kind !== 'qa-plan') return qaFail(`unknown QA draft ${input.draftId}`);
           const prompt = `Revise this test plan according to the feedback. Return the complete updated plan with every scenario, changed or not. Keep epicKey "${previous.content.epicKey}".\n\nCurrent draft (JSON):\n${JSON.stringify(previous.content)}\n\nFeedback:\n${input.feedback.trim()}`;
-          const content = await generateObject<QaDraft>(mastra as MastraLike, 'qa', prompt, qaDraftSchema);
+          const operations = await contractOperations(previous.content.epicKey);
+          const content = keepKnownOperations(await generateObject<QaDraft>(mastra as MastraLike, 'qa', prompt, qaDraftSchema), operations.map((o) => o.operationId));
           content.epicKey = previous.content.epicKey;
           const record = await draftStore.create({ kind: 'qa-plan', content, threadId, epicKey: previous.epicKey, parentId: previous.id });
           return { ok: true, draftId: record.id, markdown: renderTestPlan(content), epicKey: previous.content.epicKey, scenarioCount: content.scenarios.length };

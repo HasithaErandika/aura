@@ -48,7 +48,7 @@ flowchart LR
 | Q7 | Which models and budget? | Contracted providers with zero data retention for company data; free tier only for public projects. Provider, model and tokens recorded per run. Budgets per run, user and project | 🟡 Models per agent in the registry with fallback; token ledger. No model policy or budgets yet | 3.3, 3.5 |
 | Q8 | Is Docker isolation enough? | AURA runs no code itself. Agents run commands on the developer's machine under the permission engine (built-in denies, allow/ask/deny rules, no bypass mode). CI on GitHub is the isolated, authoritative run | 🟢 Docker and host checks removed in V7 | — |
 | Q9 | Keep the web terminal? | **No.** The developer's VS Code is the only place code runs | 🟢 Removed in V7 | — |
-| Q10 | What order? | One lane (done) → company pilot → delivery loop → company rollout → automation and more agents | 🟢 Agreed; Phase 3 is next | §1 |
+| Q10 | What order? | One lane (done) → delivery loop → company pilot (without SSO) → company rollout → automation and more agents | 🟢 Agreed; Phase 3 (delivery loop) is next | §1 |
 
 Related review items:
 
@@ -89,5 +89,5 @@ is the default if nobody objects.
 | Bridge routing across API replicas | Postgres `LISTEN/NOTIFY` · Redis pub/sub | Postgres: no new infrastructure | 5.1 |
 | Jira test management | Plain Bugs · Xray · Zephyr | Plain Bugs plus AURA's QA page; Xray only if QA asks | 4.3 |
 | Vector store for codebase knowledge | pgvector · external | pgvector in the existing Postgres | Later |
-| Git hosts beyond GitHub | GitLab (`glab`) | After Phase 4 | Later |
+| Git hosts beyond GitHub | GitLab (`glab`) | After Phase 3 | Later |
 | LLM-judged evals | Own scorers only · Langfuse / Braintrust | Own deterministic scorers; a judge only for prose quality | 3.9 |

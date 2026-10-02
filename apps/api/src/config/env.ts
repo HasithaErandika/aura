@@ -60,6 +60,8 @@ export const env = {
   turnConcurrencyPerUser: optionalNumber("TURN_CONCURRENCY_PER_USER", 2),
   approvalSlaHours: optionalNumber("APPROVAL_SLA_HOURS", 72),
   ciOidcAudience: process.env.AURA_CI_AUDIENCE ?? "aura",
+  githubWebhookSecret: optionalString("GITHUB_WEBHOOK_SECRET"),
+  jiraWebhookSecret: optionalString("JIRA_WEBHOOK_SECRET"),
 
   jiraUrl: optionalString("JIRA_URL")?.replace(/\/+$/, ""),
   jiraUsername: optionalString("JIRA_USERNAME"),

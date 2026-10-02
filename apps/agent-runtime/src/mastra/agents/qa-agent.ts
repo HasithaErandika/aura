@@ -1,6 +1,8 @@
 import { Agent } from '@mastra/core/agent';
 import { withGeminiFallback } from '../config/models';
 import { QA_MODEL_ID } from './registry';
+import { governedModels } from '../config/model-policy';
+import { redactionProcessor } from '../gateway/redaction';
 
 // Drafts a test plan and scenarios from an Epic's approved Stories; code saves them after approval.
 export const qaAgent = new Agent({
@@ -31,7 +33,9 @@ Return only the JSON object the caller's schema describes. No prose outside it.
 When revising, apply the feedback and keep every other field unchanged unless the feedback asks to
 touch it.`,
 
-  model: withGeminiFallback(QA_MODEL_ID, { reasoningFormat: 'hidden' }),
+  model: governedModels(withGeminiFallback(QA_MODEL_ID, { reasoningFormat: 'hidden' })),
+
+  inputProcessors: [redactionProcessor],
   defaultOptions: {
     maxSteps: 1,
   },

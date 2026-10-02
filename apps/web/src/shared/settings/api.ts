@@ -2,7 +2,7 @@ import { api } from "../api/client.ts";
 
 
 export type SettingScope = "global" | "project" | "user";
-export type SettingGroup = "agents" | "governance" | "limits";
+export type SettingGroup = "agents" | "governance" | "jira" | "limits";
 export type SettingValue = string | number | boolean;
 export type SettingSource = SettingScope | "default";
 
@@ -13,7 +13,7 @@ export interface SettingDefinition {
   description: string;
   owner: "api" | "runtime";
   scopes: SettingScope[];
-  input: { type: "enum"; options: string[] } | { type: "integer"; min: number; max: number; unit?: string };
+  input: { type: "enum"; options: string[] } | { type: "integer"; min: number; max: number; unit?: string } | { type: "text"; maxLength: number };
   cap: boolean;
   default: SettingValue;
 }
@@ -52,5 +52,6 @@ export const settingsApi = {
 export const GROUP_LABELS: Record<SettingGroup, { title: string; description: string }> = {
   agents: { title: "Agents", description: "Review rounds for the VS Code coders." },
   governance: { title: "Governance", description: "How long gates wait and how prompt injection is handled." },
+  jira: { title: "Jira workflow", description: "The Jira status a Task moves to as its work, pull request and release progress." },
   limits: { title: "Limits", description: "Time limits for agent work." },
 };

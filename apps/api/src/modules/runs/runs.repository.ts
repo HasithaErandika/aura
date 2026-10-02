@@ -15,7 +15,7 @@ export interface RunFilter {
 }
 
 export const runsRepository = {
-  async create(input: { agentId: string; threadId: string; requestedBy: string; requestedByRole: Role; title: string | null; inputSummary: string }): Promise<RunRow> {
+  async create(input: { agentId: string; threadId: string; requestedBy: string; requestedByRole: Role; title: string | null; inputSummary: string; projectId: string | null }): Promise<RunRow> {
     const { data, error } = await supabaseAdmin
       .from("workflow_runs")
       .insert({
@@ -27,6 +27,7 @@ export const runsRepository = {
         title: input.title,
         input_summary: input.inputSummary,
         agents_involved: [],
+        project_id: input.projectId,
       })
       .select(RUN_COLUMNS)
       .single();

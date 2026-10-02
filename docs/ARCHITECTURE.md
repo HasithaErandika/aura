@@ -162,6 +162,8 @@ sequenceDiagram
 | Step | Rule (in code) |
 |---|---|
 | Routing | Bug → `issue-solver`; test labels → `test-writer`; Frontend → `frontend-react`; Backend, Data, AI, Integration → `backend-nestjs` or `backend-spring` from the Epic's Gate 3 stack |
+| Ready from Jira | A Task or Bug given the label in *Label that offers the work* (default `aura`), or moved into *Status that offers the work* (off by default), notifies its assignee (`task_ready`, matched to a developer by email, else every developer; migration `0017`). Their VS Code offers **Start Work**; nothing runs or is approved without them. A Task whose branch exists is not offered |
+| Dependencies | The Architect gives each Task `dependsOn` (Task numbers); code drops self, out-of-range and cycle-closing edges (`task/dependencies.ts`). Gate 3 records them in `task_dependencies` and adds Jira "Blocks" links. Gate 4 refuses a Task until every dependency's PR is merged; Start Work says so first |
 | Plan lock | Until Gate 4 is approved, the conversation's workspace is read-only, whatever the developer's mode |
 | Task branch | `feat/<EPIC>/<TASK>` from `development` (else the current commit); never switched over uncommitted work |
 | Checks | `.aura/settings.json` `checks`, else the plan's; run by code, not the coder |
@@ -169,6 +171,20 @@ sequenceDiagram
 | Notes | Text typed while a Task runs goes to `POST /runs/:id/notes`; coders read it at their next step |
 | Gate 5 revise | Another pass of the same approved plan with the developer's feedback |
 | Gate 6 | Commit, push and PR use the developer's own git and `gh`; without `gh`, the branch is pushed and a compare link is given |
+| Branch protection | **AURA: Protect Branches** (offered after Initialize Project's push) protects `main` and `development` with the developer's `gh`: reviewed PRs only (code owners, stale reviews dismissed), required checks = each app's CI job, `contract`, and optionally **AURA QA**; no force-push or delete. Writes `.github/CODEOWNERS` if missing |
+| Merge | A person merges on GitHub; the GitHub webhook records it (`merged_at`, `merge_sha`) and notifies QA and the developer. The extension then removes the parts' leftover worktrees and `_sN` branches (`git worktree remove`, `git branch -d`; never forced) |
+
+**Jira status follows the work** (`task-prs/task-status.ts`). Each move is best-effort and audited
+as `jira.status_moved`; a Task never moves backwards, and a status the workflow cannot reach is
+logged, never invented. Status names are settings (Admin → Settings → *Jira workflow*); `none`
+skips a move.
+
+| Event | Reported by | Jira status (default) |
+|---|---|---|
+| Gate 4 approved, Task branch created | Runtime → `POST /internal/task-prs/events` | In Progress |
+| PR opened (Gate 6, or on GitHub) | API, GitHub webhook | In Review |
+| PR merged by a person | GitHub webhook | Ready for Release |
+| Gate 8 release plan approved | Runtime → `POST /internal/task-prs/events` | Done, for every Task of the Epic |
 
 ### 4.2 Parallel parts and the merge step
 
@@ -273,9 +289,11 @@ flowchart LR
 | Boundary | Control |
 |---|---|
 | User → API | Supabase session or personal access token (`aura_pat_…`, hashed, expiring, revocable) |
+| Project access | Migration `0018`. Runs, threads, approvals, agents, design documents, Task PRs, Jira, dashboard and the bridge belong to the current project: only its members (`project_members`, Admin → Projects → Members) and admins use them (`policy.ts canUseProject`). Runs record `project_id`. RLS applies the same rule to direct reads (`can_use_project()`). Nothing is scoped before a project is registered |
 | Extension → API | Browser device sign-in; bridge ticket, 60 s, single use |
 | API → runtime | `MASTRA_RUNTIME_TOKEN` bearer token |
 | GitHub Actions → API | OIDC token, audience `AURA_CI_AUDIENCE`; proves the repository, no stored secret |
+| GitHub, Jira webhooks → API | `POST /webhooks/github`, `/webhooks/jira`: HMAC-SHA256 of the raw body with `GITHUB_WEBHOOK_SECRET` / `JIRA_WEBHOOK_SECRET`; an endpoint without a secret is off |
 | Approval | Decision bound to the hash of the exact payload shown |
 | Audit | `audit_logs` is append-only (database trigger) |
 
@@ -308,8 +326,11 @@ flowchart LR
 | Data | Detail |
 |---|---|
 | Runtime state | With `DATABASE_URL`, agent memory and the runtime's tables are in Postgres, so a restart or a second replica sees the same gates and drafts. `migrate-state` copies an old local `aura-drafts.db` once |
-| Design documents | Migration `0010`. Architecture plan, SRS, delivery plan, ADRs, QA test plan and scenarios per Epic. Saved after approval through `/internal/design-docs`; edited on the web with `baseVersion` (stale save → 409); every version kept |
-| Task PRs and CI | Migration `0012`. `task_branches` holds each Task's PR, reviewers and CI state; `aura-ci.yml` reports to `POST /ci/report` |
+| Design documents | Migrations `0010`, `0015`. Architecture plan, SRS, delivery plan, ADRs, the **API contract** (OpenAPI 3.1, checked by code on every save: version, unique `operationId`s, responses, resolvable `$ref`s), QA test plan and scenarios per Epic. Gate 6 commits the contract to `contracts/openapi.yaml`. Saved after approval through `/internal/design-docs`; edited on the web with `baseVersion` (stale save → 409); every version kept |
+| Task PRs and CI | Migrations `0012`, `0014`. `task_branches` holds each Task's PR, reviewers, CI state and merge; `aura-ci.yml` reports to `POST /ci/report` |
+| AURA QA check | Migration `0016`. Gate 3 records which Stories each Task implements (`task_stories`). Tests for a QA scenario are named `[qa:<file name>]`; each app's test runner writes JUnit XML to `reports/`. `aura-ci.yml` sends each scenario's result with the CI report; AURA passes the check only when every scenario of the Task's Stories passed (a failed or untested one fails it; no linked scenarios passes), stores it as `qa_state`, and CI posts it as the **AURA QA** commit status. Shown on the QA page and in the PR view |
+| API tests | QA's api scenarios name the contract `operationId`s they call (code keeps only ones the contract defines). The `test-writer` coder writes one test per scenario that checks status and body against the contract. `aura-ci.yml` has a `contract` job: Redocly lint, and oasdiff fails a PR that breaks the base branch's contract |
+| Webhook deliveries | Migration `0013`. Each accepted GitHub or Jira delivery is claimed once by `(source, delivery_id)`, so retries are not handled twice; a failed one is released for the retry. Audited as `webhook.received`; payloads are not stored. Handled: GitHub `pull_request` (opened, reopened, synchronize, closed/merged); Jira `issue_updated` (a Task offered to its assignee) |
 | Notifications | Migration `0012`. In-app: QA hears when a PR opens; QA and the developer hear when CI passes or fails |
 | Source code | Not stored. Code lives in the developer's clone and on GitHub |
 
@@ -360,6 +381,29 @@ flowchart LR
 Evals are deterministic code checks: structure, completeness, grounding, honesty about unknowns,
 injection resistance and token cost. Agents run on Groq first and fall back to Gemini
 (`config/models.ts`).
+
+**Model policy** (`config/model-policy.ts`). Each project has a data class (Admin → Settings →
+Governance). On every model call, code switches off the providers that class does not allow and
+refuses the call if none is left; the gateway runs each tool inside the turn's context so nested
+agent and workflow calls follow the same policy.
+
+| Data class | Providers allowed |
+|---|---|
+| `public` (default) | Any configured provider, free tiers included |
+| `internal` | `AURA_CONTRACTED_PROVIDERS` |
+| `confidential` | `AURA_ZERO_RETENTION_PROVIDERS` |
+
+Every model that answers is recorded: gateway events carry the models used inside a tool call,
+and the API writes them on `approval.requested` and `run.turn_ended` audit rows (provider/model).
+
+**Redaction** (`gateway/redaction.ts`, `lib/redact.ts`). An input processor on every agent runs
+before each model call and replaces secrets in messages and tool results with a label naming
+them (`[REDACTED:github-token]`): private keys, cloud, GitHub, Slack, Stripe, model-provider and
+AURA tokens, JWTs, bearer tokens, URL passwords and `PASSWORD=`-style values. Emails, phone and
+card numbers go too unless the project sets *Remove personal data from prompts* to off; test
+addresses (`example.com`, `.test`) stay. Deterministic: no model sees the text first. A draft
+built from redacted content says what was removed, and the API audits `gateway.redacted` (counts
+by rule, never the values).
 
 ---
 

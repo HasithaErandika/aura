@@ -6,7 +6,7 @@ import { Badge } from "@/shared/ui/Badge.tsx";
 import { Markdown } from "@/shared/ui/Markdown.tsx";
 import { Tabs, type TabItem } from "@/shared/ui/Tabs.tsx";
 import { designDocsApi } from "../api.ts";
-import { KIND_LABELS } from "../lib/docs.ts";
+import { KIND_LABELS, previewSource } from "../lib/docs.ts";
 import type { DocKind } from "../types.ts";
 import { DocumentEditor } from "./DocumentEditor.tsx";
 import { VersionHistory } from "./VersionHistory.tsx";
@@ -40,7 +40,7 @@ export function DocumentView({ id, editable, onSaved }: { id: string; editable: 
             </div>
             <div className="scroll-quiet min-h-0 flex-1 overflow-auto px-4 py-4 sm:px-5">
               {tab === "preview" ? (
-                <Markdown source={content} />
+                <Markdown source={previewSource(doc.kind, content)} />
               ) : tab === "edit" && canEdit ? (
                 <DocumentEditor
                   doc={doc}
@@ -52,7 +52,7 @@ export function DocumentView({ id, editable, onSaved }: { id: string; editable: 
                   }}
                 />
               ) : (
-                <VersionHistory docId={doc.id} versions={versions} />
+                <VersionHistory docId={doc.id} kind={doc.kind} versions={versions} />
               )}
             </div>
           </div>

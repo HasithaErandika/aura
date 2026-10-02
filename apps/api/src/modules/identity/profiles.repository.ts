@@ -30,6 +30,12 @@ export const profilesRepository = {
     }
   },
 
+  async idWithEmailAndRole(email: string, role: Role): Promise<string | null> {
+    const { data, error } = await supabaseAdmin.from("profiles").select("id").ilike("email", email).eq("role", role).limit(1);
+    if (error) throw dbError("find user by email", error);
+    return ((data ?? []) as { id: string }[])[0]?.id ?? null;
+  },
+
   async idsWithRole(role: Role): Promise<string[]> {
     const { data, error } = await supabaseAdmin.from("profiles").select("id").eq("role", role);
     if (error) throw dbError("list users by role", error);

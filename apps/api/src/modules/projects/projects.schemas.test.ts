@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createProjectSchema, repositorySchema } from "./projects.schemas.js";
+import { createProjectSchema, memberSchema, repositorySchema } from "./projects.schemas.js";
 
 describe("createProjectSchema", () => {
   it("upper-cases keys and accepts a valid project", () => {
@@ -46,5 +46,13 @@ describe("repositorySchema", () => {
 
   it("allows an installation id only for GitHub", () => {
     expect(repositorySchema.safeParse({ provider: "local", owner: "acme", name: "shop", installationId: 1 }).success).toBe(false);
+  });
+});
+
+describe("project members", () => {
+  it("adds a member by user id only", () => {
+    expect(memberSchema.parse({ userId: "33333333-3333-4333-8333-333333333333" })).toEqual({ userId: "33333333-3333-4333-8333-333333333333" });
+    expect(() => memberSchema.parse({ userId: "someone@acme.test" })).toThrow();
+    expect(() => memberSchema.parse({ userId: "33333333-3333-4333-8333-333333333333", role: "admin" })).toThrow();
   });
 });

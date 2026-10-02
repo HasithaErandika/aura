@@ -6,10 +6,10 @@ import { Badge } from "@/shared/ui/Badge.tsx";
 import { Button } from "@/shared/ui/Button.tsx";
 import { Markdown } from "@/shared/ui/Markdown.tsx";
 import { designDocsApi } from "../api.ts";
-import { versionAuthor } from "../lib/docs.ts";
-import type { DocVersion } from "../types.ts";
+import { previewSource, versionAuthor } from "../lib/docs.ts";
+import type { DocKind, DocVersion } from "../types.ts";
 
-export function VersionHistory({ docId, versions }: { docId: string; versions: DocVersion[] }) {
+export function VersionHistory({ docId, kind, versions }: { docId: string; kind: DocKind; versions: DocVersion[] }) {
   const [viewing, setViewing] = useState<{ version: number; content: string } | null>(null);
   const [loading, setLoading] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -36,7 +36,7 @@ export function VersionHistory({ docId, versions }: { docId: string; versions: D
             Back to history
           </Button>
         </div>
-        <Markdown source={viewing.content} />
+        <Markdown source={previewSource(kind, viewing.content)} />
       </div>
     );
   }

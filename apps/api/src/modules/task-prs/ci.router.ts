@@ -27,7 +27,7 @@ ciRouter.post(
   asyncHandler(async (req, res) => {
     const repo = await verifiedRepository(req.header("authorization"));
     const report = parseOrThrow(ciReportSchema, req.body);
-    const view = await recordCiReport(repo, report);
+    const { view, qa } = await recordCiReport(repo, report);
     await writeAudit({
       actorId: null,
       actorRole: null,
@@ -35,8 +35,9 @@ ciRouter.post(
       entityType: "task_branch",
       entityId: view.taskKey,
       requestId: req.requestId,
-      metadata: { repo, branch: report.branch, state: view.ciState, prNumber: view.prNumber, headSha: report.headSha ?? null },
+      metadata: { repo, branch: report.branch, state: view.ciState, prNumber: view.prNumber, headSha: report.headSha ?? null, qa: qa ? { state: qa.state, ...qa.summary } : null },
     });
-    res.json({ taskKey: view.taskKey, ciState: view.ciState });
+    // aura-ci.yml posts qa as the "AURA QA" commit status on the pull request.
+    res.json({ taskKey: view.taskKey, ciState: view.ciState, qa: qa ? { state: qa.state, description: qa.description } : { state: "pending", description: "Waiting for CI" } });
   }),
 );

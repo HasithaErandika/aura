@@ -6,7 +6,7 @@ import { env } from "../../config/env.js";
 export const SETTING_SCOPES = ["global", "project", "user"] as const;
 export type SettingScope = (typeof SETTING_SCOPES)[number];
 
-type SettingGroup = "agents" | "governance" | "limits";
+type SettingGroup = "agents" | "governance" | "jira" | "limits";
 
 export type SettingValue = string | number | boolean;
 
@@ -19,7 +19,7 @@ export interface SettingDefinition {
   scopes: readonly SettingScope[];
   schema: ZodTypeAny;
   fallback: () => SettingValue;
-  input: { type: "enum"; options: readonly string[] } | { type: "integer"; min: number; max: number; unit?: string };
+  input: { type: "enum"; options: readonly string[] } | { type: "integer"; min: number; max: number; unit?: string } | { type: "text"; maxLength: number };
   // A capped user value can never exceed the shared value.
   cap?: boolean;
 }
@@ -28,12 +28,21 @@ function integer(min: number, max: number, unit?: string) {
   return { schema: z.number().int().min(min).max(max), input: { type: "integer" as const, min, max, unit } };
 }
 
+function text(maxLength: number) {
+  return { schema: z.string().trim().min(1).max(maxLength), input: { type: "text" as const, maxLength } };
+}
+
 function choice<const T extends readonly [string, ...string[]]>(options: T) {
   return { schema: z.enum(options), input: { type: "enum" as const, options } };
 }
 
 const SHARED: readonly SettingScope[] = ["global", "project"];
 const ANY: readonly SettingScope[] = ["global", "project", "user"];
+
+// Exact Jira status names; "none" skips that move. A name the workflow can't reach is logged, never invented.
+function jiraStatus(key: string, label: string, description: string, fallback: string): SettingDefinition[] {
+  return [{ key, group: "jira", label, description: `${description} Use the exact status name from your Jira workflow, or none to skip.`, owner: "api", scopes: SHARED, ...text(60), fallback: () => fallback }];
+}
 
 // Runtime bounds must match agent-runtime config/settings.ts.
 export const SETTING_DEFINITIONS: readonly SettingDefinition[] = [
@@ -69,6 +78,26 @@ export const SETTING_DEFINITIONS: readonly SettingDefinition[] = [
     fallback: () => "warn",
   },
   {
+    key: "governance.dataClass",
+    group: "governance",
+    label: "Data class",
+    description: "Which model providers may see this project's data. public: any provider, free tiers included. internal: only providers under contract (AURA_CONTRACTED_PROVIDERS). confidential: only contracted providers with zero data retention (AURA_ZERO_RETENTION_PROVIDERS). A call no allowed provider can serve is refused.",
+    owner: "runtime",
+    scopes: SHARED,
+    ...choice(["public", "internal", "confidential"]),
+    fallback: () => "public",
+  },
+  {
+    key: "governance.piiRedaction",
+    group: "governance",
+    label: "Remove personal data from prompts",
+    description: "on: emails, phone numbers and card numbers are replaced with a label before any model sees them (test addresses such as user@example.com stay). Secrets and keys are always removed, whatever this says.",
+    owner: "runtime",
+    scopes: SHARED,
+    ...choice(["on", "off"]),
+    fallback: () => "on",
+  },
+  {
     key: "governance.vscodeModes",
     group: "governance",
     label: "VS Code permission modes",
@@ -77,6 +106,21 @@ export const SETTING_DEFINITIONS: readonly SettingDefinition[] = [
     scopes: SHARED,
     ...choice(["all", "no-accept-edits", "plan-only"]),
     fallback: () => "all",
+  },
+  ...jiraStatus("jira.statusInProgress", "Status when work starts", "The Jira status a Task moves to when its plan is approved at Gate 4 and work starts on its branch.", "In Progress"),
+  ...jiraStatus("jira.statusInReview", "Status when the PR opens", "The Jira status a Task moves to when its pull request opens.", "In Review"),
+  ...jiraStatus("jira.statusReadyForRelease", "Status when the PR merges", "The Jira status a Task moves to when a person merges its pull request.", "Ready for Release"),
+  ...jiraStatus("jira.statusDone", "Status when released", "The Jira status an Epic's Tasks move to when its release plan is approved at Gate 8.", "Done"),
+  ...jiraStatus("jira.statusStartsWork", "Status that offers the work", "When a Task or Bug moves into this Jira status, its assignee's VS Code offers Start Work. Off by default.", "none"),
+  {
+    key: "jira.labelStartsWork",
+    group: "jira",
+    label: "Label that offers the work",
+    description: "When this label is added to a Task or Bug in Jira, its assignee's VS Code offers Start Work. none turns it off.",
+    owner: "api",
+    scopes: SHARED,
+    ...text(60),
+    fallback: () => "aura",
   },
   {
     key: "limits.turnTimeoutMinutes",

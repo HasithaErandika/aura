@@ -140,6 +140,9 @@ export async function initializeProject(session: Session): Promise<void> {
   if (remote?.trim()) {
     const code = await runTask("AURA: push", `git remote add origin ${JSON.stringify(remote.trim())} && git push -u origin main development`, cwd);
     if (code !== 0) void vscode.window.showWarningMessage("AURA: the push failed. The project is ready locally; push main and development when the remote is ready.");
+    else if ((await vscode.window.showInformationMessage("AURA: protect main and development on GitHub now (reviewed pull requests and passing checks only)?", "Protect", "Later")) === "Protect") {
+      await vscode.commands.executeCommand("aura.protectBranches");
+    }
   }
   await session.refresh();
   void vscode.window.showInformationMessage(`AURA: ${project.key} is initialized: ${stacks.map((s) => STACKS[s].folder).join(" and ")}, main and development branches, CI and .aura/ (project memory and settings).`);

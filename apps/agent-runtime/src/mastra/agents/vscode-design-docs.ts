@@ -8,7 +8,7 @@ import { untrusted } from '../gateway/untrusted';
 // (Architect, QA) or through a gate, never from a developer's session. Content is fenced as
 // untrusted, because people edit these documents and the agent must not take them as orders.
 
-const KINDS = ['architecture', 'srs', 'plan', 'adr', 'qa-plan', 'qa-scenario'] as const;
+const KINDS = ['architecture', 'srs', 'plan', 'adr', 'openapi', 'qa-plan', 'qa-scenario'] as const;
 const LIMIT = 40_000;
 
 export async function readDesignDocs(client: DesignDocsClient, input: { epicKey: string; slug?: string; kind?: (typeof KINDS)[number] }): Promise<string> {
@@ -32,7 +32,7 @@ export function designDocsTool(client: DesignDocsClient = defaultClient) {
   return createTool({
     id: 'design_docs',
     description:
-      "Lists or reads the design documents of a Jira Epic: architecture plan, requirements (SRS), delivery plan, ADRs, test plan and test scenarios. Without slug it lists them; with slug it returns that document's Markdown. Read-only. Use it before implementing a Task to follow the approved design.",
+      "Lists or reads the design documents of a Jira Epic: architecture plan, requirements (SRS), delivery plan, ADRs, the API contract (openapi: build and test against it exactly), test plan and test scenarios. Without slug it lists them; with slug it returns that document's Markdown. Read-only. Use it before implementing a Task to follow the approved design.",
     inputSchema: z.object({
       epicKey: z.string().min(3).describe('The Epic key, e.g. KAN-36'),
       slug: z.string().optional().describe('The document to read, from the list (e.g. architecture, adr/0001-use-nestjs)'),

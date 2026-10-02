@@ -43,3 +43,5 @@ export const repositorySchema = z
 
 export type CreateProjectInput = z.infer<typeof createProjectSchema>;
 export type RepositoryInput = z.infer<typeof repositorySchema>;
+
+export const memberSchema = z.object({ userId: z.string().uuid() }).strict();

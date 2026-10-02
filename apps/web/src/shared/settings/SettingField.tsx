@@ -28,8 +28,8 @@ export function SettingField({
   useEffect(() => setDraft(stored === undefined ? "" : String(stored)), [stored]);
 
   const { input } = definition;
-  const parsed: SettingValue | null = draft === "" ? null : input.type === "integer" ? Number(draft) : draft;
-  const valid = parsed !== null && (input.type === "enum" ? input.options.includes(String(parsed)) : Number.isInteger(parsed) && Number(parsed) >= input.min && Number(parsed) <= input.max);
+  const parsed: SettingValue | null = draft.trim() === "" ? null : input.type === "integer" ? Number(draft) : input.type === "text" ? draft.trim() : draft;
+  const valid = parsed !== null && isValid(input, parsed);
   const changed = parsed !== null && parsed !== stored;
 
   async function run(action: () => Promise<void>) {
@@ -65,7 +65,9 @@ export function SettingField({
         {error ? <p className="mt-1 text-xs text-danger">{error}</p> : null}
       </div>
       <div className="flex items-center gap-2">
-        {input.type === "enum" ? (
+        {input.type === "text" ? (
+          <Input aria-label={definition.label} type="text" maxLength={input.maxLength} placeholder={format(inherited)} value={draft} onChange={(e) => setDraft(e.target.value)} className="w-44" />
+        ) : input.type === "enum" ? (
           <Select aria-label={definition.label} value={draft} onChange={(e) => setDraft(e.target.value)} className="w-36">
             <option value="">{`Inherit (${format(inherited)})`}</option>
             {input.options.map((o) => (
@@ -96,4 +98,10 @@ export function SettingField({
       </div>
     </div>
   );
+}
+
+function isValid(input: SettingDefinition["input"], value: SettingValue): boolean {
+  if (input.type === "enum") return input.options.includes(String(value));
+  if (input.type === "text") return typeof value === "string" && value.length <= input.maxLength;
+  return Number.isInteger(value) && Number(value) >= input.min && Number(value) <= input.max;
 }

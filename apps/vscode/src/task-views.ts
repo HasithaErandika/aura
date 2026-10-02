@@ -154,6 +154,9 @@ export class PullRequestView extends BoardView {
       const ci = CI_LABEL[pr.ciState ?? ""] ?? { text: "No CI result yet", icon: "circle-outline" };
       const jobs = pr.jobs.map((j) => new Item(j.name, { icon: j.result === "success" ? "pass" : j.result === "failure" ? "error" : "circle-outline", description: j.result }));
       if (pr.tests) jobs.push(new Item("Tests", { icon: "beaker", description: `${pr.tests.passed} passed, ${pr.tests.failed} failed, ${pr.tests.skipped} skipped` }));
+      if (pr.qaState) roots.push(new Item(pr.qaState === "success" ? "AURA QA passed" : pr.qaState === "failure" ? "AURA QA failed" : "AURA QA waiting", { icon: pr.qaState === "success" ? "pass" : pr.qaState === "failure" ? "error" : "clock", description: pr.qaDetail }));
+      if (pr.prState === "merged") roots.push(new Item("Merged", { icon: "git-merge", description: "ready for release" }));
+      if (pr.prState === "closed") roots.push(new Item("Closed without merging", { icon: "circle-slash" }));
       roots.push(new Item(ci.text, { icon: ci.icon, color: ci.color, children: jobs, ...(pr.ciUrl ? { command: { command: "vscode.open", title: "Open CI Run", arguments: [vscode.Uri.parse(pr.ciUrl)] }, tooltip: pr.ciUrl } : {}) }));
     }
     return roots;

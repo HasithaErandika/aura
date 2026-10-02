@@ -7,6 +7,7 @@ import { DEPLOYER_MODEL_ID } from '../../agents/registry';
 import { generateObject, type MastraLike } from '../../lib/generate-object';
 import { provenance, buildProvenance, type ProvenanceStamp } from './shared';
 import { deployDraftPrompt } from '../../contracts/prompts';
+import { reportTaskEvent } from '../../task/aura-api';
 
 // ==================== Deployer Agent (Gate 8, plan-only) ====================
 
@@ -83,6 +84,8 @@ export const delegateToDeployTool = createTool({
             // Best-effort; the plan itself is what matters.
           }
           await draftStore.markFiled(record.id, { ...record.filed, comment: 'done' });
+          // Gate 8 approved: AURA moves the Epic's Tasks to the configured released status.
+          await reportTaskEvent({ event: 'released', epicKey: record.content.epicKey });
           return { ok: true, draftId: record.id, epicKey: record.content.epicKey, provenance: buildProvenance('deployer-agent', DEPLOYER_MODEL_ID, record, `${record.content.epicKey} (Epic)`) };
         }
       }

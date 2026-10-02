@@ -4,7 +4,9 @@ import { MenuItem } from "../ui/Menu.tsx";
 import type { AppNotification } from "./notifications.ts";
 
 const DOT: Record<AppNotification["kind"], string> = {
+  task_ready: "bg-warning",
   pr_opened: "bg-brand",
+  pr_merged: "bg-success",
   ci_passed: "bg-success",
   ci_failed: "bg-danger",
 };

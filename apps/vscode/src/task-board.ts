@@ -48,8 +48,13 @@ export interface PrView {
   step: string | null;
   url: string | null;
   number: number | null;
+  // open, merged (a person merged it on GitHub) or closed; from AURA through the GitHub webhook.
+  prState: string | null;
   ciState: string | null;
   ciUrl: string | null;
+  // The AURA QA check (step 3.7): pending, success or failure, and what is missing.
+  qaState: string | null;
+  qaDetail: string;
   jobs: { name: string; result: string }[];
   tests: { passed: number; failed: number; skipped: number } | null;
 }
@@ -72,7 +77,7 @@ export interface TaskBoard {
   pr: PrView | null;
 }
 
-const EMPTY_PR: PrView = { draftId: null, title: "", branch: "", base: "development", reviewers: [], step: null, url: null, number: null, ciState: null, ciUrl: null, jobs: [], tests: null };
+const EMPTY_PR: PrView = { draftId: null, title: "", branch: "", base: "development", reviewers: [], step: null, url: null, number: null, prState: null, ciState: null, ciUrl: null, qaState: null, qaDetail: "", jobs: [], tests: null };
 
 function parts(v: unknown): PartView[] {
   return arr<Record<string, unknown>>(v).map((p) => ({
@@ -219,6 +224,9 @@ export function applyTaskEvent(board: TaskBoard | null, data: Record<string, unk
           branch: str(data.branch) || prev.branch || board.branch,
           base: str(data.base) || prev.base,
           reviewers: Array.isArray(data.reviewers) ? arr<string>(data.reviewers) : prev.reviewers,
+          prState: "prState" in data ? (str(data.prState) || null) : prev.prState,
+          qaState: "qaState" in data ? (str(data.qaState) || null) : prev.qaState,
+          qaDetail: "qaDetail" in data ? str(data.qaDetail) : prev.qaDetail,
           ciState: "ciState" in data ? (str(data.ciState) || null) : prev.ciState,
           ciUrl: str(data.ciUrl) || prev.ciUrl,
           jobs: Array.isArray(summary.jobs) ? arr<{ name: string; result: string }>(summary.jobs) : prev.jobs,
@@ -241,6 +249,12 @@ export const STATUS_LABEL: Record<TaskStatus, string> = {
 };
 
 // A PR from AURA's API (GET /task-prs) as a Task event, so the PR view refreshes its CI status.
-export function prEventFrom(pr: { prUrl: string | null; prNumber: number | null; branch: string; reviewers: string[]; ciState: string | null; ciUrl: string | null; ciSummary: unknown }): Record<string, unknown> {
-  return { kind: "pr", url: pr.prUrl, number: pr.prNumber, branch: pr.branch, reviewers: pr.reviewers, ciState: pr.ciState, ciUrl: pr.ciUrl, ciSummary: pr.ciSummary };
+export function prEventFrom(pr: { prUrl: string | null; prNumber: number | null; prState?: string | null; qaState?: string | null; qaSummary?: { required: string[]; passed: string[]; failed: string[]; missing: string[] } | null; branch: string; reviewers: string[]; ciState: string | null; ciUrl: string | null; ciSummary: unknown }): Record<string, unknown> {
+  return { kind: "pr", url: pr.prUrl, number: pr.prNumber, prState: pr.prState ?? null, qaState: pr.qaState ?? null, qaDetail: qaDetailOf(pr.qaSummary ?? null), branch: pr.branch, reviewers: pr.reviewers, ciState: pr.ciState, ciUrl: pr.ciUrl, ciSummary: pr.ciSummary };
+}
+
+function qaDetailOf(q: { required: string[]; passed: string[]; failed: string[]; missing: string[] } | null): string {
+  if (!q) return "";
+  if (!q.required.length) return "no scenarios linked";
+  return [`${q.passed.length}/${q.required.length} scenarios`, q.failed.length ? `failed: ${q.failed.join(", ")}` : "", q.missing.length ? `not tested: ${q.missing.join(", ")}` : ""].filter(Boolean).join(" · ");
 }

@@ -1,6 +1,7 @@
 import type { Role } from "../../lib/auth/roles.js";
 import { sha256 } from "../../lib/hash.js";
-import { conflict, notFound } from "../../lib/http/errors.js";
+import { conflict, notFound, validationFailed } from "../../lib/http/errors.js";
+import { checkOpenApi } from "../../lib/openapi.js";
 import { canEditDesignDoc } from "../policy/index.js";
 import { designDocsRepository as repo } from "./design-docs.repository.js";
 import type { AgentWriteInput, CreateDocInput, SaveVersionInput } from "./design-docs.schemas.js";
@@ -51,7 +52,15 @@ export async function getDocument(id: string): Promise<{ document: DocView; cont
   return { document: current.document, content: current.content, versions };
 }
 
+// The API contract is checked on every save, by a person or an agent: a broken one is never stored.
+function assertValidContent(kind: DocKind, content: string): void {
+  if (kind !== "openapi") return;
+  const { problems } = checkOpenApi(content);
+  if (problems.length) throw validationFailed({ content: problems });
+}
+
 export async function createDocument(input: CreateDocInput, author: Author, extra: { draftId?: string } = {}): Promise<DocView> {
+  assertValidContent(input.kind, input.content);
   const existing = (await repo.list({ epicKey: input.epicKey, kinds: [input.kind] })).map((d) => d.slug);
   const doc = await repo.insert({
     epic_key: input.epicKey,
@@ -78,6 +87,7 @@ export async function saveVersion(id: string, input: SaveVersionInput, author: A
   if (input.baseVersion !== at) throw conflict(`This document is at version ${at}; you edited version ${input.baseVersion}. Reload, then apply your change again.`);
   const titleChanged = input.title !== undefined && input.title !== current.document.title;
   if (sha256(input.content) === current.version.contentSha256 && !titleChanged) return { document: current.document, changed: false };
+  assertValidContent(current.document.kind, input.content);
   await repo.insertVersion(id, at + 1, input.content, author, { note: input.note, draftId: extra.draftId });
   const doc = await repo.advance(id, at, { current_version: at + 1, ...(titleChanged ? { title: input.title } : {}) });
   return { document: toDocView(doc), changed: true };
