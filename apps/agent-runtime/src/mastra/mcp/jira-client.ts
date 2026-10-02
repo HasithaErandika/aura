@@ -28,6 +28,10 @@ export const jiraMcp = new MCPClient({
             JIRA_URL: process.env.JIRA_URL || '',
             JIRA_USERNAME: process.env.JIRA_USERNAME || '',
             JIRA_API_TOKEN: process.env.JIRA_API_TOKEN || '',
+            // mcp-atlassian changes its implicit toolset selection in v0.22.0. Keep the
+            // current all-tools behavior explicit so Jira search/create/update tools remain
+            // available after that upgrade.
+            TOOLSETS: process.env.TOOLSETS || 'all',
           },
         },
   },
