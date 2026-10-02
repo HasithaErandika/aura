@@ -125,6 +125,13 @@ describe('bridgeCaller', () => {
     expect(JSON.parse(String(init.body))).toEqual({ runId: 'run-1', op: 'fs.exists', args: { path: 'x' } });
   });
 
+  it("sends a parallel part's worktree with every call", async () => {
+    const fetchImpl = vi.fn(async () => new Response(JSON.stringify({ ok: true, value: null })));
+    await bridgeCaller('run-1', fetchImpl as unknown as typeof fetch, { worktree: 'KAN-45_s1' }).call('fs.writeFile', { path: 'a.ts', content: 'x' });
+    const [, init] = fetchImpl.mock.calls[0] as unknown as [string, RequestInit];
+    expect(JSON.parse(String(init.body))).toMatchObject({ runId: 'run-1', worktree: 'KAN-45_s1' });
+  });
+
   it('raises the bridge error the extension or API reported', async () => {
     const fetchImpl = vi.fn(async () => new Response(JSON.stringify({ ok: false, error: { code: 'denied', message: 'The developer refused: npm install' } })));
     await expect(bridgeCaller('run-1', fetchImpl as unknown as typeof fetch).call('sandbox.exec', { command: 'npm', args: ['install'] })).rejects.toMatchObject({ code: 'denied' });

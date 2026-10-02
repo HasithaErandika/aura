@@ -146,6 +146,15 @@ export interface ToolRequestMessage<O extends BridgeOp = BridgeOp> {
   // Set by AURA while a Task's plan waits for Gate 4: the extension answers as in plan mode
   // (reads and read-only commands only), whatever mode the developer picked.
   readOnly?: boolean;
+  // A parallel sub-task's git worktree (`.aura/worktrees/<worktree>`): paths and commands of this
+  // request resolve inside it instead of the workspace folder.
+  worktree?: string;
+}
+
+// Where the extension keeps sub-task worktrees, and which names it accepts (one folder, no `..`).
+export const WORKTREE_DIR = ".aura/worktrees";
+export function isWorktreeName(name: unknown): name is string {
+  return typeof name === "string" && /^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$/.test(name) && !name.includes("..");
 }
 
 export interface CancelMessage {

@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | **Approved 2026-10-02** · Parts B, C, V0–V4 built (live checks pending) · V5 next |
+| **Status** | **Approved 2026-10-02** · Parts B, C, V0–V5 built (live checks pending) · V6 next |
 | **Target** | AI agent harness for a leading Sri Lankan technology company |
 | **Date** | 2026-10-02 |
 | **Needs** | ADR-4 (supersedes ADR-1, ADR-2 D1–D2/D5, ADR-3 D2/D8) |
@@ -330,7 +330,7 @@ flowchart LR
 | V2 | Full tool set, permission engine, modes, hooks, `.aura/AURA.md`, skills | 🟡 Built and unit-tested (§12.3); the end-to-end Task with a live model is pending |
 | V3 | Design docs, ADRs, SRS, QA plans in Postgres; Architect specialists; Design documents and QA web pages (Markdown editor, no CodeMirror) | 🟡 Built and unit-tested (§12.4); Gate 3 writes nothing to disk; Project Files removed. Live Gate 3 / Gate 6 run pending |
 | V4 | Router, coder specialists, Evaluator loop, Plan and Review views | 🟡 Built and unit-tested (§12.5): a Bug goes to issue-solver; Gate 5 review in the diff editor. Live Task run pending |
-| V5 | Task Planner, parallel sub-branches, merge step | A two-scope Task runs as `_s1` + `_s2` and merges |
+| V5 | Task Planner, parallel sub-branches, merge step | 🟡 Built and unit-tested (§12.6): a two-part Task runs as `_s1` + `_s2` and merges, including a conflict (tested against a real git repository). Live run pending |
 | V6 | Git agent, PR view, CI lane; QA page with PR and CI status per Task; notifications | PR to `development` with reviewers; QA notified of the CI result |
 | V7 | Removal (§13) and docs | No code path touches `.workspaces`, Docker or a server shell |
 
@@ -441,6 +441,34 @@ sequenceDiagram
 | Review view | ✅ Changed files open in VS Code's diff editor (last commit ↔ working tree), check results, Evaluator findings |
 | Gate cards | ✅ In the chat: Approve · Revise · Reject, with feedback |
 | Notes | ✅ Typing while a Task runs sends a note (`POST /runs/:id/notes`, migration `0011`); the coders read it at their next step |
+
+### 12.6 V5 scope as built
+
+```mermaid
+flowchart LR
+    P["Plan with parts<br/>(Gate 4)"] --> S{"split.ts<br/>valid parts?"}
+    S -- "no parts" --> ONE["One coder on<br/>feat/EPIC/TASK"]
+    S -- "2-4 disjoint parts" --> W["Worktree per part<br/>.aura/worktrees/TASK_sN<br/>branch feat/EPIC/TASK_sN"]
+    W --> L1["Coder + Evaluator<br/>part 1"] & L2["Coder + Evaluator<br/>part 2"]
+    L1 & L2 --> C["Commit each part"] --> M["git merge --no-ff<br/>one by one"]
+    M -- conflict --> E["Evaluator proposes files<br/>code checks: no markers"]
+    E --> M
+    M --> K["Checks on the<br/>merged Task branch"] --> G5["Review (Gate 5)"]
+    ONE --> G5
+```
+
+| Plan item (§7, §8) | Built |
+|---|---|
+| Task branch | ✅ After Gate 4, code checks out `feat/<EPIC>/<TASK>` (created from `development`, else the current commit). It never switches over uncommitted work: the developer commits or stashes first |
+| Task Planner | ✅ The agent may list 2–4 `subtasks` (steps + owned folders). Code (`task/split.ts`) accepts them only if every step is in exactly one part, scopes don't overlap and each step's files are in its part's scope; otherwise the planner call fails with the reason. Each part's coder comes from its files (`coderForFiles`) |
+| Sub-branches | ✅ `feat/<EPIC>/<TASK>_s<N>` in a worktree under `.aura/worktrees/` (ignored by its own `.gitignore`); the main folder's `node_modules` is linked in so checks run. Bridge calls for a part carry `worktree`; the extension resolves paths and commands inside it and refuses paths that leave it. Permission rules see the path the agent asked for |
+| Scope enforcement | ✅ A part that changes a file outside its scope gets a blocker finding, so the round cannot pass |
+| Parallel coders | ✅ The parts' loops run at the same time; developer notes reach every part |
+| Merge step | ✅ Code commits each part and merges it with `--no-ff`. On a conflict the Evaluator proposes each conflicting file whole; code refuses a proposal with markers, missing or extra files, else writes and commits it. An unresolved conflict aborts the merge, keeps that part's branch and worktree, and stops merging. Merged parts' worktrees and sub-branches are removed |
+| Checks | ✅ After the merge, the checks run on the merged Task branch; the review passes only if every part passed, merged, and the checks are green |
+| Plan view | ✅ *Branch* and a *Parallel parts* checklist (coder, state, rounds, merge result); the activity lines are prefixed with the part |
+| Review view | ✅ Changed files and diffs since the Task's start commit (covers merged commits); the parts and their merge results |
+| Gate 5 revise | Runs one coder on the merged Task branch with the developer's feedback |
 
 ## 13. Removed
 

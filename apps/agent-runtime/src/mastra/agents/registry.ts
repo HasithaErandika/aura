@@ -158,8 +158,8 @@ export const AGENT_MANIFEST: Record<AgentId, AgentManifestEntry> = {
     modelId: VSCODE_AGENT_MODEL_ID,
     delegatesTo: [],
     note: "The VS Code developer workspace (ADR-4): a Mastra Workspace whose filesystem and sandbox are the folder open in the developer's VS Code, reached through apps/api and the AURA extension (bridge/). The extension applies the developer's permission mode and the project's rules and hooks before every write and command. V2 adds native grep, background processes, project memory (.aura/AURA.md) and skills (load_skill). V3 adds design_docs (read an Epic's design documents from Postgres). V4 runs a Task through gates: it proposes the plan (delegate_to_planner, Gate 4; its own writes are read-only until then), the routed coder and the Evaluator implement it (delegate_to_coder), and the developer accepts the review (delegate_to_review, Gate 5).",
-    agentVersion: '0.4.0', // V4: Task gates (planner, coder, review), ask_user
-    promptVersion: '3.0.0', // Task flow: plan → Gate 4 → coder loop → Gate 5
+    agentVersion: '0.5.0', // V5: Task branch, parallel parts on sub-branches, merge step
+    promptVersion: '3.1.0', // Task flow: plan (optional parallel parts) → Gate 4 → coders → Gate 5
   },
   'task-planner': {
     label: 'Task Planner',

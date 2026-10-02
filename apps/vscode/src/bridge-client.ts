@@ -1,5 +1,6 @@
+import { posix } from "node:path";
 import WebSocket from "ws";
-import { BRIDGE_PROTOCOL_VERSION, READ_ONLY_OPS, parseServerMessage, type BridgeArgs, type BridgeOp, type ClientMessage, type ToolRequestMessage } from "@aura/bridge";
+import { BRIDGE_PROTOCOL_VERSION, READ_ONLY_OPS, WORKTREE_DIR, isWorktreeName, parseServerMessage, type BridgeArgs, type BridgeOp, type ClientMessage, type ToolRequestMessage } from "@aura/bridge";
 import { afterEditCommands, isCommit, runBeforeCommit, type HookRunner } from "./hooks.js";
 import { describeRequest, ruleFor, type PermissionPolicy } from "./permissions.js";
 import { EMPTY_SETTINGS, type Hooks } from "./project-settings.js";
@@ -145,6 +146,23 @@ export class BridgeClient {
   }
 }
 
+// A parallel sub-task's request: its paths (and the commands' folder) resolve inside
+// .aura/worktrees/<name>. Permission rules see the paths as the agent wrote them.
+export function scopeToWorktree(op: BridgeOp, args: BridgeArgs<BridgeOp>, worktree: string): BridgeArgs<BridgeOp> | null {
+  const base = `${WORKTREE_DIR}/${worktree}`;
+  let escaped = false;
+  const inside = (p: unknown) => {
+    if (typeof p !== "string" || !p || p === ".") return base;
+    const scoped = posix.normalize(`${base}/${p.replace(/\\/g, "/").replace(/^\/+/, "")}`);
+    if (scoped !== base && !scoped.startsWith(`${base}/`)) escaped = true;
+    return scoped;
+  };
+  const a = { ...(args as Record<string, unknown>) };
+  for (const key of ["path", "src", "dest"]) if (key in a) a[key] = inside(a[key]);
+  if (op === "sandbox.exec" || op === "proc.spawn") a.cwd = inside(a.cwd);
+  return escaped ? null : (a as BridgeArgs<BridgeOp>);
+}
+
 export type RequestOutcome = { ok: true; value: unknown } | { ok: false; error: { code: ExecutorError["code"]; message: string } };
 
 // Permission check → (ask) → run. Pure enough to test without a socket.
@@ -154,9 +172,12 @@ export async function executeRequest(
   track?: (controller: AbortController) => void,
 ): Promise<RequestOutcome> {
   const op = request.op as BridgeOp;
-  const args = request.args as BridgeArgs<BridgeOp>;
+  if (request.worktree !== undefined && !isWorktreeName(request.worktree)) return { ok: false, error: { code: "invalid", message: "Invalid worktree name." } };
+  const asked = request.args as BridgeArgs<BridgeOp>;
+  const args = request.worktree ? scopeToWorktree(op, asked, request.worktree) : asked;
+  if (!args) return { ok: false, error: { code: "outside_workspace", message: "The path leaves the sub-task's worktree." } };
   const question = describeRequest(op, args);
-  const decision = options.policy.decide(op, args, request.readOnly ? "plan" : undefined);
+  const decision = options.policy.decide(op, asked, request.readOnly ? "plan" : undefined);
 
   if (decision.kind === "deny") {
     options.log(`✗ Refused: ${question} (${decision.reason})`);
@@ -168,10 +189,10 @@ export async function executeRequest(
       options.log(`✗ Denied by you: ${question}`);
       return { ok: false, error: { code: "denied", message: "The developer refused this action." } };
     }
-    if (answer === "session") options.policy.rememberForSession(op, args);
+    if (answer === "session") options.policy.rememberForSession(op, asked);
     if (answer === "project") {
-      options.policy.rememberForSession(op, args);
-      await options.allowForProject?.(ruleFor(op, args)).catch((error: unknown) => options.log(`Couldn't save the rule: ${error instanceof Error ? error.message : String(error)}`));
+      options.policy.rememberForSession(op, asked);
+      await options.allowForProject?.(ruleFor(op, asked)).catch((error: unknown) => options.log(`Couldn't save the rule: ${error instanceof Error ? error.message : String(error)}`));
     }
   }
 

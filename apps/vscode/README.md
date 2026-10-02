@@ -103,6 +103,12 @@ writes the change; your checks run and the Evaluator reviews it, for up to
 diff against the last commit), the check results and the Evaluator's findings (Gate 5). Type in
 the chat while the agent works to send it a note it reads before its next round.
 
+After you approve the plan, AURA works on the Task branch `feat/<EPIC>/<TASK>` (commit or stash
+your own changes first). A plan split into parallel parts runs one coder per part, each in its own
+worktree under `.aura/worktrees/` on a `…_s<N>` branch; AURA then merges the parts into the Task
+branch and runs the checks on the result. The Plan view shows each part's progress, and the
+Review view diffs from the commit the Task started at.
+
 Commands run through your shell in the folder, with secrets (tokens, keys, passwords) removed
 from their environment. Output is capped at 30,000 characters.
 

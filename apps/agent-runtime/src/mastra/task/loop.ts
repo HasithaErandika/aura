@@ -1,5 +1,6 @@
 import { roundPassed, type CheckResult, type EvaluatorVerdict, type Round, type TaskPlan } from './contracts';
 import type { WorkingChange } from './workspace-ops';
+import { inScope } from './split';
 
 // The coder ↔ Evaluator loop (plan §3, §7): the coder works, code runs the checks and reads the
 // change, the Evaluator reviews both, and code decides whether the round passed. A failed round
@@ -30,6 +31,8 @@ export interface LoopInput {
   maxRounds: number;
   // Feedback from the developer at Gate 5 ("Revise"), for a second pass.
   feedback?: string;
+  // A parallel part's files (V5): a change outside them is a blocker, whatever the Evaluator says.
+  scope?: string[];
 }
 
 export interface LoopResult {
@@ -91,9 +94,11 @@ export async function runCoderLoop(input: LoopInput, deps: LoopDeps): Promise<Lo
 
     change = await deps.change();
     await deps.emit({ phase: 'evaluator', round, status: 'start' });
-    const verdict = change.files.length
+    const verdict: EvaluatorVerdict = change.files.length
       ? await deps.evaluate({ plan: input.plan, change, checks, round })
       : { approved: false, summary: 'The coder changed no files.', findings: [{ severity: 'blocker' as const, file: null, message: 'No file was changed; the plan was not implemented.' }] };
+    const outside = input.scope ? change.files.filter((f) => !inScope(f.path, input.scope!)) : [];
+    if (outside.length) verdict.findings = [...verdict.findings, ...outside.map((f) => ({ severity: 'blocker' as const, file: f.path, message: `Outside this part's scope (${input.scope!.join(', ')}); another coder owns it. Revert this file.` }))];
     const passed = roundPassed(verdict, checks);
     await deps.emit({ phase: 'evaluator', round, status: 'done', passed, detail: verdict.summary.slice(0, 500) });
 

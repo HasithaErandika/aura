@@ -326,7 +326,12 @@ A Jira Task runs through three gates in VS Code (plan §12.5): the agent propose
 (`task/router.ts`) implements it while code runs the checks and an Evaluator reviews the real diff
 (`delegate_to_coder`, up to *VS Code review rounds*), and the developer accepts the review
 (`delegate_to_review`, Gate 5). The extension shows the plan, the changed files (diff editor) and
-a card for each decision; notes typed meanwhile reach the coders (`run_notes`). Each turn starts with the project's
+a card for each decision; notes typed meanwhile reach the coders (`run_notes`). After Gate 4 the
+work happens on the Task branch `feat/<EPIC>/<TASK>`. A plan may split into 2–4 parts with
+disjoint file scopes (checked by `task/split.ts`): each part runs its own coder ↔ Evaluator loop
+in a worktree (`.aura/worktrees/<TASK>_s<N>`, branch `…_s<N>`; bridge calls carry `worktree`),
+then code commits and merges the parts into the Task branch, the Evaluator proposes any conflict
+resolution, and the checks run on the merged result before Gate 5 (plan §12.6). Each turn starts with the project's
 `.aura/AURA.md` and the list of skills (AURA's library and `.aura/skills/`). The extension applies
 the developer's permission mode, the project's rules and hooks (`.aura/settings.json`) and the
 built-in refusals before anything runs.

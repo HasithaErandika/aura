@@ -45,6 +45,7 @@ const callSchema = z
     args: z.record(z.string(), z.unknown()),
     timeoutMs: z.number().int().min(1000).max(30 * 60_000).optional(),
     readOnly: z.boolean().optional(),
+    worktree: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$/).refine((w) => !w.includes(".."), "invalid worktree").optional(),
   })
   .strict();
 
@@ -55,7 +56,7 @@ internalRouter.post(
     const body = parseOrThrow(callSchema, req.body);
     const run = await runsRepository.findById(body.runId);
     if (!run) throw notFound("Run");
-    const outcome = await bridgeHub.call(run.requested_by, run.id, body.op, body.args, body.timeoutMs, { readOnly: body.readOnly });
+    const outcome = await bridgeHub.call(run.requested_by, run.id, body.op, body.args, body.timeoutMs, { readOnly: body.readOnly, worktree: body.worktree });
 
     // Every change made on a developer's machine is in the audit log; reads only in the server log.
     const changes = !READ_ONLY_OPS.includes(body.op);

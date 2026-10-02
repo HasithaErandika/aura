@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
 import * as vscode from "vscode";
-import { STATUS_LABEL, type TaskBoard } from "./task-board.js";
+import { STATUS_LABEL, type PartView, type TaskBoard } from "./task-board.js";
 
 // The Plan view (Gate 4: the plan as a checklist, then the coders' live steps) and the Review
 // view (Gate 5: changed files that open in VS Code's diff editor, check results, the Evaluator's
@@ -20,6 +20,24 @@ class Item extends vscode.TreeItem {
     this.children = options.children ?? [];
   }
   children: Item[];
+}
+
+function partIcon(p: PartView): { icon: string; color?: string } {
+  if (p.merge === "failed" || p.passed === false) return { icon: "error", color: "errorForeground" };
+  if (p.merge === "clean" || p.merge === "resolved") return { icon: "pass-filled", color: "testing.iconPassed" };
+  if (p.passed) return { icon: "pass" };
+  if (p.status === "planned" || p.status === "waiting") return { icon: "circle-outline" };
+  return { icon: "sync~spin" };
+}
+
+function partItem(p: PartView): Item {
+  const state = p.merge ? `merge ${p.merge}` : p.status;
+  return new Item(`${p.n}. ${p.title}`, {
+    ...partIcon(p),
+    description: `${p.coder} · ${state}${p.rounds ? ` · ${p.rounds} round${p.rounds === 1 ? "" : "s"}` : ""}`,
+    tooltip: `${p.branch}\nOwns: ${p.scope.join(", ")}`,
+    children: [new Item(p.branch, { icon: "git-branch" }), ...p.scope.map((f) => new Item(f, { icon: "folder" }))],
+  });
 }
 
 abstract class BoardView implements vscode.TreeDataProvider<Item> {
@@ -59,7 +77,9 @@ export class PlanView extends BoardView {
     const roots = [
       new Item(`${b.taskKey}`, { description: STATUS_LABEL[b.status], icon: b.status === "accepted" ? "pass-filled" : "tasklist", tooltip: b.plan.summary }),
       new Item("Coder", { description: `${b.coder} (${b.route})`, icon: "person" }),
+      ...(b.branch ? [new Item("Branch", { description: b.branch, icon: "git-branch" })] : []),
       new Item("Steps", { children: steps, icon: "list-ordered" }),
+      ...(b.parts.length ? [new Item("Parallel parts", { icon: "split-horizontal", description: `${b.parts.length} coders`, children: b.parts.map(partItem) })] : []),
       new Item("Checks", { icon: "beaker", children: b.plan.checks.map((c) => new Item(c, { icon: "terminal" })) }),
     ];
     if (b.plan.risks.length) roots.push(new Item("Risks", { icon: "warning", children: b.plan.risks.map((r) => new Item(r, { tooltip: r })) }));
@@ -74,12 +94,13 @@ export class ReviewView extends BoardView {
   protected roots(): Item[] {
     const r = this.board?.review;
     if (!r) return [];
+    const parts = this.board?.parts ?? [];
     const files = r.changedFiles.map(
       (f) =>
         new Item(f.path, {
           description: f.status,
           icon: f.status === "deleted" ? "diff-removed" : f.status === "untracked" || f.status === "added" ? "diff-added" : "diff-modified",
-          command: { command: "aura.openDiff", title: "Open Diff", arguments: [f.path, f.status] },
+          command: { command: "aura.openDiff", title: "Open Diff", arguments: [f.path, f.status, r.baseRef] },
         }),
     );
     return [
@@ -89,7 +110,8 @@ export class ReviewView extends BoardView {
         color: r.passed ? "testing.iconPassed" : "errorForeground",
         tooltip: r.summary,
       }),
-      new Item("Changed files", { icon: "files", children: files }),
+      ...(parts.length ? [new Item("Parallel parts", { icon: "split-horizontal", children: parts.map(partItem) })] : []),
+      new Item("Changed files", { icon: "files", description: r.baseRef === "HEAD" ? undefined : `since ${r.baseRef.slice(0, 8)}`, children: files }),
       new Item("Checks", { icon: "beaker", children: r.checks.map((c) => new Item(c.command, { icon: c.passed ? "pass" : "error", description: `exit ${c.exitCode}` })) }),
       new Item("Evaluator", {
         icon: "comment-discussion",
@@ -114,9 +136,12 @@ export class GitShowProvider implements vscode.TextDocumentContentProvider {
   }
 }
 
-export async function openDiff(root: vscode.Uri, path: string, status: string): Promise<void> {
-  const before = vscode.Uri.from({ scheme: GIT_SCHEME, path: `/${path}`, query: "ref=HEAD" });
+// Before ↔ after for one changed file: `baseRef` is the commit the Task started from, so the diff
+// also covers what parallel parts committed and merged.
+export async function openDiff(root: vscode.Uri, path: string, status: string, baseRef = "HEAD"): Promise<void> {
+  const ref = /^[\w./-]+$/.test(baseRef) ? baseRef : "HEAD";
+  const before = vscode.Uri.from({ scheme: GIT_SCHEME, path: `/${path}`, query: `ref=${ref}` });
   const after = vscode.Uri.joinPath(root, path);
   if (status === "deleted") return void (await vscode.window.showTextDocument(before));
-  await vscode.commands.executeCommand("vscode.diff", before, after, `${path} (last commit ↔ AURA's change)`);
+  await vscode.commands.executeCommand("vscode.diff", before, after, `${path} (${ref === "HEAD" ? "last commit" : "Task start"} ↔ AURA's change)`);
 }

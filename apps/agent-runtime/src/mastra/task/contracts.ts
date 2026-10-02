@@ -15,11 +15,25 @@ export const planStepSchema = z.object({
 });
 export type PlanStep = z.infer<typeof planStepSchema>;
 
+// A part of the plan one coder does in parallel with the others (V5), on its own sub-branch and
+// worktree. Scopes must not overlap; code checks that (task/split.ts).
+export const subtaskSchema = z.object({
+  title: z.string().min(3).max(200),
+  steps: z.array(z.number().int().min(1)).min(1).max(20).describe('The plan step numbers (1-based) this part does'),
+  scope: z.array(z.string().min(1).max(300)).min(1).max(20).describe('Files or folders this part alone may change, e.g. "apps/web/src/features/tickets"'),
+});
+export type SubtaskPlan = z.infer<typeof subtaskSchema>;
+
 export const taskPlanSchema = z.object({
   summary: z.string().min(10).max(2000).describe('What the Task needs and how you will do it, in two or three sentences'),
   steps: z.array(planStepSchema).min(1).max(20),
   checks: z.array(z.string().min(1).max(300)).max(10).default([]).describe('Commands that prove the change works, e.g. "npm test", "npm run lint"'),
   risks: z.array(z.string().min(1).max(500)).max(10).default([]),
+  subtasks: z
+    .array(subtaskSchema)
+    .max(4)
+    .default([])
+    .describe('Leave empty for one coder. Only when the work splits into 2-4 parts that change disjoint files (e.g. API and web), list them: every step in exactly one part'),
 });
 export type TaskPlan = z.infer<typeof taskPlanSchema>;
 
@@ -39,10 +53,24 @@ export interface Route {
 }
 
 // The Gate 4 draft (draft kind "task-plan").
+// A parallel part as code resolved it: its coder (by file scope), sub-branch and worktree.
+export interface Subtask {
+  n: number;
+  title: string;
+  steps: number[];
+  scope: string[];
+  coder: CoderId;
+  branch: string;
+  worktree: string;
+}
+
 export interface TaskPlanDraft {
   task: TaskInfo;
   route: Route;
   plan: TaskPlan;
+  // feat/<EPIC>/<TASK>, created after Gate 4 (V5; older drafts have none).
+  branch?: string;
+  subtasks?: Subtask[];
 }
 
 export const findingSchema = z.object({
@@ -79,6 +107,20 @@ export interface Round {
   passed: boolean;
 }
 
+export type MergeOutcome = 'clean' | 'resolved' | 'failed' | 'skipped' | 'empty';
+
+// One parallel part's result (V5).
+export interface SubtaskResult {
+  n: number;
+  title: string;
+  coder: CoderId;
+  branch: string;
+  rounds: number;
+  passed: boolean;
+  merge: MergeOutcome;
+  summary: string;
+}
+
 // The Gate 5 draft (draft kind "task-review").
 export interface TaskReviewDraft {
   planDraftId: string;
@@ -88,6 +130,10 @@ export interface TaskReviewDraft {
   passed: boolean;
   changedFiles: ChangedFile[];
   diffStat: string;
+  // The Task branch and the commit the change is compared with (V5).
+  branch?: string;
+  baseRef?: string;
+  subtasks?: SubtaskResult[];
 }
 
 // Code decides whether a round passed: every check green, the Evaluator approves, and no
@@ -116,6 +162,9 @@ export function renderPlan(draft: TaskPlanDraft): string {
     '## Checks',
     bullets(plan.checks.map((c) => `\`${c}\``)),
     ...(plan.risks.length ? ['', '## Risks', bullets(plan.risks)] : []),
+    ...(draft.subtasks?.length
+      ? ['', '## Parallel parts', 'Each part runs on its own sub-branch and worktree, then AURA merges them into the Task branch.', '', draft.subtasks.map((s) => `${s.n}. **${s.title}** (${s.coder}, steps ${s.steps.join(', ')})\n   Owns: ${s.scope.map((f) => `\`${f}\``).join(', ')}`).join('\n')]
+      : []),
   ].join('\n');
 }
 
@@ -129,7 +178,10 @@ export function renderReview(draft: TaskReviewDraft): string {
     '',
     outcome,
     '',
-    `**Coder:** ${draft.coder}`,
+    `**Coder:** ${draft.coder}${draft.branch ? ` · **Branch:** \`${draft.branch}\`` : ''}`,
+    ...(draft.subtasks?.length
+      ? ['', '## Parallel parts', bullets(draft.subtasks.map((s) => `${s.passed ? '✅' : '❌'} ${s.title} (${s.coder}, \`${s.branch}\`): ${s.rounds} round(s), merge ${s.merge}`))]
+      : []),
     '',
     '## Changed files',
     bullets(draft.changedFiles.map((f) => `\`${f.path}\` (${f.status})`)),

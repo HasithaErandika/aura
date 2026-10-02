@@ -47,11 +47,36 @@ export interface WorkingChange {
   diffStat: string;
 }
 
-// The change against the last commit, plus new files (which `git diff` leaves out).
-export async function collectChange(bridge: BridgeCaller): Promise<WorkingChange> {
+// `git diff --name-status` lines → changed files (renames and copies report their new path).
+export function parseNameStatus(text: string): ChangedFile[] {
+  const files: ChangedFile[] = [];
+  for (const line of text.split('\n')) {
+    const parts = line.split('\t');
+    if (parts.length < 2) continue;
+    const code = parts[0]!.trim();
+    const path = parts.at(-1)!.trim();
+    const status: ChangedFile['status'] = code.startsWith('R') || code.startsWith('C') ? 'renamed' : code === 'A' ? 'added' : code === 'D' ? 'deleted' : 'modified';
+    files.push({ path, status });
+  }
+  return files;
+}
+
+// A worktree links the main folder's node_modules (task/git-ops.ts); it is never part of a change.
+const NEVER_CHANGED = new Set(['node_modules']);
+
+// The change against `base` (default: the last commit), committed or not, plus new files (which
+// `git diff` leaves out).
+export async function collectChange(bridge: BridgeCaller, base = 'HEAD'): Promise<WorkingChange> {
+  if (!/^[\w./-]+$/.test(base)) throw new Error(`invalid base ref ${base}`);
   const exec = (command: string) => bridge.call('sandbox.exec', { command, timeoutMs: 60_000 }).then((r) => r.stdout);
-  const [status, diff, diffStat] = await Promise.all([exec('git status --porcelain'), exec('git diff HEAD'), exec('git diff HEAD --stat')]);
-  const files = parsePorcelain(status);
+  const [nameStatus, others, diff, diffStat] = await Promise.all([
+    exec(`git diff --name-status ${base}`),
+    exec('git ls-files --others --exclude-standard'),
+    exec(`git diff ${base}`),
+    exec(`git diff ${base} --stat`),
+  ]);
+  const untracked: ChangedFile[] = others.split('\n').map((l) => l.trim()).filter(Boolean).map((path) => ({ path, status: 'untracked' }));
+  const files = [...parseNameStatus(nameStatus), ...untracked].filter((f) => !NEVER_CHANGED.has(f.path));
   let combined = diff;
   for (const f of files.filter((x) => x.status === 'untracked').slice(0, 20)) {
     if (combined.length > MAX_DIFF) break;

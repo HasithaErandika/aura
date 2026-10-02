@@ -120,9 +120,9 @@ export function activate(context: vscode.ExtensionContext) {
     vscode.window.registerTreeDataProvider("aura.review", reviewView),
     chat.onDidChangeTask(syncTask),
     vscode.workspace.registerTextDocumentContentProvider(GIT_SCHEME, new GitShowProvider(() => workspaceRoot()?.fsPath ?? null)),
-    vscode.commands.registerCommand("aura.openDiff", async (path: string, status: string) => {
+    vscode.commands.registerCommand("aura.openDiff", async (path: string, status: string, baseRef?: string) => {
       const root = workspaceRoot();
-      if (root && typeof path === "string") await openDiff(root, path, status);
+      if (root && typeof path === "string") await openDiff(root, path, status, baseRef);
     }),
   );
   context.subscriptions.push(
