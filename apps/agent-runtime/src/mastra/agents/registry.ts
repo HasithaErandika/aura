@@ -60,7 +60,7 @@ export const AGENT_MANIFEST: Record<AgentId, AgentManifestEntry> = {
     delegatesTo: [],
     note: 'Drafts/revises a decomposition, frontend/API/integration/data/security/AI design, ADRs, and architecture tasks as structured JSON, invoked through delegate_to_architect. Holds no tools: cannot read or write Jira itself. Filed documents are saved to Postgres (design_documents), not to disk.',
     agentVersion: '1.1.0',
-    promptVersion: '1.2.0', // frontend and integration specialists added to architect-workflow
+    promptVersion: '1.3.0', // Tasks carry dependsOn (merge order, step 3.4)
   },
   'qa-agent': {
     label: 'QA Agent',

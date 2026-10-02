@@ -136,3 +136,19 @@ export async function recordPrEvent(payload: Record<string, unknown>, requestId?
   if (effect.status) await moveTaskStatus(view.taskKey, effect.status, requestId);
   return "handled";
 }
+
+export async function recordDependencies(pairs: { taskKey: string; dependsOn: string }[]): Promise<void> {
+  await taskPrsRepository.addDependencies(pairs.map((p) => ({ task_key: p.taskKey, depends_on: p.dependsOn })));
+}
+
+export interface Dependency {
+  taskKey: string;
+  prState: TaskPrView["prState"];
+  merged: boolean;
+}
+
+// A Task starts only when every Task it depends on is merged (step 3.4).
+export async function taskDependencies(taskKey: string): Promise<{ dependencies: Dependency[]; waitingFor: string[] }> {
+  const dependencies = (await taskPrsRepository.dependenciesOf(taskKey)).map((d) => ({ taskKey: d.dependsOn, prState: d.prState, merged: d.prState === "merged" }));
+  return { dependencies, waitingFor: dependencies.filter((d) => !d.merged).map((d) => d.taskKey) };
+}

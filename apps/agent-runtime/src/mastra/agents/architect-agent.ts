@@ -40,7 +40,10 @@ Write like a professional design that will sit in Jira for engineering to build 
 - tasks: three to twelve concrete architecture tasks, each assigned a discipline (Frontend,
   Backend, Data, AI, Integration, or Deployment), with acceptance criteria a reviewer could
   check off, and relatedStories listing exactly which Story key(s) each task implements. Every
-  Story you were given should be implemented by at least one task.
+  Story you were given should be implemented by at least one task. dependsOn lists the numbers
+  (1-based, in your tasks list) of the tasks that must be merged before this one can start, for
+  example the API a screen calls; leave it empty when a task can start at once. Prefer few,
+  real dependencies so tasks can run in parallel.
 When revising, apply the feedback and keep every other field unchanged.`,
 
   model: withGeminiFallback(ARCHITECT_MODEL_ID, { reasoningFormat: 'hidden' }),

@@ -17,6 +17,8 @@ import { generateObject, type MastraLike } from '../../lib/generate-object';
 import { designDocs } from '../../lib/design-docs-client';
 import { outputSchema, fail, provenance, buildProvenance, type ToolWriterLike } from './shared';
 import { untrusted, untrustedInline } from '../../gateway/untrusted';
+import { recordDependencies } from '../../task/aura-api';
+import { dependencyKeys, sanitizeDependencies } from '../../task/dependencies';
 
 const architectInputSchema = z
   .object({
@@ -258,6 +260,19 @@ export const delegateToArchitectTool = createTool({
             await draftStore.markFiled(record.id, filed);
           }
           const taskKeys = record.content.tasks.map((_, i) => filed[String(i)]).filter((k): k is string => Boolean(k));
+          // The merge order, once every Task exists: AURA's record decides when a Task may start;
+          // the Jira "Blocks" links are for people and best effort.
+          if (!failure && !filed.dependencies && taskKeys.length === record.content.tasks.length) {
+            const pairs = dependencyKeys(sanitizeDependencies(record.content.tasks), (n) => filed[String(n - 1)]);
+            try {
+              await recordDependencies(pairs);
+              for (const p of pairs) await jira.linkIssues(p.taskKey, p.dependsOn, 'Blocks').catch(() => undefined);
+              filed.dependencies = 'done';
+              await draftStore.markFiled(record.id, filed);
+            } catch (error) {
+              failure = `the Task dependencies were not recorded: ${error instanceof Error ? error.message : String(error)}`;
+            }
+          }
           if (failure) {
             return { ok: false, draftId: record.id, epicKey, taskKeys, error: `${failure}. Created so far: ${taskKeys.join(', ') || 'none'}. Re-run file with the same draftId to continue; nothing is created twice.` };
           }

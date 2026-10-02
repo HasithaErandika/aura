@@ -4,8 +4,8 @@ import { notFound } from "../../lib/http/errors.js";
 import { parseOrThrow } from "../../lib/http/validate.js";
 import { writeAudit } from "../audit/index.js";
 import { runsRepository } from "../runs/index.js";
-import { recordPrSchema, taskEventSchema, taskKeyParamsSchema } from "./task-prs.schemas.js";
-import { getTaskPr, recordPrOpened } from "./task-prs.service.js";
+import { dependenciesSchema, recordPrSchema, taskEventSchema, taskKeyParamsSchema } from "./task-prs.schemas.js";
+import { getTaskPr, recordDependencies, recordPrOpened, taskDependencies } from "./task-prs.service.js";
 import { moveEpicTasks, moveTaskStatus } from "./task-status.js";
 
 export const taskPrsInternalRouter = Router();
@@ -38,6 +38,25 @@ taskPrsInternalRouter.post(
     if (input.event === "started") void moveTaskStatus(input.taskKey, "started", req.requestId);
     else void moveEpicTasks(input.epicKey, "released", req.requestId);
     res.status(202).json({ accepted: true });
+  }),
+);
+
+// Gate 3 files the Architect's Tasks with the order they must merge in.
+taskPrsInternalRouter.post(
+  "/dependencies",
+  asyncHandler(async (req, res) => {
+    const { dependencies } = parseOrThrow(dependenciesSchema, req.body);
+    await recordDependencies(dependencies);
+    await writeAudit({ actorId: null, actorRole: null, action: "task.dependencies_recorded", entityType: "task_branch", entityId: dependencies[0]?.taskKey, requestId: req.requestId, metadata: { dependencies } });
+    res.status(201).json({ recorded: dependencies.length });
+  }),
+);
+
+taskPrsInternalRouter.get(
+  "/:taskKey/dependencies",
+  asyncHandler(async (req, res) => {
+    const { taskKey } = parseOrThrow(taskKeyParamsSchema, req.params);
+    res.json(await taskDependencies(taskKey));
   }),
 );
 

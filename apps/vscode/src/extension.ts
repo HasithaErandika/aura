@@ -224,6 +224,12 @@ export function activate(context: vscode.ExtensionContext) {
     }),
     vscode.commands.registerCommand("aura.startTask", async (node?: TaskNode) => {
       if (node?.kind !== "issue") return;
+      // The runtime refuses a waiting Task at Gate 4 anyway; this says why before the chat opens.
+      const waiting = await session.client().taskPrs.dependencies(node.issue.key).then((d) => d.waitingFor, () => []);
+      if (waiting.length) {
+        void vscode.window.showWarningMessage(`AURA: ${node.issue.key} waits for ${waiting.join(", ")} to be merged first.`);
+        return;
+      }
       await chat.startTask({ key: node.issue.key, summary: node.issue.summary, epicKey: node.epicKey });
     }),
     vscode.commands.registerCommand("aura.openInJira", (node?: TaskNode) => {

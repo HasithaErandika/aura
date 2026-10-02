@@ -38,6 +38,24 @@ export const taskPrsRepository = {
     if (error) throw dbError("Could not record the Task branch", error);
   },
 
+  // Known dependencies are kept; a repeated pair is a no-op.
+  async addDependencies(pairs: { task_key: string; depends_on: string }[]): Promise<void> {
+    if (!pairs.length) return;
+    const { error } = await supabaseAdmin.from("task_dependencies").upsert(pairs, { onConflict: "task_key,depends_on", ignoreDuplicates: true });
+    if (error) throw dbError("Could not record the Task dependencies", error);
+  },
+
+  async dependenciesOf(taskKey: string): Promise<{ dependsOn: string; prState: TaskPrRow["pr_state"] }[]> {
+    const { data, error } = await supabaseAdmin.from("task_dependencies").select("depends_on").eq("task_key", taskKey);
+    if (error) throw dbError("Could not read the Task dependencies", error);
+    const keys = (data ?? []).map((r) => (r as { depends_on: string }).depends_on);
+    if (!keys.length) return [];
+    const { data: rows, error: prError } = await supabaseAdmin.from("task_branches").select("task_key, pr_state").in("task_key", keys);
+    if (prError) throw dbError("Could not read the dependencies' pull requests", prError);
+    const state = new Map((rows ?? []).map((r) => [(r as { task_key: string }).task_key, (r as { pr_state: TaskPrRow["pr_state"] }).pr_state]));
+    return keys.map((dependsOn) => ({ dependsOn, prState: state.get(dependsOn) ?? null }));
+  },
+
   async update(taskKey: string, patch: Record<string, unknown>): Promise<TaskPrRow> {
     const { data, error } = await supabaseAdmin.from("task_branches").update(patch).eq("task_key", taskKey).select(COLUMNS).single();
     if (error) throw dbError("Could not update the Task's pull request", error);

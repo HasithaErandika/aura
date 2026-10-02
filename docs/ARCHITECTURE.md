@@ -162,6 +162,7 @@ sequenceDiagram
 | Step | Rule (in code) |
 |---|---|
 | Routing | Bug → `issue-solver`; test labels → `test-writer`; Frontend → `frontend-react`; Backend, Data, AI, Integration → `backend-nestjs` or `backend-spring` from the Epic's Gate 3 stack |
+| Dependencies | The Architect gives each Task `dependsOn` (Task numbers); code drops self, out-of-range and cycle-closing edges (`task/dependencies.ts`). Gate 3 records them in `task_dependencies` and adds Jira "Blocks" links. Gate 4 refuses a Task until every dependency's PR is merged; Start Work says so first |
 | Plan lock | Until Gate 4 is approved, the conversation's workspace is read-only, whatever the developer's mode |
 | Task branch | `feat/<EPIC>/<TASK>` from `development` (else the current commit); never switched over uncommitted work |
 | Checks | `.aura/settings.json` `checks`, else the plan's; run by code, not the coder |

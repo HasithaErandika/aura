@@ -56,6 +56,8 @@ export const architectureTaskSchema = z.object({
   priority: z.enum(priorities),
   estimate: z.enum(taskEstimates).describe('Rough effort t-shirt size from the architecture side only, not a developer commitment'),
   relatedStories: z.array(z.string().min(1)).describe('Story keys (e.g. AURA-43) this task implements'),
+  // Default keeps drafts saved before dependencies existed parseable.
+  dependsOn: z.array(z.number().int()).default([]).describe('Numbers (1-based, in this tasks list) of the Tasks that must be merged before this one can start; empty if none'),
 });
 export type ArchitectureTask = z.infer<typeof architectureTaskSchema>;
 

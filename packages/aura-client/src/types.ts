@@ -174,3 +174,8 @@ export interface AuraNotification {
   createdAt: string;
   readAt: string | null;
 }
+
+export interface TaskDependencies {
+  dependencies: { taskKey: string; prState: "open" | "merged" | "closed" | null; merged: boolean }[];
+  waitingFor: string[];
+}

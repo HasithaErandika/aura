@@ -45,4 +45,12 @@ export const taskEventSchema = z.discriminatedUnion("event", [
   z.object({ event: z.literal("released"), epicKey: jiraKeySchema }).strict(),
 ]);
 
+export const dependenciesSchema = z
+  .object({
+    dependencies: z
+      .array(z.object({ taskKey: jiraKeySchema, dependsOn: jiraKeySchema }).strict().refine((d) => d.taskKey !== d.dependsOn, "A Task cannot depend on itself"))
+      .max(500),
+  })
+  .strict();
+
 export const taskKeyParamsSchema = z.object({ taskKey: jiraKeySchema });

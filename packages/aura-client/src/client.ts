@@ -1,5 +1,5 @@
 import { readSse } from "./sse.js";
-import type { Approval, AuraNotification, ApprovalStatus, BridgeStatus, Decision, DeviceSignIn, JiraEpicDetail, JiraIssueDetail, JiraIssueSummary, Me, Project, TaskPr, Thread, ThreadHistory, TurnEvent } from "./types.js";
+import type { Approval, AuraNotification, ApprovalStatus, BridgeStatus, Decision, DeviceSignIn, JiraEpicDetail, JiraIssueDetail, JiraIssueSummary, Me, Project, TaskDependencies, TaskPr, Thread, ThreadHistory, TurnEvent } from "./types.js";
 
 export interface AuraClientOptions {
   // apps/api base URL, e.g. http://localhost:4000
@@ -153,6 +153,8 @@ export function createAuraClient(options: AuraClientOptions) {
     // A Task's pull request and CI (V6): the VS Code PR view and the QA page.
     taskPrs: {
       list: (filter: { taskKey?: string; epicKey?: string } = {}) => request<{ taskPrs: TaskPr[] }>("GET", `/task-prs${q(filter)}`).then((r) => r.taskPrs),
+      // The Tasks this one waits for: it starts when each is merged.
+      dependencies: (taskKey: string) => request<TaskDependencies>("GET", `/task-prs/${encodeURIComponent(taskKey)}/dependencies`),
     },
 
     notifications: {

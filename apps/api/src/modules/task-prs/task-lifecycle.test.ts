@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { applyPrEvent, pullRequestEventSchema } from "./pr-event.js";
-import { taskEventSchema } from "./task-prs.schemas.js";
+import { dependenciesSchema, taskEventSchema } from "./task-prs.schemas.js";
 import type { TaskPrView } from "./task-prs.types.js";
 import { statusPlan } from "./task-status.js";
 
@@ -65,5 +65,13 @@ describe("runtime lifecycle events", () => {
     expect(taskEventSchema.parse({ event: "released", epicKey: "KAN-36" })).toEqual({ event: "released", epicKey: "KAN-36" });
     expect(() => taskEventSchema.parse({ event: "merged", taskKey: "KAN-45" })).toThrow();
     expect(() => taskEventSchema.parse({ event: "started", epicKey: "KAN-36" })).toThrow();
+  });
+});
+
+describe("Task dependencies", () => {
+  it("accepts Task → dependency pairs and refuses a Task depending on itself", () => {
+    expect(dependenciesSchema.parse({ dependencies: [{ taskKey: "KAN-41", dependsOn: "KAN-40" }] }).dependencies).toHaveLength(1);
+    expect(() => dependenciesSchema.parse({ dependencies: [{ taskKey: "KAN-41", dependsOn: "KAN-41" }] })).toThrow();
+    expect(() => dependenciesSchema.parse({ dependencies: [{ taskKey: "KAN-41", dependsOn: "not a key" }] })).toThrow();
   });
 });
