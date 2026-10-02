@@ -5,11 +5,12 @@ import { forbidden, notFound } from "../../lib/http/errors.js";
 import { enumList, parseOrThrow, uuidParam } from "../../lib/http/validate.js";
 import { currentUser } from "../../middleware/auth.js";
 import { profilesById } from "../identity/profiles.service.js";
-import { agentsApprovedByRole, canViewRun } from "../policy/policy.js";
+import { agentsApprovedByRole, canStopRun, canViewRun } from "../policy/policy.js";
 import { approvalsRepository } from "../approvals/approvals.repository.js";
 import { toApprovalViews } from "../approvals/approvals.service.js";
 import { streamRunEvents } from "../orchestration/follow-http.js";
 import { supabaseRunEventStore } from "../orchestration/run-events.js";
+import { stopRun } from "../orchestration/stop-run.js";
 import { runsRepository } from "./runs.repository.js";
 import { RUN_STATUSES, toRunStepView, toRunView, type RunRow } from "./runs.types.js";
 
@@ -76,5 +77,18 @@ runsRouter.get(
     if (!canViewRun(user, { requestedBy: run.requested_by, currentAgent: run.current_agent })) throw forbidden("You cannot view this run");
     const { after } = parseOrThrow(eventsQuery, req.query);
     await streamRunEvents(req, res, run.id, after === "turn" ? await supabaseRunEventStore.lastIdOf(run.id, "done") : after);
+  }),
+);
+
+// POST /runs/:id/stop: the requester stops their running turn (VS Code Stop). The run ends as
+// INTERRUPTED and the conversation continues with the next message.
+runsRouter.post(
+  "/:id/stop",
+  asyncHandler(async (req, res) => {
+    const user = currentUser(req);
+    const run = await runsRepository.findById(uuidParam(req.params.id, "Run"));
+    if (!run) throw notFound("Run");
+    if (!canStopRun(user, { requestedBy: run.requested_by })) throw forbidden("Only the developer who started this run can stop it");
+    res.status(202).json({ result: await stopRun(run, user, req.requestId) });
   }),
 );

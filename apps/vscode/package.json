@@ -2,7 +2,7 @@
   "name": "aura-vscode",
   "displayName": "AURA",
   "description": "AURA for developers: pick a Jira Task, work on it with AURA's agents in a chat panel, and keep every file change and command under your approval. Agents run in the AURA cloud; your code stays on your machine.",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "private": true,
   "publisher": "aura",
   "license": "UNLICENSED",
@@ -101,6 +101,24 @@
         "icon": "$(add)"
       },
       {
+        "command": "aura.stop",
+        "title": "Stop",
+        "category": "AURA",
+        "icon": "$(debug-stop)"
+      },
+      {
+        "command": "aura.resume",
+        "title": "Resume",
+        "category": "AURA",
+        "icon": "$(debug-continue)"
+      },
+      {
+        "command": "aura.openRunInWeb",
+        "title": "Open Run in Web",
+        "category": "AURA",
+        "icon": "$(globe)"
+      },
+      {
         "command": "aura.connectRepository",
         "title": "Connect Repository",
         "category": "AURA"
@@ -114,6 +132,11 @@
     "menus": {
       "view/title": [
         {
+          "command": "aura.stop",
+          "when": "view == aura.chat && aura.running",
+          "group": "navigation@1"
+        },
+        {
           "command": "aura.refreshTasks",
           "when": "view == aura.tasks",
           "group": "navigation"
@@ -121,7 +144,12 @@
         {
           "command": "aura.newChat",
           "when": "view == aura.chat",
-          "group": "navigation"
+          "group": "navigation@2"
+        },
+        {
+          "command": "aura.openRunInWeb",
+          "when": "view == aura.chat",
+          "group": "navigation@3"
         }
       ],
       "view/item/context": [
@@ -144,6 +172,10 @@
         {
           "command": "aura.openInJira",
           "when": "false"
+        },
+        {
+          "command": "aura.stop",
+          "when": "aura.running"
         }
       ]
     },
@@ -154,6 +186,11 @@
           "type": "string",
           "default": "http://localhost:4000",
           "description": "The AURA API URL."
+        },
+        "aura.webUrl": {
+          "type": "string",
+          "default": "",
+          "description": "The AURA web app URL, for Open Run in Web. Leave empty to use the address of your last browser sign-in."
         }
       }
     }

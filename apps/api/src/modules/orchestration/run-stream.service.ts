@@ -28,7 +28,11 @@ interface StreamContext {
   writer: EventSink;
   requestId: string;
   settings: TurnSettings;
+  // Aborted when the developer presses Stop (turn-jobs.ts stopTurn).
+  stop?: AbortSignal;
 }
+
+export const STOPPED_MESSAGE = "Stopped. Send a message to continue.";
 
 export interface TurnOutcome {
   status: RunStatus;
@@ -366,15 +370,22 @@ export async function pipeRuntimeStream(context: StreamContext, stream: AsyncGen
       }
     }
   } catch (error) {
-    const message = error instanceof Error && error.name === "AbortError" ? `Turn exceeded ${Math.round(context.settings.turnTimeoutMs / 60_000)} minutes and was stopped` : errorMessage(error);
-    logger.error("runtime stream failed", { runId: run.id, message });
+    const stopped = context.stop?.aborted === true;
+    const message = stopped
+      ? STOPPED_MESSAGE
+      : error instanceof Error && error.name === "AbortError"
+        ? `Turn exceeded ${Math.round(context.settings.turnTimeoutMs / 60_000)} minutes and was stopped`
+        : errorMessage(error);
+    const status: RunStatus = stopped ? "INTERRUPTED" : "FAILED";
+    if (stopped) logger.info("turn stopped", { runId: run.id });
+    else logger.error("runtime stream failed", { runId: run.id, message });
     try {
       await step("error", { payload: { message } });
-      run = await runsRepository.update(run.id, { status: "FAILED", last_error: message, finished_at: new Date().toISOString() });
+      run = await runsRepository.update(run.id, { status, last_error: message, finished_at: new Date().toISOString() });
     } catch (persistError) {
       logger.error("could not persist run failure", { runId: run.id, message: errorMessage(persistError) });
     }
-    outcome = { status: "FAILED", approvalId: null };
+    outcome = { status, approvalId: null };
     writer.send("error", { message });
     finished = true;
   }
@@ -418,7 +429,7 @@ export async function createTurnRun(input: { user: AuthedUser; agentId: string; 
 }
 
 // Runs a recorded turn against the runtime (called from the turn job, modules/orchestration/turn-jobs.ts).
-export async function startTurn(input: { run: RunRow; user: AuthedUser; message: string; requestId: string; writer: EventSink }): Promise<TurnOutcome> {
+export async function startTurn(input: { run: RunRow; user: AuthedUser; message: string; requestId: string; writer: EventSink; stop?: AbortSignal }): Promise<TurnOutcome> {
   const { run } = input;
   input.writer.send("run", { runId: run.id, runtimeRunId: null, status: run.status });
 
@@ -426,6 +437,7 @@ export async function startTurn(input: { run: RunRow; user: AuthedUser; message:
   const settings = await turnSettings(input.user.id);
   const turn = new AbortController();
   const turnTimer = setTimeout(() => turn.abort(), settings.turnTimeoutMs);
+  const signal = input.stop ? AbortSignal.any([turn.signal, input.stop]) : turn.signal;
   let stream: AsyncGenerator<RuntimeChunk>;
   try {
     stream = await runtimeClient.stream(
@@ -435,7 +447,7 @@ export async function startTurn(input: { run: RunRow; user: AuthedUser; message:
         memory: { thread: run.thread_id, resource: input.user.id },
         requestContext: { [RUN_CONTEXT_KEY]: runContext(run.id, input.requestId, input.user), [SETTINGS_CONTEXT_KEY]: settings.runtime },
       },
-      turn.signal,
+      signal,
     );
   } catch (error) {
     clearTimeout(turnTimer);
@@ -447,7 +459,7 @@ export async function startTurn(input: { run: RunRow; user: AuthedUser; message:
   }
 
   try {
-    return await pipeRuntimeStream({ run, viewer: input.user, writer: input.writer, requestId: input.requestId, settings }, stream);
+    return await pipeRuntimeStream({ run, viewer: input.user, writer: input.writer, requestId: input.requestId, settings, stop: input.stop }, stream);
   } finally {
     clearTimeout(turnTimer);
   }
@@ -463,12 +475,14 @@ export async function resumeTurn(input: {
   decision: RuntimeDecision;
   requestId: string;
   writer: EventSink;
+  stop?: AbortSignal;
 }): Promise<TurnOutcome> {
   let run = input.run;
   // The requester's settings, not the approver's: the run is still the requester's work.
   const settings = await turnSettings(run.requested_by);
   const turn = new AbortController();
   const turnTimer = setTimeout(() => turn.abort(), settings.turnTimeoutMs);
+  const signal = input.stop ? AbortSignal.any([turn.signal, input.stop]) : turn.signal;
   let stream: AsyncGenerator<RuntimeChunk>;
   try {
     stream = await runtimeClient.resumeStream(
@@ -487,7 +501,7 @@ export async function resumeTurn(input: {
           [SETTINGS_CONTEXT_KEY]: settings.runtime,
         },
       },
-      turn.signal,
+      signal,
     );
   } catch (error) {
     clearTimeout(turnTimer);
@@ -510,7 +524,7 @@ export async function resumeTurn(input: {
   input.writer.send("run", { runId: run.id, runtimeRunId: input.runtimeRunId, status: "RUNNING" });
 
   try {
-    return await pipeRuntimeStream({ run, viewer: input.user, writer: input.writer, requestId: input.requestId, settings }, stream);
+    return await pipeRuntimeStream({ run, viewer: input.user, writer: input.writer, requestId: input.requestId, settings, stop: input.stop }, stream);
   } finally {
     clearTimeout(turnTimer);
   }

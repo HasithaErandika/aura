@@ -3,6 +3,7 @@ import {
   agentsApprovedByRole,
   assertCanRunAgent,
   canDecide,
+  canStopRun,
   canEditArchitectWorkspace,
   canEditDevWorkspace,
   canEditQaWorkspace,
@@ -115,5 +116,14 @@ describe("approvals", () => {
     expect(gateInfoFor("po")?.gate).toBe(1);
     expect(gateInfoFor(null)).toBeNull();
     expect(agentsApprovedByRole("qa_engineer").sort()).toEqual(["qa-agent", "tester-agent"]);
+  });
+});
+
+describe("canStopRun", () => {
+  it("lets the requester and admins stop a run, nobody else", () => {
+    expect(canStopRun({ id: "u1", role: "developer" }, { requestedBy: "u1" })).toBe(true);
+    expect(canStopRun({ id: "a1", role: "admin" }, { requestedBy: "u1" })).toBe(true);
+    expect(canStopRun({ id: "u2", role: "developer" }, { requestedBy: "u1" })).toBe(false);
+    expect(canStopRun({ id: "q1", role: "qa_engineer" }, { requestedBy: "u1" })).toBe(false);
   });
 });

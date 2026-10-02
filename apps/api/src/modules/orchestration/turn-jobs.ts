@@ -45,6 +45,17 @@ const TURN_EXPIRE_SECONDS = 3 * 3600 + 600;
 const HEARTBEAT_MS = 30_000;
 export const STALE_AFTER_MS = 3 * 60_000;
 
+// Turns running in this process, by run id, so Stop can abort them (POST /runs/:id/stop).
+const localTurns = new Map<string, AbortController>();
+
+// Aborts a turn running in this process. False when it runs elsewhere or has already ended.
+export function stopTurn(runId: string): boolean {
+  const controller = localTurns.get(runId);
+  if (!controller) return false;
+  controller.abort();
+  return true;
+}
+
 export function jobUser(user: AuthedUser): JobUser {
   return { id: user.id, email: user.email, fullName: user.fullName, role: user.role, via: user.via };
 }
@@ -54,12 +65,16 @@ export function jobUser(user: AuthedUser): JobUser {
 export async function runTurnJob(job: TurnJob): Promise<void> {
   const writer = new RunEventWriter(job.runId);
   const heartbeat = setInterval(() => void runsRepository.touch(job.runId).catch(() => undefined), HEARTBEAT_MS);
+  const stop = new AbortController();
+  localTurns.set(job.runId, stop);
   try {
     const run = await runsRepository.findById(job.runId);
     if (!run) throw new Error(`run ${job.runId} not found`);
+    // Stopped while still queued: POST /runs/:id/stop already ended it.
+    if (run.status === "INTERRUPTED") return;
     const user = job.user as AuthedUser;
     if (job.kind === "start") {
-      await startTurn({ run, user, message: job.message, requestId: job.requestId, writer });
+      await startTurn({ run, user, message: job.message, requestId: job.requestId, writer, stop: stop.signal });
     } else {
       await resumeTurn({
         user,
@@ -71,6 +86,7 @@ export async function runTurnJob(job: TurnJob): Promise<void> {
         decision: job.decision,
         requestId: job.requestId,
         writer,
+        stop: stop.signal,
       });
     }
   } catch (error) {
@@ -80,6 +96,7 @@ export async function runTurnJob(job: TurnJob): Promise<void> {
     writer.send("error", { message });
     writer.send("done", { runId: job.runId, status: "FAILED", approvalId: null });
   } finally {
+    localTurns.delete(job.runId);
     clearInterval(heartbeat);
     await writer.flush();
   }

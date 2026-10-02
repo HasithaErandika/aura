@@ -6,7 +6,7 @@ Agents run in the AURA cloud; every file they read or change and every command t
 
 **Status: V1**: browser sign-in, the **AURA** sidebar (Tasks: Epic → Stories and Tasks; Chat
 with the agent, streamed, tool calls inline, resumes after a reload), **Start Work on Task**,
-**Connect Repository** and **Initialize Project**. Specialist agents, branches and PRs come in V2–V6
+**Stop** / **Resume** / **Open Run in Web**, **Connect Repository** and **Initialize Project**. Specialist agents, branches and PRs come in V2–V6
 ([plan](../../docs/plans/aura-vscode-agents.md)).
 
 ```mermaid
@@ -34,8 +34,12 @@ In that window:
    scaffold, `main` + `development`, CI, `.aura/`).
 3. In the **AURA** sidebar, pick a Task → **Start Work**, or type in **Chat**. Every file change
    and command asks you first; the **AURA** output channel logs them.
+4. **Stop** (the button, **Esc** in the chat, the status bar or **AURA: Stop**) kills the running
+   command and ends the turn. **AURA: Resume** continues it. **AURA: Open Run in Web** shows the
+   run's steps and approvals in the web app.
 
-Set `aura.apiUrl` in Settings if the API isn't at `http://localhost:4000`. The runtime needs
+Set `aura.apiUrl` in Settings if the API isn't at `http://localhost:4000`, and `aura.webUrl` if
+the web app isn't where you last signed in. The runtime needs
 `AURA_API_URL` pointing at the same API.
 
 ## What the agent may do
@@ -57,6 +61,8 @@ from their environment. Output is capped at 30,000 characters.
 | File | Contents |
 |---|---|
 | `src/extension.ts` | VS Code commands, status bar, prompts |
+| `src/chat/` | Chat panel: conversation per Task, streaming, Stop / Resume |
+| `src/tasks-tree.ts`, `src/project*.ts`, `src/session.ts` | Tasks view, Connect / Initialize, sign-in |
 | `src/bridge-client.ts` | WebSocket to the API: tickets, reconnect, permission → run → result |
 | `src/permissions.ts` | Allow / ask / deny rules |
 | `src/executor.ts` | File operations and commands inside the folder |

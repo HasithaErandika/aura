@@ -1,6 +1,6 @@
 import * as vscode from "vscode";
 import { BridgeClient, type Approval, type BridgeState } from "./bridge-client.js";
-import { ChatViewProvider } from "./chat/view.js";
+import { ChatViewProvider, type ChatActivity } from "./chat/view.js";
 import { WorkspaceExecutor } from "./executor.js";
 import { PermissionPolicy } from "./permissions.js";
 import { connectRepository, initializeProject } from "./project.js";
@@ -8,8 +8,8 @@ import { Session } from "./session.js";
 import { TasksProvider, type TaskNode } from "./tasks-tree.js";
 
 // AURA for VS Code (ADR-4, docs/plans/aura-vscode-agents.md). V1: browser sign-in, the Tasks view
-// (Epic → Stories and Tasks), the chat panel with the VS Code agent, and Connect Repository /
-// Initialize Project. Agents run in the AURA cloud; every file change and command they make runs
+// (Epic → Stories and Tasks), the chat panel with the VS Code agent, Stop / Resume / Open Run in
+// Web, and Connect Repository / Initialize Project. Agents run in the AURA cloud; every file change and command they make runs
 // here, inside the open folder, after your approval.
 
 let bridge: BridgeClient | null = null;
@@ -24,8 +24,15 @@ export function activate(context: vscode.ExtensionContext) {
 
   const log = (line: string) => output.appendLine(`[${new Date().toLocaleTimeString()}] ${line}`);
 
+  let activity: ChatActivity = { busy: false, stopping: false, runId: null, title: "" };
   const showStatus = () => {
     const project = session.project ? ` ${session.project.projectKey}` : "";
+    if (activity.busy && bridgeState === "connected") {
+      status.text = `$(loading~spin) AURA${project} · ${activity.stopping ? "stopping" : activity.title}`.slice(0, 80);
+      status.tooltip = `AURA: the agent is working on ${activity.title}. Click to stop.`;
+      status.command = "aura.stop";
+      return status.show();
+    }
     status.text = { disconnected: `$(debug-disconnect) AURA${project}`, connecting: `$(sync~spin) AURA${project}`, connected: `$(plug) AURA${project}` }[bridgeState];
     status.tooltip = {
       disconnected: "AURA: agents can't reach this folder. Click to connect.",
@@ -76,11 +83,19 @@ export function activate(context: vscode.ExtensionContext) {
   };
 
   const tasks = new TasksProvider(session);
-  const chat = new ChatViewProvider(context, session, connect);
+  const chat = new ChatViewProvider(context, session, connect, (runId) => {
+    const killed = bridge?.cancelRun(runId) ?? 0;
+    log(`■ Stopped by you${killed ? ` (cancelled ${killed} running call${killed === 1 ? "" : "s"})` : ""}.`);
+  });
   context.subscriptions.push(
     vscode.window.registerTreeDataProvider("aura.tasks", tasks),
     vscode.window.registerWebviewViewProvider("aura.chat", chat, { webviewOptions: { retainContextWhenHidden: true } }),
     session.onDidChange(showStatus),
+    chat.onDidChangeActivity((next) => {
+      activity = next;
+      void vscode.commands.executeCommand("setContext", "aura.running", next.busy);
+      showStatus();
+    }),
   );
 
   const report = (error: unknown) => void vscode.window.showErrorMessage(`AURA: ${error instanceof Error ? error.message : String(error)}`);
@@ -122,6 +137,13 @@ export function activate(context: vscode.ExtensionContext) {
     vscode.commands.registerCommand("aura.disconnect", disconnect),
     vscode.commands.registerCommand("aura.refreshTasks", () => tasks.refresh()),
     vscode.commands.registerCommand("aura.newChat", () => chat.newChat()),
+    vscode.commands.registerCommand("aura.stop", () => chat.stop()),
+    vscode.commands.registerCommand("aura.resume", () => chat.resume()),
+    vscode.commands.registerCommand("aura.openRunInWeb", () => {
+      const runId = chat.current.runId;
+      if (!runId) return void vscode.window.showInformationMessage("AURA: this conversation has no run yet.");
+      void vscode.env.openExternal(vscode.Uri.parse(`${session.webUrl}/app/runs/${encodeURIComponent(runId)}`));
+    }),
     vscode.commands.registerCommand("aura.startTask", async (node?: TaskNode) => {
       if (node?.kind !== "issue") return;
       await chat.startTask({ key: node.issue.key, summary: node.issue.summary, epicKey: node.epicKey });

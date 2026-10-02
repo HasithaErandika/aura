@@ -2,7 +2,7 @@ import { randomBytes } from "node:crypto";
 import * as vscode from "vscode";
 import type { TurnEvent } from "@aura/client";
 import type { Session } from "../session.js";
-import { addUserMessage, applyEvent, emptyChat, fromHistory, type ChatState } from "./model.js";
+import { addUserMessage, applyEvent, emptyChat, fromHistory, markStopping, type ChatState } from "./model.js";
 
 // The AURA chat panel: one conversation per Task (and one general one per folder) with the VS Code
 // agent. Streams the turn live, shows each file and command the agent uses, and picks a running
@@ -18,18 +18,32 @@ interface Conversation {
   threadId: string | null;
 }
 
-type FromWebview = { type: "send"; text: string } | { type: "ready" } | { type: "new" };
+type FromWebview = { type: "send"; text: string } | { type: "ready" } | { type: "new" } | { type: "stop" };
+
+// What the status bar shows about the chat.
+export interface ChatActivity {
+  busy: boolean;
+  stopping: boolean;
+  runId: string | null;
+  title: string;
+}
+
+const RESUME_MESSAGE = "Continue where you stopped.";
 
 export class ChatViewProvider implements vscode.WebviewViewProvider {
   private view: vscode.WebviewView | null = null;
   private state: ChatState = emptyChat();
   private conversation: Conversation;
   private following: AbortController | null = null;
+  private readonly activity = new vscode.EventEmitter<ChatActivity>();
+  readonly onDidChangeActivity = this.activity.event;
 
   constructor(
     private readonly context: vscode.ExtensionContext,
     private readonly session: Session,
     private readonly ensureConnected: () => Promise<boolean>,
+    // Kills the run's tool calls on this machine at once (bridge-client.ts cancelRun).
+    private readonly cancelLocal: (runId: string) => void,
   ) {
     this.conversation = context.workspaceState.get<Conversation>(CURRENT_KEY) ?? { key: "general", title: "General", threadId: null };
   }
@@ -42,7 +56,36 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       if (m.type === "ready") void this.load();
       if (m.type === "send") void this.send(m.text);
       if (m.type === "new") void this.newChat();
+      if (m.type === "stop") void this.stop();
     });
+  }
+
+  get current(): ChatActivity {
+    return { busy: this.state.busy, stopping: this.state.stopping, runId: this.state.runId, title: this.conversation.title };
+  }
+
+  // Stop (plan §3): cancels the command running on this machine, then ends the turn in the cloud.
+  // The conversation stays; Resume or any new message continues it.
+  async stop(): Promise<void> {
+    const runId = this.state.runId;
+    if (!this.state.busy || this.state.stopping || !runId) return;
+    this.state = markStopping(this.state);
+    this.post();
+    this.cancelLocal(runId);
+    try {
+      await this.session.client().runs.stop(runId);
+    } catch (error) {
+      this.state = { ...this.state, stopping: false };
+      this.notice(error, true);
+    }
+  }
+
+  // Resume: continues the current conversation after a Stop, a reload or an interrupted turn.
+  async resume(): Promise<void> {
+    if (this.state.busy) return void vscode.window.showInformationMessage("AURA: the agent is already working.");
+    if (!this.conversation.threadId) return void vscode.window.showInformationMessage("AURA: nothing to resume. Start a Task or send a message.");
+    await vscode.commands.executeCommand("aura.chat.focus");
+    await this.send(RESUME_MESSAGE);
   }
 
   // Opens (or continues) the conversation for a Task, and starts it with the Task's details.
@@ -97,7 +140,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     }
     try {
       const history = await this.session.client().threads.history(this.conversation.threadId, AGENT_ID);
-      this.state = fromHistory(history.messages, this.conversation.title);
+      this.state = fromHistory(history.messages, this.conversation.title, history.latestRun?.id ?? null);
       this.post();
       const run = history.latestRun;
       if (run && (run.status === "PENDING" || run.status === "RUNNING")) await this.follow(this.session.client().runs.follow(run.id, this.abortable()));
@@ -146,13 +189,14 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     }
   }
 
-  private notice(error: unknown): void {
-    this.state = applyEvent({ ...this.state, busy: false }, { event: "error", data: { message: error instanceof Error ? error.message : String(error) } });
+  private notice(error: unknown, keepBusy = false): void {
+    this.state = applyEvent({ ...this.state, busy: keepBusy && this.state.busy }, { event: "error", data: { message: error instanceof Error ? error.message : String(error) } });
     this.post();
   }
 
   private post(): void {
     void this.view?.webview.postMessage({ type: "state", state: this.state });
+    this.activity.fire(this.current);
   }
 }
 
@@ -192,7 +236,7 @@ function html(nonce: string): string {
 <div id="wrap">
   <header><span class="title" id="title">AURA</span><span class="busy" id="busy"></span></header>
   <div id="log"></div>
-  <form id="form"><textarea id="input" rows="2" placeholder="Ask the agent… (Enter to send, Shift+Enter for a new line)"></textarea><button id="send" type="submit">Send</button></form>
+  <form id="form"><textarea id="input" rows="2" placeholder="Ask the agent… (Enter to send, Shift+Enter for a new line, Esc to stop)"></textarea><button id="send" type="submit">Send</button></form>
 </div>
 <script nonce="${nonce}">
   const vscode = acquireVsCodeApi();
@@ -200,11 +244,16 @@ function html(nonce: string): string {
   const input = document.getElementById('input');
   const send = document.getElementById('send');
   const icons = { running: '●', done: '✓', error: '✗' };
+  let busy = false;
+  function stop() { vscode.postMessage({ type: 'stop' }); }
   function el(tag, cls, text) { const e = document.createElement(tag); if (cls) e.className = cls; if (text !== undefined) e.textContent = text; return e; }
   function render(state) {
     document.getElementById('title').textContent = state.title || 'AURA';
-    document.getElementById('busy').textContent = state.busy ? 'working…' : '';
-    send.disabled = state.busy;
+    busy = state.busy;
+    document.getElementById('busy').textContent = state.stopping ? 'stopping…' : state.busy ? 'working…' : '';
+    send.textContent = state.busy ? 'Stop' : 'Send';
+    send.disabled = state.stopping;
+    input.disabled = state.busy;
     const atBottom = log.scrollHeight - log.scrollTop - log.clientHeight < 40;
     log.replaceChildren();
     if (!state.items.length) log.appendChild(el('div', 'empty', 'Pick a Task in the Tasks view, or ask the agent about this workspace.'));
@@ -227,12 +276,14 @@ function html(nonce: string): string {
   window.addEventListener('message', (e) => { if (e.data && e.data.type === 'state') render(e.data.state); });
   document.getElementById('form').addEventListener('submit', (e) => {
     e.preventDefault();
+    if (busy) return stop();
     const text = input.value.trim();
     if (!text || send.disabled) return;
     vscode.postMessage({ type: 'send', text });
     input.value = '';
   });
-  input.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); document.getElementById('form').requestSubmit(); } });
+  input.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey && !busy) { e.preventDefault(); document.getElementById('form').requestSubmit(); } });
+  window.addEventListener('keydown', (e) => { if (e.key === 'Escape' && busy) { e.preventDefault(); stop(); } });
   vscode.postMessage({ type: 'ready' });
 </script>
 </body>

@@ -33,14 +33,22 @@ export type CallOutcome = { ok: true; value: unknown; durationMs: number } | { o
 
 interface Pending {
   connectionId: string;
+  runId: string;
   resolve: (outcome: CallOutcome) => void;
   timer: NodeJS.Timeout;
   startedAt: number;
 }
 
+const STOPPED_MESSAGE = "The developer stopped this run. Do not retry; wait for their next message.";
+// Longer than the longest allowed turn (Settings → Limits: 180 minutes).
+const STOPPED_TTL_MS = 4 * 3600_000;
+
 export class BridgeHub {
   private readonly byUser = new Map<string, BridgeConnection>();
   private readonly pending = new Map<string, Pending>();
+  // Runs the developer stopped: their calls in flight are cancelled and new ones refused. A run
+  // id is never reused (each turn is a new run), so entries only need to outlive the turn.
+  private readonly stopped = new Map<string, number>();
 
   // A newer connection from the same user replaces the older one (one VS Code window drives agents).
   connect(userId: string, socket: BridgeSocket): BridgeConnection {
@@ -82,6 +90,7 @@ export class BridgeHub {
   }
 
   call(userId: string, runId: string, op: BridgeOp, args: Record<string, unknown>, timeoutMs = DEFAULT_TIMEOUT_MS): Promise<CallOutcome> {
+    if (this.stopped.has(runId)) return Promise.resolve({ ok: false, error: { code: "cancelled", message: STOPPED_MESSAGE }, durationMs: 0 });
     const connection = this.byUser.get(userId);
     if (!connection) {
       return Promise.resolve({ ok: false, error: { code: "not_connected", message: "AURA for VS Code is not connected for this developer. Open VS Code and run 'AURA: Connect'." }, durationMs: 0 });
@@ -93,9 +102,25 @@ export class BridgeHub {
         this.send(connection, { type: "run.cancel", callId });
         this.settle(callId, { ok: false, error: { code: "timeout", message: `VS Code did not answer within ${Math.round(limit / 1000)} s` } });
       }, limit);
-      this.pending.set(callId, { connectionId: connection.id, resolve, timer, startedAt: Date.now() });
+      this.pending.set(callId, { connectionId: connection.id, runId, resolve, timer, startedAt: Date.now() });
       this.send(connection, { type: "tool.request", callId, runId, op, args, timeoutMs: limit } as ServerMessage);
     });
+  }
+
+  // Stop: cancels the run's calls in flight (the extension kills the command) and refuses its next
+  // ones, so the agent learns the developer stopped it. Returns how many calls were cancelled.
+  stopRun(runId: string, now = Date.now()): number {
+    for (const [id, at] of this.stopped) if (now - at > STOPPED_TTL_MS) this.stopped.delete(id);
+    this.stopped.set(runId, now);
+    let cancelled = 0;
+    for (const [callId, pending] of this.pending) {
+      if (pending.runId !== runId) continue;
+      const connection = [...this.byUser.values()].find((c) => c.id === pending.connectionId);
+      if (connection) this.send(connection, { type: "run.cancel", callId });
+      this.settle(callId, { ok: false, error: { code: "cancelled", message: STOPPED_MESSAGE } });
+      cancelled++;
+    }
+    return cancelled;
   }
 
   get connectionCount(): number {

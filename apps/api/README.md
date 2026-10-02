@@ -41,7 +41,7 @@ flowchart LR
 | `/settings` | Signed in (shared values: admin) | Settings registry, effective values, global/project/user values |
 | `/threads` | Run grant | Conversations; `POST /threads/:id/messages` streams a turn (SSE) |
 | `/approvals` | Approver role | Inbox; `POST /approvals/:id/decide` streams the continuation (SSE) |
-| `/runs` | Requester, approver, admin | Runs and step timeline; `GET /runs/:id/events?after=` replays and follows a run's events (SSE) |
+| `/runs` | Requester, approver, admin | Runs and step timeline; `GET /runs/:id/events?after=` replays and follows a run's events (SSE); `POST /runs/:id/stop` stops the requester's running turn |
 | `/audit` | Admin | Audit explorer and export |
 | `/dashboard` | Signed in | Summary, agent quality, token usage |
 | `/agents` · `/jira` · `/council` · `/terminal` · `/runners` | Per grant | Registry, Jira reads, council notes, terminal tickets, runners |

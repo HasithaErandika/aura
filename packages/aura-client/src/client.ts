@@ -128,6 +128,8 @@ export function createAuraClient(options: AuraClientOptions) {
     runs: {
       // Follows a run's current turn (e.g. after reopening VS Code while it was still running).
       follow: (runId: string, signal?: AbortSignal) => stream(`/runs/${encodeURIComponent(runId)}/events?after=turn`, undefined, signal, runId, "GET"),
+      // Stops a running turn (VS Code Stop). Its stream then ends with an INTERRUPTED "done".
+      stop: (runId: string) => request<{ result: "stopped" | "dequeued" }>("POST", `/runs/${encodeURIComponent(runId)}/stop`).then((r) => r.result),
     },
 
     projects: {

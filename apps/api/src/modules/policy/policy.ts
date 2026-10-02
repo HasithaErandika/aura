@@ -247,6 +247,11 @@ export function canViewRun(user: { id: string; role: Role }, run: RunScope): boo
   return false;
 }
 
+// Stop is the requester's own brake (VS Code Stop, plan §3); admins may stop any run.
+export function canStopRun(user: { id: string; role: Role }, run: { requestedBy: string }): boolean {
+  return user.role === "admin" || run.requestedBy === user.id;
+}
+
 export function agentsApprovedByRole(role: Role): string[] {
   return Object.entries(AGENT_APPROVER_ROLE)
     .filter(([, approver]) => approver === role)

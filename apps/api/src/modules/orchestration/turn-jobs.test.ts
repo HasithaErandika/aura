@@ -30,7 +30,8 @@ vi.mock("../runs/runs.repository.js", () => ({
   },
 }));
 
-const { interruptStaleRuns, runTurnJob, STALE_AFTER_MS } = await import("./turn-jobs.js");
+const { interruptStaleRuns, runTurnJob, stopTurn, STALE_AFTER_MS } = await import("./turn-jobs.js");
+const { startTurn } = await import("./run-stream.service.js");
 
 const user = { id: "u1", email: "u@example.com", fullName: null, role: "developer" as const, via: "session" as const };
 
@@ -46,6 +47,30 @@ describe("runTurnJob", () => {
     expect(runs.get("run-1")?.status).toBe("FAILED");
     expect(stored.map((e) => e.event)).toEqual(["error", "done"]);
     expect(stored[0]?.data).toEqual({ message: "runtime unreachable" });
+  });
+
+  it("passes Stop to the running turn, and only while it runs", async () => {
+    runs.set("run-2", { id: "run-2", status: "PENDING", updated_at: new Date().toISOString() });
+    let seen: AbortSignal | undefined;
+    vi.mocked(startTurn).mockImplementationOnce(async (input) => {
+      seen = input.stop;
+      await new Promise((resolve) => input.stop!.addEventListener("abort", resolve));
+      return { status: "INTERRUPTED", approvalId: null };
+    });
+    const job = runTurnJob({ kind: "start", runId: "run-2", message: "hi", requestId: "req-1", user });
+    await vi.waitFor(() => expect(seen).toBeDefined());
+    expect(stopTurn("run-2")).toBe(true);
+    await job;
+    expect(seen!.aborted).toBe(true);
+    expect(stopTurn("run-2")).toBe(false);
+  });
+
+  it("skips a turn stopped while it was queued", async () => {
+    runs.set("run-3", { id: "run-3", status: "INTERRUPTED", updated_at: new Date().toISOString() });
+    vi.mocked(startTurn).mockClear();
+    await runTurnJob({ kind: "start", runId: "run-3", message: "hi", requestId: "req-1", user });
+    expect(startTurn).not.toHaveBeenCalled();
+    expect(stored).toEqual([]);
   });
 
   it("ends the stream when the run doesn't exist", async () => {

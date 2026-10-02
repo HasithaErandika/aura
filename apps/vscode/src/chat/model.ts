@@ -12,11 +12,14 @@ export type ChatItem =
 export interface ChatState {
   items: ChatItem[];
   busy: boolean;
+  // Stop was pressed and the turn hasn't ended yet.
+  stopping: boolean;
+  // The latest run: the one streaming now, or the last one (for Open Run in Web).
   runId: string | null;
   title: string | null;
 }
 
-export const emptyChat = (title: string | null = null): ChatState => ({ items: [], busy: false, runId: null, title });
+export const emptyChat = (title: string | null = null): ChatState => ({ items: [], busy: false, stopping: false, runId: null, title });
 
 // Mastra workspace tool ids → short names the developer recognises.
 export function toolLabel(toolName: string): string {
@@ -44,7 +47,7 @@ function resultText(result: unknown): string {
 let seq = 0;
 const nextId = () => `live-${++seq}`;
 
-export function fromHistory(messages: ChatMessage[], title: string | null = null): ChatState {
+export function fromHistory(messages: ChatMessage[], title: string | null = null, runId: string | null = null): ChatState {
   const items: ChatItem[] = [];
   for (const m of messages) {
     if (m.role === "user" && m.text.trim()) items.push({ kind: "user", id: m.id, text: m.text });
@@ -55,7 +58,11 @@ export function fromHistory(messages: ChatMessage[], title: string | null = null
       if (m.text.trim()) items.push({ kind: "assistant", id: m.id, text: m.text });
     }
   }
-  return { items, busy: false, runId: null, title };
+  return { items, busy: false, stopping: false, runId, title };
+}
+
+export function markStopping(state: ChatState): ChatState {
+  return state.busy ? { ...state, stopping: true } : state;
 }
 
 export function addUserMessage(state: ChatState, text: string): ChatState {
@@ -67,7 +74,7 @@ export function applyEvent(state: ChatState, e: TurnEvent): ChatState {
   const last = items[items.length - 1];
   switch (e.event) {
     case "run":
-      return { ...state, busy: true, runId: e.data.runId };
+      return { ...state, busy: true, stopping: false, runId: e.data.runId };
     case "text": {
       if (last?.kind === "assistant" && last.id.startsWith("live-")) items[items.length - 1] = { ...last, text: last.text + e.data.delta };
       else items.push({ kind: "assistant", id: nextId(), text: e.data.delta });
@@ -92,8 +99,9 @@ export function applyEvent(state: ChatState, e: TurnEvent): ChatState {
       return { ...state, items };
     case "done": {
       const settled = items.map((i) => (i.kind === "tool" && i.state === "running" ? { ...i, state: "error" as const, result: "No result (the turn ended)" } : i));
-      if (e.data.status === "INTERRUPTED" || e.data.status === "FAILED") settled.push({ kind: "notice", id: nextId(), tone: "error", text: `The turn ended: ${e.data.status.toLowerCase()}.` });
-      return { ...state, items: settled, busy: false };
+      const explained = settled.at(-1)?.kind === "notice";
+      if ((e.data.status === "INTERRUPTED" || e.data.status === "FAILED") && !explained) settled.push({ kind: "notice", id: nextId(), tone: "error", text: `The turn ended: ${e.data.status.toLowerCase()}.` });
+      return { ...state, items: settled, busy: false, stopping: false };
     }
     default:
       return state;

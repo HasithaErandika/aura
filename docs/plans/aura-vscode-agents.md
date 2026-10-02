@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | **Approved 2026-10-02** · Parts B, C, V0 and V1 built · V2 next |
+| **Status** | **Approved 2026-10-02** · Parts B, C, V0 and V1 built (V1 live check pending) · V2 next |
 | **Target** | AI agent harness for a leading Sri Lankan technology company |
 | **Date** | 2026-10-02 |
 | **Needs** | ADR-4 (supersedes ADR-1, ADR-2 D1–D2/D5, ADR-3 D2/D8) |
@@ -326,7 +326,7 @@ flowchart LR
 |---|---|---|
 | Part B, C | Postgres state; queued, resumable runs | A run survives a runtime restart |
 | V0 | ADR-4. Spike: API WebSocket relay + Mastra `Workspace` bridge provider; `read_file` and `execute_command` round-trip with a permission prompt | 🟢 **Passed** (see §12.1) |
-| V1 | Extension base: device-flow sign-in, Tasks view, AURA panel with streaming, Initialize / Connect Repository | 🟡 Built and unit-tested; live check in VS Code pending. Tasks are not yet linked to Stories in Jira (V3) |
+| V1 | Extension base: device-flow sign-in, Tasks view, AURA panel with streaming, Stop / Resume / Open Run in Web, status bar with the active run, Initialize / Connect Repository | 🟡 Built and unit-tested (§12.2); live check in VS Code pending. Tasks are not yet linked to Stories in Jira (V3) |
 | V2 | Full tool set, permission engine, modes, hooks, `.aura/AURA.md`, skills | One coder implements a Task end-to-end |
 | V3 | Design docs, ADRs, SRS, QA plans in Postgres; Architect specialists; Design documents and QA web pages (Markdown editor, no CodeMirror) | Gate 3 writes nothing to disk; Project Files removed |
 | V4 | Router, coder specialists, Evaluator loop, Plan and Review views | A Bug goes to issue-solver; Gate 5 review in the diff editor |
@@ -363,6 +363,22 @@ write tool needs Mastra's own error classes (`FileNotFoundError`, `PermissionErr
 `fetch` on the runtime → API hop; longer commands need streamed progress (V2). One API process
 holds the WebSocket and receives the call (several API replicas need call routing, with Part C's
 Postgres). The agent turn with a live model and the VS Code UI itself are verified by hand.
+
+### 12.2 V1 scope as built
+
+| Plan item (§3, §4) | Built |
+|---|---|
+| Sign in with the browser (device flow) | ✅ `AURA: Sign In`; a pasted token still works |
+| Tasks view | ✅ Epic → Stories, Tasks, Bugs; Start Work, Open in Jira |
+| AURA panel | ✅ Streamed text, each tool call inline with its result, resumes after a reload |
+| Stop / Esc | ✅ Stop button, Esc in the panel, `AURA: Stop`, status bar: kills the running command at once, then `POST /runs/:id/stop` ends the turn as `INTERRUPTED` |
+| Resume | ✅ `AURA: Resume` continues the conversation; reopening VS Code re-attaches to a running turn |
+| Open Run in Web | ✅ Opens `/app/runs/<id>` (`aura.webUrl`, else the last sign-in's address) |
+| Status bar | ✅ Connection, project, and the Task the agent is working on (click to stop) |
+| Initialize Project, Connect Repository | ✅ |
+| Permission prompt | ✅ Allow once · Allow for this session · Deny. "Allow for this project" comes with the rules files in V2 |
+| Typing while the agent works | ⏳ V2 (notes to a running turn) |
+| Plan, Review, PR views | ⏳ V4, V6 |
 
 ## 13. Removed
 

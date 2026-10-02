@@ -29,7 +29,7 @@ export class BridgeClient {
   private stopped = true;
   private attempts = 0;
   private retryTimer: NodeJS.Timeout | null = null;
-  private readonly running = new Map<string, AbortController>();
+  private readonly running = new Map<string, { runId: string; controller: AbortController }>();
 
   constructor(private readonly options: BridgeClientOptions) {}
 
@@ -41,7 +41,7 @@ export class BridgeClient {
   stop(): void {
     this.stopped = true;
     if (this.retryTimer) clearTimeout(this.retryTimer);
-    for (const controller of this.running.values()) controller.abort();
+    for (const { controller } of this.running.values()) controller.abort();
     this.running.clear();
     this.ws?.close(1000, "stopped");
     this.ws = null;
@@ -113,15 +113,27 @@ export class BridgeClient {
     const message = parseServerMessage(raw);
     if (!message) return;
     if (message.type === "run.cancel") {
-      this.running.get(message.callId)?.abort();
+      this.running.get(message.callId)?.controller.abort();
       return;
     }
     if (message.type === "tool.request") await this.execute(message);
   }
 
+  // Stop: kills what this run is doing on this machine right now, without waiting for the cloud.
+  cancelRun(runId: string): number {
+    let cancelled = 0;
+    for (const { runId: id, controller } of this.running.values()) {
+      if (id === runId) {
+        controller.abort();
+        cancelled++;
+      }
+    }
+    return cancelled;
+  }
+
   // Exported for tests through executeRequest.
   async execute(request: ToolRequestMessage): Promise<void> {
-    const outcome = await executeRequest(request, this.options, (controller) => this.running.set(request.callId, controller));
+    const outcome = await executeRequest(request, this.options, (controller) => this.running.set(request.callId, { runId: request.runId, controller }));
     this.running.delete(request.callId);
     this.send(outcome.ok ? { type: "tool.result", callId: request.callId, ok: true, value: outcome.value } : { type: "tool.result", callId: request.callId, ok: false, error: outcome.error });
   }

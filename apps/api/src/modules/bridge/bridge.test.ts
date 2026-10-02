@@ -70,6 +70,23 @@ describe("BridgeHub", () => {
     hub.receive(other, JSON.stringify({ type: "tool.result", callId, ok: true, value: { exists: true } }));
     expect(await call).toMatchObject({ ok: false, error: { code: "timeout" } });
   });
+
+  it("stops a run: cancels its calls in flight, refuses new ones, leaves other runs alone", async () => {
+    const hub = new BridgeHub();
+    const socket = fakeSocket();
+    const connection = hub.connect("u1", socket);
+    const stopped = hub.call("u1", "run-1", "sandbox.exec", { command: "npm", args: ["test"] }, 5000);
+    const other = hub.call("u1", "run-2", "fs.stat", { path: "." }, 5000);
+    const [first, second] = socket.sent.slice(1) as { callId: string }[];
+
+    expect(hub.stopRun("run-1")).toBe(1);
+    expect(socket.sent.at(-1)).toEqual({ type: "run.cancel", callId: first!.callId });
+    expect(await stopped).toMatchObject({ ok: false, error: { code: "cancelled" } });
+    expect(await hub.call("u1", "run-1", "fs.readFile", { path: "a" })).toMatchObject({ ok: false, error: { code: "cancelled" } });
+
+    hub.receive(connection, JSON.stringify({ type: "tool.result", callId: second!.callId, ok: true, value: { name: "." } }));
+    expect(await other).toMatchObject({ ok: true });
+  });
 });
 
 describe("TicketStore", () => {
