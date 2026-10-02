@@ -5,8 +5,7 @@ import { TESTER_MODEL_ID } from './registry';
 // Interprets an already-real Playwright JSON test result. Invoked only by the Orchestrator at
 // Gate 7, after delegate-tools.ts has actually run the tests in a sandboxed Docker container and
 // read back a real results file - this agent never runs anything and never decides pass/fail
-// itself (docs/ARCHITECTURE.md section 8: "machine result" vs "AI interpretation", kept
-// separate). It only explains what a human should make of numbers it did not produce.
+// itself (principle 5: the machine result and the AI interpretation stay separate). It only explains what a human should make of numbers it did not produce.
 export const testerAgent = new Agent({
   id: 'tester-agent',
   name: 'Tester Agent',

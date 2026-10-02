@@ -2,7 +2,7 @@ import { readFile, writeFile, mkdir } from 'node:fs/promises';
 import path from 'node:path';
 import type { AgentId } from '../agents/registry';
 
-// Eval scoring and the promotion gate (docs/ARCHITECTURE.md §5 "Eval harness per agent version").
+// Eval scoring and the promotion gate (docs/ARCHITECTURE.md §8).
 // Each case is a real prompt run against the agent's real model; its output is scored by
 // deterministic checks (no model grading another model). A suite's score is the mean case score.
 //

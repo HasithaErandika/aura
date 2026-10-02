@@ -10,11 +10,8 @@ import { connectRepository, initializeProject } from "./project.js";
 import { Session } from "./session.js";
 import { TasksProvider, type TaskNode } from "./tasks-tree.js";
 
-// AURA for VS Code (ADR-4, docs/plans/aura-vscode-agents.md). V1: browser sign-in, the Tasks view
-// (Epic → Stories and Tasks), the chat panel with the VS Code agent, Stop / Resume / Open Run in
-// Web, and Connect Repository / Initialize Project. V2: permission modes, project rules and hooks
-// (.aura/settings.json), background processes. Agents run in the AURA cloud; every file change
-// and command they make runs here, inside the open folder, under those rules.
+// AURA for VS Code (ADR-4, docs/ARCHITECTURE.md §4-§5): agents run in the AURA cloud; their file
+// changes and commands run here, in the open folder, under the developer's permission rules.
 
 let bridge: BridgeClient | null = null;
 let executor: WorkspaceExecutor | null = null;

@@ -2,8 +2,7 @@ import { registerApiRoute } from '@mastra/core/server';
 import { spawn } from 'node:child_process';
 
 // Read-only visibility into which Gate 4/5/7 Docker containers are currently running or
-// recently ran (docs/ARCHITECTURE.md section 6.4/6.5's containers are all labeled `aura=true`
-// by lib/docker-exec.ts). Purely observational - never used by any tool to decide anything,
+// recently ran (lib/docker-exec.ts labels every container `aura=true`). Purely observational - never used by any tool to decide anything,
 // so it can't become a second source of truth for run state (that stays the draft store + Jira).
 
 interface DockerPsRow {

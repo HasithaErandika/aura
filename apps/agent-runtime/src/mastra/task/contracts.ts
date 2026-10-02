@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { bullets } from '../contracts/markdown';
 
-// A Task worked on in VS Code (docs/plans/aura-vscode-agents.md §3, §7): the plan the developer
+// A Task worked on in VS Code (docs/ARCHITECTURE.md §4.1): the plan the developer
 // approves at Gate 4, the coder ↔ Evaluator rounds, and the review they approve at Gate 5. The
 // agents propose these shapes; the code around them (router.ts, loop.ts, tools/task-tools.ts)
 // decides who codes, which checks run, and whether a round passed.

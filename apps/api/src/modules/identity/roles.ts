@@ -1,4 +1,4 @@
-// Mirrors docs/ARCHITECTURE.md section 4.2 (roles) and the `user_role` enum in
+// Mirrors docs/ARCHITECTURE.md §6.1 (roles) and the `user_role` enum in
 // supabase/migrations/0001_identity.sql (narrowed by 0005_remove_tester_role.sql). Keep the
 // three in sync. There is no "tester" role: qa_engineer owns Gate 6 and starts/oversees the
 // bounded Tester Agent loop that replaced the old manual Gate 7 (workflows/tester-workflow.ts).

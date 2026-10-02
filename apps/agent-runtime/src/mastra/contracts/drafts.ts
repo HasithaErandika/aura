@@ -3,7 +3,7 @@ import { bullets } from './markdown';
 
 // Structured drafts the PO and BA and Architect agents produce. Agents propose JSON against these
 // schemas; rendering for humans and filing to Jira are deterministic code, so nothing a
-// human approved can drift on its way into Jira (docs/ARCHITECTURE.md section 1, principle 5).
+// human approved can drift on its way into Jira (docs/ARCHITECTURE.md principle 5).
 
 export const priorities = ['Highest', 'High', 'Medium', 'Low', 'Lowest'] as const;
 

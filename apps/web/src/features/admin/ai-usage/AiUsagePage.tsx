@@ -12,7 +12,7 @@ import { Table, TBody, TD, TH, THead, TR } from "../../../shared/ui/Table.tsx";
 import { BoltIcon } from "../../../shared/icons/index.tsx";
 
 // Admin: where the AI's tokens go (the runtime's token ledger) and how good each agent's work is
-// in practice (how humans decided on its gates). docs/ARCHITECTURE.md §6 explains the numbers.
+// in practice (how humans decided on its gates). docs/ARCHITECTURE.md §8 explains the numbers.
 
 const AGENT_LABELS: Record<string, string> = {
   orchestrator: "Orchestrator",

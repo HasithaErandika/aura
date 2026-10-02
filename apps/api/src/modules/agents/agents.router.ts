@@ -11,7 +11,7 @@ export const agentsRouter = Router();
 // Agents the policy tables grant access to but that have no backing Mastra Agent object in
 // apps/agent-runtime - "coding-agent" (Gate 5): its `draft` mode is always deterministic code,
 // never a model call, for any provider, so there is nothing to register there
-// (docs/ARCHITECTURE.md section 6.5). Merged into the listing below so the Registry still
+// (docs/ARCHITECTURE.md §4). Merged into the listing below so the Registry still
 // reflects every real, grantable capability, not only the ones with a live Agent behind them.
 // The Coding Council is not listed here: the runtime reports it live (listRegistryExtras).
 const SYNTHETIC_AGENTS: Record<string, RuntimeAgentSummary> = {

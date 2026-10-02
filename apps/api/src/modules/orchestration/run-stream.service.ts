@@ -245,7 +245,7 @@ export async function pipeRuntimeStream(context: StreamContext, stream: AsyncGen
         // step progress as a transient custom chunk into this same stream (Mastra's tool
         // `writer` API - see apps/agent-runtime/src/mastra/tools/delegate-tools.ts). Mirrored
         // as a run step exactly like a tool call, so the Run Console shows per-section
-        // progress without a second tracking mechanism (docs/ARCHITECTURE.md section 6.3).
+        // progress without a second tracking mechanism (docs/ARCHITECTURE.md §7).
         case "data-architect-step": {
           const data = (chunk as unknown as { data?: Record<string, unknown> }).data ?? {};
           await step("progress", { payload: data });

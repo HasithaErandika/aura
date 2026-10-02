@@ -1,7 +1,7 @@
 import { supabaseAdmin } from "../../lib/supabase.js";
 import { upstreamError } from "../../lib/http/errors.js";
 
-// Agent quality from real outcomes (docs/ARCHITECTURE.md §6.2): how humans decided on each agent's
+// Agent quality from real outcomes (docs/ARCHITECTURE.md §8): how humans decided on each agent's
 // gates. Offline evals say whether a prompt is good on fixed cases; this says whether the drafts
 // people actually got were good enough to approve.
 

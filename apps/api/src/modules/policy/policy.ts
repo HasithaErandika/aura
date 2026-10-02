@@ -1,7 +1,7 @@
 import type { Role } from "../identity/roles.js";
 import { forbidden } from "../../lib/http/errors.js";
 
-// Deterministic authorization data (docs/ARCHITECTURE.md section 4, FR-AUTH-3/4).
+// Deterministic authorization data (docs/ARCHITECTURE.md §6, FR-AUTH-3/4).
 //
 // This module never decides *what the workflow does next*. The Orchestrator in
 // apps/agent-runtime decides that dynamically: which agent to delegate to, when to ask a
@@ -26,7 +26,7 @@ export const AGENT_ALIASES: Record<string, string> = {
   test: "tester-agent",
   deploy: "deployer-agent",
   git: "git-tool",
-  // A Task in VS Code (docs/plans/aura-vscode-agents.md §7): the plan (Gate 4), the coders and
+  // A Task in VS Code (docs/ARCHITECTURE.md §4.1): the plan (Gate 4), the coders and
   // the Evaluator (Gate 5), and the Git agent's pull request (Gate 6).
   planner: "task-planner",
   coder: "coder",
@@ -61,7 +61,7 @@ export const ROLE_AGENT_GRANTS: Record<Role, Record<string, AgentAccess>> = {
     "git-agent": "read",
   },
   // "Architect (read)" on Dev/Coding/QA/Tester/Deployer output matches the RACI table in
-  // docs/ARCHITECTURE.md section 4.2 (Architect has oversight, not ownership, past Gate 3).
+  // docs/ARCHITECTURE.md §6.1 (Architect has oversight, not ownership, past Gate 3).
   architect: {
     orchestrator: "run",
     "architect-agent": "run",
@@ -86,7 +86,7 @@ export const ROLE_AGENT_GRANTS: Record<Role, Record<string, AgentAccess>> = {
   // alone starts and oversees, not a second person who could trigger it without approving it.
   qa_engineer: { orchestrator: "run", "qa-agent": "run", "tester-agent": "run", "dev-agent": "read" },
   // "Deployer | Deployer, QA (read) | Approves releases" (four-eyes is enforced at the release
-  // execution step itself, outside this table - see docs/ARCHITECTURE.md section 4.2).
+  // execution step itself, outside this table - see docs/ARCHITECTURE.md §6.1).
   deployer: { orchestrator: "run", "deployer-agent": "run", "qa-agent": "read" },
 };
 
@@ -102,7 +102,7 @@ export const AGENT_APPROVER_ROLE: Record<string, Role> = {
   "coding-agent": "developer",
   "coding-council": "developer",
   // Both test-related gates are approved by QA Engineer ("Approves test plans; verifies
-  // results" - docs/ARCHITECTURE.md section 4.2).
+  // results" - docs/ARCHITECTURE.md §6.1).
   "qa-agent": "qa_engineer",
   "tester-agent": "qa_engineer",
   "deployer-agent": "deployer",
@@ -155,7 +155,7 @@ export function assertCanRunAgent(role: Role, agentId: string): void {
 }
 
 // Who may view the artifacts of the Epic/Story/Task pipeline - the Architect's per-Epic
-// workspace files (docs/ARCHITECTURE.md section 6.3) and Jira itself (modules/jira). There is
+// workspace files (docs/ARCHITECTURE.md §4.3) and Jira itself (modules/jira). There is
 // no projects/jira_project_links table yet (section 9.1) to scope this by project membership,
 // so it is scoped by "is this person part of the pipeline at all": anyone with at least one
 // agent grant (PO, BA, Architect), plus admins. PO and BA only ever get a "read" grant on
@@ -295,7 +295,7 @@ const GATE_DECISION_PATTERN = /approve|reject|revise/i;
 // An ask_user pause offering Approve/Reject/Revise is a gate decision reviewing a specific
 // agent's output; anything else (e.g. a plain "Continue to the next stage?" Continue/Stop
 // prompt) is a continuation question with no agent output to review, and must not be labeled
-// with the previous gate's name (docs/ARCHITECTURE.md section 5.1). Mastra's built-in ask_user
+// with the previous gate's name (docs/ARCHITECTURE.md §6.1). Mastra's built-in ask_user
 // tool has a fixed {question, options, selectionMode} payload with no room for a custom "kind"
 // field, so this is content-based - the same signal buildResumeData() already relies on in
 // approvals.service.ts.

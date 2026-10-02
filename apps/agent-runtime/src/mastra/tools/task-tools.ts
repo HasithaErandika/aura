@@ -21,7 +21,7 @@ import { PR_BASE, compareUrl, parsePrUrl, parseRemote, prBody, prTitle, renderPr
 import { readTaskPr, recordTaskPr, renderPrStatus } from '../task/aura-api';
 import { checkResolution, conflictPrompt, mergeResolutionSchema, runParallel, sharedNotes, type ParallelEvent } from '../task/parallel';
 
-// A Task worked on in VS Code, through three gates (docs/plans/aura-vscode-agents.md §3):
+// A Task worked on in VS Code, through three gates (docs/ARCHITECTURE.md §4.1):
 //
 //   delegate_to_planner  draft/revise (low)   the VS Code agent proposes the plan; code routes it
 //                                             to a coder and stores it → ask_user = Gate 4

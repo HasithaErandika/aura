@@ -38,7 +38,7 @@ export function AccessTokensCard() {
     setError(null);
     setCopied(false);
     try {
-      const result = await tokensApi.create(name.trim() || "aura CLI", expiresInDays);
+      const result = await tokensApi.create(name.trim() || "VS Code", expiresInDays);
       setCreated(result.token);
       setName("");
       await tokens.reload();
@@ -69,7 +69,7 @@ export function AccessTokensCard() {
 
   return (
     <Card>
-      <CardHeader title="Access tokens" description="For the aura CLI and the VS Code extension. A token acts as you, with your role - revoke it if it leaks." />
+      <CardHeader title="Access tokens" description="For the VS Code extension and scripts. A token acts as you, with your role - revoke it if it leaks." />
       <CardBody>
         <div className="space-y-4">
           {error && <Alert tone="danger">{error}</Alert>}

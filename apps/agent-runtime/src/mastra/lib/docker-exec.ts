@@ -1,8 +1,7 @@
 import { spawn } from 'node:child_process';
 
 // Runs a scaffold command inside an ephemeral Docker container - the sandbox boundary for the
-// Dev agent (docs/ARCHITECTURE.md section 15, open decision #4: Docker chosen for local/solo
-// use; swap for Firecracker/gVisor if this ever serves untrusted multi-tenant work). Every
+// Dev agent (legacy web lane; removed in V7). Every
 // caller of runInContainer must pass a fixed, code-defined `command` - never text built from
 // Jira content, a model's output, or any other untrusted input. tools/delegate-tools.ts's
 // SCAFFOLD_COMMANDS table is the only place commands are chosen, and it is not agent-authored.

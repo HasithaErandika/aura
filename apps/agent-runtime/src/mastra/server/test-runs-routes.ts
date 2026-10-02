@@ -4,7 +4,7 @@ import { draftStore } from '../store/draft-store';
 // Read-only test-run history for an Epic (optionally one Task) - the real pass/failed/skipped
 // counts and the Tester Agent's interpretation, kept as separate fields (never merged into one
 // string) so a viewer can tell "machine result" from "AI interpretation" apart, the same
-// separation docs/ARCHITECTURE.md section 8 requires of the UI, not just the Jira comment.
+// separation principle 5 requires of the UI, not just the Jira comment.
 
 interface TestRunContent {
   epicKey: string;

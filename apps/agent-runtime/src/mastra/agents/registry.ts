@@ -45,7 +45,7 @@ export const AGENT_MANIFEST: Record<AgentId, AgentManifestEntry> = {
     label: 'Orchestrator',
     modelId: ORCHESTRATOR_MODEL_ID,
     delegatesTo: ['po-agent', 'ba-agent', 'architect-agent', 'dev-agent', 'coding-agent'],
-    note: 'Coordinates Gate 1 (Epic), Gate 2 (Stories), Gate 3 (Architecture), Gate 4 (Dev scaffold), and Gate 5 (Coding agent). Never drafts, files, or executes directly - no Jira, memory, filesystem, or shell tool of its own (docs/ARCHITECTURE.md section 6.2).',
+    note: 'Coordinates the web pipeline: Gates 1-3, the QA plan, Gate 8, and the legacy Gates 4, 5 and 7. Never drafts, files, or executes directly - no Jira, memory, filesystem, or shell tool of its own.',
     agentVersion: '1.2.0', // earlier tool calls reach the model as compact results (ToolCallFilter)
     promptVersion: '2.0.0', // compact instructions; drafts shown by AURA, never repeated (token saving)
   },
@@ -85,7 +85,7 @@ export const AGENT_MANIFEST: Record<AgentId, AgentManifestEntry> = {
     label: 'Coding Agent',
     modelId: `varies by provider (Coding Council: planner ${COUNCIL_PLANNER_MODEL_IDS.join(' → ')}, implementer ${COUNCIL_IMPLEMENTER_MODEL_IDS.join(' → ')}, reviewer ${COUNCIL_REVIEWER_MODEL_IDS.join(' → ')}; single agent: ${MASTRA_CODING_MODEL_ID})`,
     delegatesTo: [],
-    note: 'Implements a Task, invoked through delegate_to_code. draft is always deterministic code, never a model call - no Mastra Agent object backs this entry (docs/ARCHITECTURE.md section 6.5). execute runs one of two AURA-owned providers against the Task\'s own git worktree: the Coding Council (default, see its own entry) or a single built-in agent (agents/mastra-coding-agent.ts - list_files/read_file/write_file only, no shell). Also asked to write/update unit and integration tests (E2E stays QA\'s job). Runs only on AURA-governed models (ADR-3 D6).',
+    note: 'Implements a Task, invoked through delegate_to_code. draft is always deterministic code, never a model call - no Mastra Agent object backs this entry. execute runs one of two AURA-owned providers against the Task\'s own git worktree: the Coding Council (default, see its own entry) or a single built-in agent (agents/mastra-coding-agent.ts - list_files/read_file/write_file only, no shell). Also asked to write/update unit and integration tests (E2E stays QA\'s job). Runs only on AURA-governed models (ADR-3 D6).',
     agentVersion: '3.1.0', // council is the default; commits authored by the Gate 5 approver
     promptVersion: '2.3.0', // untrusted Jira text fenced (gateway/untrusted.ts)
   },

@@ -2,12 +2,14 @@
 
 | | |
 |---|---|
-| **Version** | 0.5 |
+| **Version** | 0.6 |
 | **Updated** | 2026-10-02 |
 | **Scope** | The system as it runs today. Planned work is in the [Roadmap](plans/aura-git-control-plane.md). |
+| **Decisions** | [ADR-3](adr/0003-git-workflow.md) (Git workflow) · [ADR-4](adr/0004-vscode-developer-workspace.md) (VS Code workspace) |
 
 AURA is a platform that runs AI agents across the software delivery lifecycle. Agents draft the
 work, **Jira** holds the work items, and a **human approves** every step that changes something.
+Developers work in **VS Code** with the AURA extension; every other role uses the **web app**.
 
 ---
 
@@ -15,12 +17,12 @@ work, **Jira** holds the work items, and a **human approves** every step that ch
 
 | # | Principle | In practice |
 |---|---|---|
-| 1 | **Agents propose, code decides** | Permissions, risk and audit are plain code, never a prompt |
+| 1 | **Agents propose, code decides** | Permissions, risk, routing, merging and audit are plain code, never a prompt |
 | 2 | **Jira is the source of truth for work** | Agents read from Jira and write back to Jira |
-| 3 | **A human approves every change** | Every stage stops at a gate until the right role decides |
+| 3 | **A human approves every change** | Every stage stops at a gate until the right person decides |
 | 4 | **Every tool call is checked and logged** | Policy, risk tier, approval and audit on each call |
-| 5 | **Evidence, not claims** | Test results come from the test runner, never from a model |
-| 6 | **One workspace per Task** | Each Task has its own git worktree and branch |
+| 5 | **Evidence, not claims** | Check and test results come from exit codes and reports, never from a model |
+| 6 | **Code stays with the developer** | The agent loop runs in the cloud; files, commands and git run in the developer's VS Code |
 
 ---
 
@@ -28,166 +30,233 @@ work, **Jira** holds the work items, and a **human approves** every step that ch
 
 ```mermaid
 flowchart LR
-    USERS(["Web users<br/>PO · BA · Architect · Developer · QA · Deployer · Admin"]) --> WEB["apps/web<br/>React UI"]
+    WEBU(["PO · BA · Architect · QA · Deployer · Admin"]) --> WEB["apps/web<br/>React"]
+    DEVU(["Developer"]) --> EXT["apps/vscode<br/>AURA extension"]
 
     WEB -->|"REST + SSE"| API
-    WEB -.->|"WebSocket + signed ticket"| TERM
+    EXT -->|"REST + SSE"| API
+    EXT <-->|"bridge WebSocket"| API
 
     subgraph API["apps/api · Express"]
         AUTH["Auth"] --> POL["Policy"] --> APR["Approvals"] --> AUD["Audit"]
+        Q["Turn queue (pg-boss)"]
     end
 
     API -->|"runtime token"| RT
 
-    subgraph RT["apps/agent-runtime · Mastra"]
+    subgraph RT["apps/agent-runtime · Mastra (private)"]
         ORCH{{"Orchestrator"}} --> GW["Tool gateway"]
-        GW --> AGENTS["Agents & workflows"]
-        TERM["Terminal server"]
+        VSA{{"vscode-agent"}} --> GW
+        GW --> AGENTS["Agents · workflows · task loop"]
     end
 
-    API --> SUPA[("Supabase<br/>users · runs · approvals · audit")]
+    API --> SUPA[("Supabase Postgres")]
+    RT --> SUPA
     RT --> JIRA[("Jira")]
-    RT --> DISK[("Workspaces<br/>git worktrees")]
-    RT --> DOCKER[("Docker sandbox")]
-    RT --> LLM[("LLMs<br/>Groq · Gemini")]
+    RT --> LLM[("Groq · Gemini")]
+    EXT -->|"developer's git + gh"| GH[("GitHub")]
+    GH -->|"aura-ci.yml · OIDC"| API
 ```
 
 | Part | Stack | Responsibility | Port |
 |---|---|---|---|
-| `apps/web` | React, Vite, Tailwind | Approval inbox, agent chat, runs, Jira view, Design documents, QA, admin | 5173 |
-| `apps/api` | Express | Auth, policy, approvals, audit, settings, Jira reads, terminal tickets | 4000 |
-| `apps/agent-runtime` | Mastra | Orchestrator, agents, workflows, tool gateway, drafts, terminal | 4111 / 4112 |
-| `apps/vscode` | VS Code extension | The developer's client (V2): Tasks, chat with the agent, Stop / Resume, permission modes, project rules and hooks; agents' file and command calls run here | — |
-| `packages/aura-client` | TypeScript | Typed REST + SSE client, used by the extension | — |
-| `packages/aura-bridge` | TypeScript | Bridge protocol between the cloud and the extension | — |
+| `apps/web` | React, Vite, Tailwind | Approvals, agent chat, runs, Jira, design documents, QA, admin | 5173 |
+| `apps/api` | Express | Auth, policy, approvals, audit, settings, turn queue, bridge hub, design documents, Task PRs, CI reports, notifications | 4000 |
+| `apps/agent-runtime` | Mastra 1.67 | Orchestrator, vscode-agent, agents, workflows, tool gateway, drafts | 4111 |
+| `apps/vscode` | VS Code extension | Tasks, chat, gate cards, Plan / Review / PR views, permission engine, runs the agents' file and command calls | — |
+| `packages/aura-bridge` | TypeScript | Bridge protocol shared by api, runtime and extension | — |
+| `packages/aura-client` | TypeScript | Typed REST + SSE client used by the extension | — |
 
-**Request path:** client → `apps/api` (checks who and what) → `apps/agent-runtime` (runs the
-agent) → Jira, disk, Docker. Only `apps/api` can call the runtime. Each agent turn runs as a
-**background job** (pg-boss on Postgres when `DATABASE_URL` is set, in-process otherwise). Every
-event a client sees is stored in `run_events` first, so a closed browser doesn't stop a turn and a
-client reconnects with `GET /runs/:id/events?after=<id>`.
+**Request path:** client → `apps/api` (who, what, audit) → `apps/agent-runtime`. Only `apps/api`
+calls the runtime, and the extension talks only to `apps/api`. Each agent turn runs as a
+**background job** (pg-boss when `DATABASE_URL` is set, in-process otherwise). Every event a
+client sees is stored in `run_events` first, so a closed window doesn't stop a turn and a client
+reconnects with `GET /runs/:id/events?after=<id>`.
 
 ---
 
-## 3. Delivery pipeline
+## 3. Delivery flow
 
-Eight gates. Each gate ends with a human decision: **approve**, **revise** or **reject**.
+Gates 1–3 and the release plan run in the web app through the **Orchestrator**. A developer's Task
+runs in VS Code through the **vscode-agent** (Gates 4–6). Each gate ends with a human decision:
+**approve**, **revise** or **reject**.
 
 ```mermaid
 flowchart LR
-    G1["1 · PO<br/>Epic"] --> G2["2 · BA<br/>Stories"] --> G3["3 · Architect<br/>Design + Tasks"]
-    G3 --> G4["4 · Dev<br/>Scaffold + worktree"] --> G5["5 · Coding<br/>Code + unit tests"]
-    G5 --> G6["6 · QA<br/>Test plan + Playwright"] --> G7["7 · Tester<br/>Run · diagnose · retest"]
-    G7 --> G8["8 · Deployer<br/>Release plan"]
+    subgraph WEBL["Web app"]
+        G1["1 · PO<br/>Epic"] --> G2["2 · BA<br/>Stories"] --> G3["3 · Architect<br/>Design + Tasks"]
+        QA["QA<br/>test plan + scenarios"]
+        G8["8 · Deployer<br/>release plan"]
+    end
+    subgraph IDE["VS Code"]
+        G4["4 · Plan"] --> G5["5 · Code review"] --> G6["6 · Pull request"]
+    end
+    G3 --> G4
+    G3 --> QA
+    G6 --> CI["CI on the PR<br/>QA notified"] --> G8
 ```
 
-| Gate | Agent | Output | Approver |
-|---|---|---|---|
-| 1 | PO | Epic | Project Owner |
-| 2 | BA | Stories, acceptance criteria, definition of done | Business Analyst |
-| 3 | Architect (workflow) | Design docs, ADRs, SRS (Postgres), Tasks linked to their Stories | Architect |
-| 4 | Dev | Scaffold, git repo, Task worktree | Developer |
-| 5 | Coding Council or single coding agent | Code and unit/integration tests | Developer |
-| 6 | QA | Test plan and scenarios (Postgres), Playwright specs | QA Engineer |
-| 7 | Tester (bounded loop) | Real test results and fixes | QA Engineer |
-| 8 | Deployer | Release, change and rollback plan (plan only) | Deployer |
+| Gate | Where | Agent | Output | Decides |
+|---|---|---|---|---|
+| 1 | Web | PO | Epic in Jira | Project Owner |
+| 2 | Web | BA | Stories, acceptance criteria, definition of done | Business Analyst |
+| 3 | Web | Architect (workflow) | Design documents, ADRs, SRS (Postgres); Tasks linked to their Stories | Architect |
+| 4 | VS Code | Task Planner (vscode-agent) | Task plan, optionally split into parallel parts | The developer who started the run |
+| 5 | VS Code | Coders + Evaluator | Reviewed change on the Task branch | The developer |
+| 6 | VS Code | Git agent (code) | Pull request to `development` | The developer |
+| QA | Web | QA | Test plan and scenarios (Postgres) | QA Engineer |
+| 8 | Web | Deployer | Release, change and rollback plan (plan only) | Deployer |
 
 Rules:
 - A gate runs only when a person asks for that stage. Nothing moves forward on its own.
-- Only approved content is written to Jira, design documents, disk or git.
+- Only approved content is written to Jira, design documents or git.
+- Merging a PR is a human action on GitHub; AURA never merges.
 
-### 3.1 Tester loop (Gate 7)
-
-```mermaid
-flowchart TD
-    RUN["Run Playwright suite"] --> OK{"Passed?"}
-    OK -->|yes| DONE["Ready for Release"]
-    OK -->|no| DIAG["Diagnose from evidence"]
-    DIAG -->|"code defect"| FIX["Coding agent fixes · Jira Bug"]
-    DIAG -->|"test defect"| QAFIX["QA revises that scenario"]
-    DIAG -->|"unsure"| HUMAN["Human"]
-    FIX --> CAP{"Attempt ≤ 3?"}
-    QAFIX --> CAP
-    CAP -->|yes| RUN
-    CAP -->|no| HALT["HALTED_LOOP_GUARD → Human"]
-```
-
-One approval starts the loop. Pass/fail counts come from Playwright's JSON output.
+The web pipeline still offers the legacy Gates 4, 5 and 7 that work on server worktrees
+(§4.3). They are removed in V7 of the roadmap.
 
 ---
 
 ## 4. Agents
 
-| Agent | How it works | Tools |
-|---|---|---|
-| **Orchestrator** | Chats with the user and picks the next agent | `ask_user`, 8 × `delegate_to_*`, `git` |
-| **PO, BA** | One structured-output call (Zod schema) | None |
-| **Architect** | Multi-step workflow: requirements → decomposition → frontend, API, integration, data, security and AI specialists in parallel → ADRs + Tasks; documents saved to Postgres | None |
-| **Dev** | Runs a fixed scaffold command in Docker, then creates the Task worktree | None (code runs the command) |
-| **Coding Council** | Planner, Implementer and Reviewer agents ([details](plans/aura-code-cli-council.md)) | File tools + allowlisted checks |
-| **Single coding agent** | One agent with `list_files` / `read_file` / `write_file` | File tools |
-| **QA** | Test plan and scenarios (Postgres) and Playwright specs (QA workspace) from Stories and the real code | None |
-| **Tester** | Workflow: run → diagnose → route → retest | None |
-| **Deployer** | Release, change and rollback plan | None |
+| Agent | Lane | How it works | Tools |
+|---|---|---|---|
+| **Orchestrator** | Web | Chats with the user and calls the next delegate tool | `ask_user`, `delegate_to_*` |
+| **PO, BA, Deployer** | Web | One structured-output call (Zod schema) | None |
+| **Architect** | Web | Workflow: requirements → decomposition → frontend, API, integration, data, security and AI specialists in parallel → ADRs + Tasks | None |
+| **QA** | Web | Test plan and scenarios from Stories (and code when present) | None |
+| **vscode-agent** | VS Code | The developer's agent; its workspace is the open folder, through the bridge | Workspace tools, `load_skill`, `design_docs`, Task tools |
+| **Task Planner** | VS Code | The vscode-agent's plan, checked and routed by code (`delegate_to_planner`) | — |
+| **Coders** | VS Code | `frontend-react`, `backend-nestjs`, `backend-spring`, `issue-solver`, `test-writer`; chosen by code (`task/router.ts`) | Workspace tools, `design_docs` |
+| **Evaluator** | VS Code | Reviews the real diff and check output; different model family; never writes | None |
+| **Git agent** | VS Code | Deterministic code: PR draft with provenance, commit, push, `gh pr create`, CI status | — (no model) |
 
-**Tech stack the Architect designs for:** React 19 + Vite, PostgreSQL, and NestJS or Spring Boot
-(chosen by the human).
+Agents, versions and models are in `agent-runtime/src/mastra/agents/registry.ts`; the API's
+grants are in `apps/api/src/modules/policy/policy.ts`.
 
-**Disciplines Gate 4 can scaffold:** Frontend and Backend/NestJS. Spring Boot, Data, AI,
-Integration and Deployment return a clear "not supported" error.
+### 4.1 A Task in VS Code (Gates 4–6)
 
-### 4.1 Coding Council (Gate 5)
+```mermaid
+sequenceDiagram
+    actor D as Developer
+    participant A as vscode-agent
+    participant C as Coder (routed by code)
+    participant E as Evaluator
+    participant X as Extension (developer's machine)
+    A->>X: read Task, design docs, code (read-only until Gate 4)
+    A->>D: delegate_to_planner → Gate 4 plan
+    D->>A: Approve
+    A->>X: checkout feat/EPIC/TASK (from development)
+    loop up to "VS Code review rounds"
+        A->>C: plan + findings + developer notes
+        C->>X: edit files, run commands
+        A->>X: code runs the checks, reads git diff
+        A->>E: diff + real check output
+        E-->>A: verdict; code decides pass
+    end
+    A->>D: Gate 5 review (diff editor, findings, checks)
+    D->>A: Approve → delegate_to_review accept
+    A->>D: delegate_to_pr draft → Gate 6
+    D->>A: Approve
+    A->>X: commit (beforeCommit hooks), push, gh pr create --base development
+```
+
+| Step | Rule (in code) |
+|---|---|
+| Routing | Bug → `issue-solver`; test labels → `test-writer`; Frontend → `frontend-react`; Backend, Data, AI, Integration → `backend-nestjs` or `backend-spring` from the Epic's Gate 3 stack |
+| Plan lock | Until Gate 4 is approved, the conversation's workspace is read-only, whatever the developer's mode |
+| Task branch | `feat/<EPIC>/<TASK>` from `development` (else the current commit); never switched over uncommitted work |
+| Checks | `.aura/settings.json` `checks`, else the plan's; run by code, not the coder |
+| Round passes | Every check green, the Evaluator approves, and no blocker or major finding (`task/contracts.ts roundPassed`) |
+| Notes | Text typed while a Task runs goes to `POST /runs/:id/notes`; coders read it at their next step |
+| Gate 5 revise | Another pass of the same approved plan with the developer's feedback |
+| Gate 6 | Commit, push and PR use the developer's own git and `gh`; without `gh`, the branch is pushed and a compare link is given |
+
+### 4.2 Parallel parts and the merge step
 
 ```mermaid
 flowchart LR
-    P["Planner<br/>read-only"] --> R1["Reviewer<br/>plan review"]
-    R1 --> I["Implementer<br/>write + checks"]
-    I --> C["Checks<br/>typecheck · build · test · lint"]
-    C --> R2{"Reviewer<br/>code review"}
-    R2 -->|"CHANGES"| I
-    R2 -->|"APPROVE"| DONE["Task → In Review"]
+    P["Plan with parts<br/>(Gate 4)"] --> S{"split.ts<br/>valid?"}
+    S -- "no parts" --> ONE["One coder on<br/>feat/EPIC/TASK"]
+    S -- "2–4 disjoint parts" --> W["Worktree per part<br/>.aura/worktrees/TASK_sN<br/>branch feat/EPIC/TASK_sN"]
+    W --> L1["Coder + Evaluator<br/>part 1"] & L2["Coder + Evaluator<br/>part 2"]
+    L1 & L2 --> C["Commit each part"] --> M["git merge --no-ff<br/>one by one"]
+    M -- conflict --> E["Evaluator proposes files<br/>code refuses markers"]
+    E --> M
+    M --> K["Checks on the<br/>merged Task branch"] --> G5["Gate 5"]
+    ONE --> G5
 ```
 
-- **Modes:** `lean` (no separate planner), `full`, or `auto` (full for sensitive or large Tasks).
-- A failing check always means CHANGES.
-- Each round ends with a checkpoint commit on the Task branch.
-- The run stops at the round limit or the token budget. Without reviewer approval, the Task
-  does not move to *In Review*.
+- `task/split.ts` accepts parts only when every step is in exactly one part, scopes don't overlap
+  and each step's files are in its part's scope. A part that edits outside its scope gets a
+  blocker finding.
+- Bridge calls for a part carry `worktree`; the extension resolves paths inside it and refuses
+  paths that leave it.
+- On a conflict the Evaluator proposes each conflicting file whole; code refuses a proposal with
+  conflict markers or missing or extra files. An unresolved conflict aborts the merge and keeps
+  that part's branch. Merged parts' worktrees and sub-branches are removed.
 
-### 4.2 Task workspaces
+### 4.3 Legacy web lane (removed in V7)
 
-```mermaid
-flowchart TD
-    BASE["Base repo per discipline<br/>&lt;EPIC&gt;/dev/frontend"] --> W1["Worktree KAN-43<br/>feature/KAN-43"]
-    BASE --> W2["Worktree KAN-45<br/>feature/KAN-45"]
-```
+| Gate | Agent | What it does |
+|---|---|---|
+| 4 | Dev | Fixed scaffold command in Docker, then a server worktree `feature/<TASK>` under `AURA_WORKSPACE_ROOT` |
+| 5 | Coding Council or single coding agent | Planner, Implementer and Reviewer on the server worktree, with fixed check ids; or one agent with three file tools |
+| 7 | Tester | Playwright in Docker: run → diagnose → route to Coding or QA → retest, at most 3 attempts, then `HALTED_LOOP_GUARD` |
+| — | `delegate_to_git`, `delegate_to_ci` | Git and CI preview on the server worktree |
 
-- The first Task of a discipline creates the base repo (scaffold + CI file + first commit).
-- Every Task gets its own worktree on `feature/<TASK>`. Coding, git and tests run there only.
-- Commits made on the server are authored by the approving developer (AURA is co-author).
-- Pushing is done by the developer with their own git credentials. AURA holds no GitHub credential.
+These still work for Epics that started on the server, together with the web terminal and the
+server workspace routes. ADR-4 replaces them with the VS Code lane.
 
 ---
 
-## 5. Security and governance
+## 5. VS Code bridge
 
-### 5.1 Roles
+```mermaid
+sequenceDiagram
+    participant RT as vscode-agent (runtime)
+    participant A as apps/api
+    participant X as VS Code extension
+    RT->>A: POST /internal/bridge/calls (runtime token)
+    A->>X: tool.request (WebSocket)
+    X->>X: built-in denies → rules → mode → ask → run in the open folder
+    X-->>A: tool.result
+    A-->>RT: result
+```
 
-| Role | Runs | Approves |
-|---|---|---|
-| Project Owner | PO | Gate 1 |
-| Business Analyst | BA | Gate 2 |
-| Architect | Architect | Gate 3 |
-| Developer | Dev, Coding, Git | Gates 4–5 |
-| QA Engineer | QA, Tester | Gates 6–7 |
-| Deployer | Deployer | Gate 8 |
-| Admin | Users, projects, audit | No gates |
+The vscode-agent uses a Mastra `Workspace` whose filesystem and sandbox call the developer's
+machine. The extension connects with a 60-second single-use ticket (`POST /bridge/tickets`,
+developers only); every call is audited (`bridge.tool.call`). Overhead is 2–18 ms per call.
 
-Grants are data in `apps/api/src/modules/policy/policy.ts`.
+| Area | Behaviour |
+|---|---|
+| Tools | `read_file`, `write_file`, `edit_file`, `list_files`, `grep` (one call on the developer's machine), `file_stat`, `mkdir`, `delete`, `execute_command` (also `background: true`), `get_process_output`, `kill_process`, `load_skill`, `design_docs` |
+| Modes | Plan (read-only), Default (ask), Accept edits. No bypass mode; Admin → Settings restricts modes per project |
+| Rules | `.aura/settings.json` (team) and `.aura/settings.local.json` (personal): `Bash(cmd)`, `Edit(glob)`, `Read(glob)` in `allow` / `ask` / `deny`. Built-in denies always win (`git push --force`, writes outside the folder, `~/.ssh`, `~/.aws`, `curl … \| sh`) |
+| Hooks | `afterEdit`, `beforeCommit` (a failure stops the commit), run by the extension |
+| Memory, skills | `.aura/AURA.md` and the skill list are read at the start of each turn; repository text with an injection pattern is refused. Library skills: `nestjs-module`, `react-feature`, `debug-failing-test`, `write-unit-tests`, `playwright-e2e`, `code-review`, `git-hygiene`; `.aura/skills/<name>/SKILL.md` overrides one |
+| Stop | `POST /runs/:id/stop` cancels the running call (`run.cancel`), refuses the next ones, and ends the turn `INTERRUPTED` |
+| Limits | One call ≤ 4.5 minutes (long work uses background processes); one API process holds the WebSocket |
 
-### 5.2 Tool gateway
+---
 
-Every Orchestrator tool call (except `ask_user`) passes one pipeline in
+## 6. Security and governance
+
+### 6.1 Roles
+
+| Role | Client | Runs | Decides |
+|---|---|---|---|
+| Project Owner | Web | PO | Gate 1 |
+| Business Analyst | Web | BA | Gate 2 |
+| Architect | Web | Architect | Gate 3 |
+| Developer | VS Code | vscode-agent, Task tools | Gates 4–6 of their own run |
+| QA Engineer | Web | QA | Test plan; follows PRs and CI |
+| Deployer | Web | Deployer | Gate 8 |
+| Admin | Web | Users, projects, settings, audit | No gates |
+
+### 6.2 Tool gateway
+
+Every delegate tool call of the Orchestrator and the vscode-agent passes one pipeline in
 `agent-runtime/src/mastra/gateway/`:
 
 ```mermaid
@@ -206,19 +275,21 @@ flowchart LR
 
 | Control | Rule |
 |---|---|
-| Risk tiers | Low: read, draft, revise. Medium: file, execute, write. Unknown: refused |
+| Risk tiers | `gateway/risk.ts`. Low: read, draft, revise, status. Medium: file, execute, accept, open. Unknown: refused |
 | Single-use approval | One human **approve** authorizes one medium step |
 | Loop guards | Same call 3× in 15 min · same tool fails 3× · draft reaches version 10 |
-| Prompt injection | Jira text is cleaned, scanned (11 rules), wrapped in `<untrusted>`; findings shown on the draft |
-| Draft delivery | Full draft goes to the human; the model sees a 400-character preview |
+| Prompt injection | Jira and repository text is cleaned, scanned, fenced as `<untrusted>`; findings shown on the draft |
+| Draft delivery | The full draft goes to the human; the model sees a 400-character preview |
+| History | Earlier tool calls reach the Orchestrator's model as compact results (`ToolCallFilter`) |
 
-### 5.3 Access and secrets
+### 6.3 Access and secrets
 
 | Boundary | Control |
 |---|---|
 | User → API | Supabase session or personal access token (`aura_pat_…`, hashed, expiring, revocable) |
+| Extension → API | Browser device sign-in; bridge ticket, 60 s, single use |
 | API → runtime | `MASTRA_RUNTIME_TOKEN` bearer token |
-| Browser → terminal | 60-second, single-use HMAC ticket signed by the API |
+| GitHub Actions → API | OIDC token, audience `AURA_CI_AUDIENCE`; proves the repository, no stored secret |
 | Approval | Decision bound to the hash of the exact payload shown |
 | Audit | `audit_logs` is append-only (database trigger) |
 
@@ -229,43 +300,36 @@ Full threat model: [security/threat-model.md](security/threat-model.md).
 
 ---
 
-## 6. Data
+## 7. Data
 
 ```mermaid
 flowchart LR
     subgraph SUPA["Supabase (apps/api)"]
         A["profiles · access_tokens"]
-        B["workflow_runs · run_steps"]
+        B["workflow_runs · run_steps · run_events · run_notes"]
         C["approval_requests · approval_decisions"]
         D["audit_logs (append-only)"]
-        E["projects · repositories<br/>task_branches · task_dependencies"]
-        S["settings"]
-        DD["design_documents · design_document_versions<br/>(append-only versions)"]
+        E["projects · repositories<br/>task_branches (PR + CI) · task_dependencies"]
+        S["settings · notifications"]
+        DD["design_documents · design_document_versions"]
     end
     subgraph RTDB["agent-runtime: Postgres (DATABASE_URL) or local libSQL"]
         F["schema mastra<br/>memory · threads · suspended runs"]
         G["schema aura_runtime<br/>drafts · token usage · model usage · approval use"]
     end
-    subgraph FS["Disk: AURA_WORKSPACE_ROOT"]
-        H["&lt;EPIC&gt;/qa/tests · dev"]
-    end
 ```
 
-With `DATABASE_URL` set, the runtime keeps agent memory and its own tables in Postgres, so a
-restart or a second replica sees the same gates, drafts and ledgers. Without it, it uses local
-libSQL files (one developer, one process). `pnpm --filter agent-runtime migrate-state` copies an
-existing local `aura-drafts.db` into Postgres once.
+| Data | Detail |
+|---|---|
+| Runtime state | With `DATABASE_URL`, agent memory and the runtime's tables are in Postgres, so a restart or a second replica sees the same gates and drafts. `migrate-state` copies an old local `aura-drafts.db` once |
+| Design documents | Migration `0010`. Architecture plan, SRS, delivery plan, ADRs, QA test plan and scenarios per Epic. Saved after approval through `/internal/design-docs`; edited on the web with `baseVersion` (stale save → 409); every version kept |
+| Task PRs and CI | Migration `0012`. `task_branches` holds each Task's PR, reviewers and CI state; `aura-ci.yml` reports to `POST /ci/report` |
+| Notifications | Migration `0012`. In-app: QA hears when a PR opens; QA and the developer hear when CI passes or fails |
+| Source code | Not stored. Legacy server worktrees under `AURA_WORKSPACE_ROOT` remain until V7 |
 
-**Design documents** (migration `0010`): the Architect's architecture plan, SRS, delivery plan
-and ADRs, and QA's test plan and scenarios, per Epic. Gate 3 and Gate 6 save them through
-`POST /internal/design-docs` after approval; the Architect and QA edit them on the web
-(`/design-docs`, every save a new version, a stale save refused with 409); the VS Code agent reads
-them with `design_docs`. Every write is audited (`design_doc.created`, `design_doc.updated`).
-`pnpm --filter api import-design-docs` loads documents written to disk before this change.
+### 7.1 Settings
 
-### 6.1 Settings
-
-Tunable values live in the `settings` table and are edited in **Admin → Settings** (global or per
+Tunable values live in the `settings` table, edited in **Admin → Settings** (global or per
 project) and **Profile → Preferences** (per user). Secrets, URLs and security switches stay in
 `.env`.
 
@@ -275,75 +339,16 @@ flowchart LR
 ```
 
 The first value found wins; a user's token budget can't exceed the project's. The API sends the
-runtime's values with each turn (`auraSettings` request context). A Gate 5 draft records the council
-limits, so the run uses exactly what the approver saw. Every change is audited (`settings.updated`).
+values with each turn (`auraSettings` request context). Every change is audited.
 
-### 6.2 Provenance
+### 7.2 Provenance
 
-Every Jira artifact carries a **provenance stamp**: agent, agent version, prompt version, model,
-draft id and thread id. `GET /audit/export` (admin) exports the audit log as JSON or CSV.
-
----
-
-## 7. Developer tools
-
-| Tool | What it does |
-|---|---|
-| Design documents, QA (web) | Per Epic: architecture plan, SRS, plan, ADRs; test plan and scenarios. Markdown editor with preview and version history; no source code on the web |
-| Web terminal | Shell in the Task worktree (`full` on loopback, otherwise `restricted`) |
-| Runners tab | Live Docker containers, council runs, checks and terminal sessions |
-
-Commands and settings: [SETUP.md](../SETUP.md). The developer client is moving to a VS Code
-extension ([ADR-4](adr/0004-vscode-developer-workspace.md)); the `aura` CLI was removed.
+Every Jira artifact and pull request carries provenance: agent, agent version, prompt version,
+model, draft id and run. A PR description also lists the plan, checks with exit codes, the
+Evaluator's verdict and rounds, and the Gate 4 and 5 drafts. `GET /audit/export` (admin) exports
+the audit log as JSON or CSV.
 
 ---
-
-### 7.1 VS Code bridge (V0)
-
-```mermaid
-sequenceDiagram
-    participant RT as vscode-agent (runtime)
-    participant A as apps/api
-    participant X as VS Code extension
-    RT->>A: POST /internal/bridge/calls (runtime token)
-    A->>X: tool.request (WebSocket)
-    X->>X: allow / ask / deny → run in the open folder
-    X-->>A: tool.result
-    A-->>RT: result
-```
-
-The `vscode-agent` uses a Mastra `Workspace` whose filesystem and sandbox live on the developer's
-machine ([ADR-4](adr/0004-vscode-developer-workspace.md)). The extension connects with a 60-second
-single-use ticket (`POST /bridge/tickets`, developers only). Every change it makes is audited
-(`bridge.tool.call`).
-
-The agent gets Mastra's workspace tools on this bridge (files, `grep` run on the developer's
-machine, commands, background processes), `load_skill`, and `design_docs` (reads the Epic's
-design documents, fenced as untrusted).
-
-A Jira Task runs through three gates in VS Code (plan §12.5): the agent proposes a plan
-(`delegate_to_planner`, Gate 4; its workspace is read-only until then), a coder chosen by code
-(`task/router.ts`) implements it while code runs the checks and an Evaluator reviews the real diff
-(`delegate_to_coder`, up to *VS Code review rounds*), and the developer accepts the review
-(`delegate_to_review`, Gate 5). The extension shows the plan, the changed files (diff editor) and
-a card for each decision; notes typed meanwhile reach the coders (`run_notes`). After Gate 4 the
-work happens on the Task branch `feat/<EPIC>/<TASK>`. A plan may split into 2–4 parts with
-disjoint file scopes (checked by `task/split.ts`): each part runs its own coder ↔ Evaluator loop
-in a worktree (`.aura/worktrees/<TASK>_s<N>`, branch `…_s<N>`; bridge calls carry `worktree`),
-then code commits and merges the parts into the Task branch, the Evaluator proposes any conflict
-resolution, and the checks run on the merged result before Gate 5 (plan §12.6). Gate 6
-(`delegate_to_pr`) commits, pushes and opens the pull request to `development` with the
-developer's own git and `gh`, and records it in `task_branches`; the project's `aura-ci.yml`
-reports each CI run to `POST /ci/report` with a GitHub Actions OIDC token, and QA follows both on
-the QA page with in-app notifications (plan §12.7). Each turn starts with the project's
-`.aura/AURA.md` and the list of skills (AURA's library and `.aura/skills/`). The extension applies
-the developer's permission mode, the project's rules and hooks (`.aura/settings.json`) and the
-built-in refusals before anything runs.
-
-**Stop.** `POST /runs/:id/stop` (the requester or an admin) cancels the run's tool call on the
-developer's machine (`run.cancel`), refuses its next calls, and aborts the turn, which ends as
-`INTERRUPTED`; the next message continues the conversation. Audited as `run.stopped`. A turn is
-aborted only by the API process that runs it (one process today).
 
 ## 8. Quality and cost
 
@@ -367,11 +372,8 @@ flowchart LR
 | Deployer | not recorded |
 
 Evals are deterministic code checks: structure, completeness, grounding, honesty about unknowns,
-injection resistance and token cost.
-
-**Token usage.** The Orchestrator used 69% of all tokens in the baseline. Compact instructions,
-draft previews and a 16-message memory window cut its fixed cost per step from ~7,500 to ~4,250
-tokens (estimated total saving ~40%).
+injection resistance and token cost. Agents run on Groq first and fall back to Gemini
+(`config/models.ts`).
 
 ---
 
@@ -379,14 +381,13 @@ tokens (estimated total saving ~40%).
 
 | Area | Status | Notes |
 |---|---|---|
-| Gates 1–8 | Built | Gate 8 is a plan only |
+| Gates 1–3, QA plan, Gate 8 | Built | Gate 8 is a plan only |
+| VS Code Gates 4–6, parallel parts, PR, CI lane, notifications | Built | Unit-tested; live run with a model pending |
 | Tool gateway, evals, token ledger | Built | |
-| Projects, repositories, `GitProvider` | Partial | Local provider only; not used by Gate 4 yet |
-| GitHub App, pull requests, merge flow | Not built | |
-| Runtime state in Postgres | Built | Set `DATABASE_URL`; required in server mode |
-| Job queue, resumable streams | Built | A restart marks a running turn `INTERRUPTED`; it is never re-run automatically |
-| SSO, row-level security per project | Not built | Scope is enforced in `policy.ts` |
-| Budgets per team | Not built | Per-run token budget only |
+| Runtime state in Postgres, turn queue, resumable streams | Built | A restart marks a running turn `INTERRUPTED`; never re-run automatically |
+| Legacy server lane (Docker, worktrees, Council, terminal) | Built, scheduled for removal | V7 |
+| Jira status from Git events, merge tracking | Not built | |
+| SSO, row-level security per project, team budgets | Not built | Scope is enforced in `policy.ts` |
 
 Next steps: [Roadmap](plans/aura-git-control-plane.md).
 
@@ -399,6 +400,7 @@ Next steps: [Roadmap](plans/aura-git-control-plane.md).
 | **Gate** | A pause only a person with the right role can resolve |
 | **Draft** | Agent output waiting for approval |
 | **Grant** | A role → agent → tool permission |
-| **Run** | One agent execution for one Jira issue |
-| **Risk tier** | Low / medium / high / forbidden label on a tool |
-| **Worktree** | A Task's own checkout of the repository |
+| **Run** | One agent conversation's execution, with its steps and events |
+| **Risk tier** | Low or medium label on a tool mode; unknown modes are refused |
+| **Bridge** | The relay that runs an agent's tool call in the developer's VS Code |
+| **Part** | One of 2–4 parallel slices of a Task plan, on its own `_s<N>` branch |

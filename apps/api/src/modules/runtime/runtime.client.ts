@@ -233,7 +233,7 @@ export const runtimeClient = {
   },
 
   // Custom routes registered in apps/agent-runtime/src/mastra/server/workspace-routes.ts -
-  // access to the Architect's per-Epic workspace (docs/ARCHITECTURE.md section 6.3).
+  // access to the Architect's per-Epic workspace (docs/ARCHITECTURE.md §4.3).
   listWorkspaceEpics(): Promise<{ epics: string[] }> {
     return workspaceEpicsCache.get("all", () => request(`/workspace`));
   },

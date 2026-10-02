@@ -77,7 +77,7 @@ export interface AuditExportQuery {
   to?: string;
 }
 
-// Evidence exports (SOC2/ISO reviews - docs/ARCHITECTURE.md section 5.3) can span an audit
+// Evidence exports (SOC2/ISO reviews - docs/ARCHITECTURE.md §7.2) can span an audit
 // period much larger than the Audit Explorer's 200-row page, but an unbounded query against an
 // append-only table that only grows is still a real cost - PAGE_SIZE keeps each round trip
 // small, and HARD_CAP is a backstop against accidentally exporting the entire table, not a

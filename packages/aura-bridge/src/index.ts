@@ -1,4 +1,4 @@
-// The AURA bridge protocol (ADR-4, docs/plans/aura-vscode-agents.md §5).
+// The AURA bridge protocol (ADR-4, docs/ARCHITECTURE.md §5).
 //
 // The agent loop runs in the cloud; files and commands live on the developer's machine. When an
 // agent needs one, the runtime asks apps/api, apps/api sends a `tool.request` over the developer's

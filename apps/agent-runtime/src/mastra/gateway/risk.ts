@@ -1,6 +1,6 @@
 import type { AgentId } from '../agents/registry';
 
-// Risk tier of every Orchestrator tool call, by tool and mode (docs/ARCHITECTURE.md §2.2):
+// Risk tier of every Orchestrator tool call, by tool and mode (docs/ARCHITECTURE.md §6.2):
 //   low     runs straight away, recorded (reads, drafts, revisions, a local CI preview)
 //   medium  writes to Jira, disk, git or Docker: needs a recorded human decision, used once
 // A tool or mode missing from this table is refused (gateway.ts), so a new mode can't ship

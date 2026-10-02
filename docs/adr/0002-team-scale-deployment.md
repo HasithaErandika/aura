@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | Proposed · not built |
+| **Status** | Proposed · D1–D2 and D5 superseded by [ADR-4](0004-vscode-developer-workspace.md); the rest is in the Roadmap |
 | **Date** | 2026-09-25 |
 | **Target** | A company with 30+ developers |
 

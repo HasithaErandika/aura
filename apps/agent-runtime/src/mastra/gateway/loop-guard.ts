@@ -1,7 +1,6 @@
 import { createHash } from 'node:crypto';
 
-// Loop guards for the Orchestrator's tool calls (docs/ARCHITECTURE.md §5 "Loop guards beyond the
-// Tester Agent"). Agents already have per-call step caps (maxSteps) and the Council and Tester
+// Loop guards for the Orchestrator's tool calls (docs/ARCHITECTURE.md §6.2). Agents already have per-call step caps (maxSteps) and the Council and Tester
 // loops are bounded; what's left is the Orchestrator going round in circles across calls:
 //   - the same call with the same arguments, again and again
 //   - the same tool failing over and over on one thread

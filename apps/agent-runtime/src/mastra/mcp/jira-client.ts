@@ -8,7 +8,7 @@ export const jiraProjectKey = process.env.JIRA_PROJECT_KEY || '';
 
 // Connects to the Jira MCP server over HTTP/SSE (JIRA_MCP_URL) or stdio (defaults to `uvx mcp-atlassian`).
 // Only the delegate tools call Jira, from code, after a human approved the draft. No agent holds
-// a Jira tool, so no model can write to Jira on its own (docs/ARCHITECTURE.md section 7).
+// a Jira tool, so no model can write to Jira on its own (docs/ARCHITECTURE.md principle 1).
 export const jiraMcp = new MCPClient({
   id: 'jira-mcp',
   servers: {

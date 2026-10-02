@@ -2,8 +2,8 @@
 
 | | |
 |---|---|
-| **Status** | Accepted · 2026-10-02 |
-| **Plan** | [plans/aura-vscode-agents.md](../plans/aura-vscode-agents.md) |
+| **Status** | Accepted · 2026-10-02 · built (V0–V6); removal of the server lane is V7 of the [Roadmap](../plans/aura-git-control-plane.md) |
+| **Plan** | [plans/aura-vscode-agents.md](../plans/aura-vscode-agents.md) (completed) · as built: [ARCHITECTURE.md](../ARCHITECTURE.md) §4–§5 |
 | **Supersedes** | ADR-1 (Docker scaffolds), ADR-2 D1–D2 and D5 (runner pool, web terminal), ADR-3 D2 (GitHub App) and D8 (design docs in the repo) |
 | **Keeps** | ADR-3 D1, D3–D5, D7 (one repo per project, merged ≠ done, dependencies, contract-first, CI on the PR) |
 
@@ -51,7 +51,7 @@ flowchart LR
 | Developers keep their IDE, git credentials and tools | Prompt injection can lead to commands; tool output must be treated as untrusted |
 | One public entry point (`apps/api`); runtime stays private | Work pauses when VS Code is closed |
 | No Docker, runner pool or GitHub App to operate | A VS Code extension is a new codebase to build and maintain |
-| CI results are the shared, trustworthy evidence | Large parts of the current system are removed (plan §13) |
+| CI results are the shared, trustworthy evidence | Large parts of the current system are removed (Roadmap, V7) |
 
 **Not decided here:** a cloud sandbox for unattended work; hosting region and data-protection
 review (Sri Lanka Personal Data Protection Act, No. 9 of 2022) for the production deployment.

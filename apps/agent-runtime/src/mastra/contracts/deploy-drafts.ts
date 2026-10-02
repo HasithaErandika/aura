@@ -2,7 +2,7 @@ import { z } from 'zod';
 import { bullets } from './markdown';
 
 // The Deployer Agent's plan (Gate 8) - plan-only, on purpose. There is no real deployment
-// pipeline in this repo (docs/ARCHITECTURE.md section 12 is target-state, not built), so this
+// pipeline in this repo (not built), so this
 // agent never claims a release happened (principle 5, "evidence over assertion"). It prepares
 // what a human needs to execute the release themselves: release notes, a change plan, and a
 // rollback plan. There is deliberately no `execute` mode on delegate_to_deploy - see
