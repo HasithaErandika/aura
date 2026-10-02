@@ -42,7 +42,7 @@ export const COUNCIL_PLANNER_MODEL_IDS = ['groq/openai/gpt-oss-120b', GEMINI_FAL
 export const COUNCIL_IMPLEMENTER_MODEL_IDS = ['groq/openai/gpt-oss-120b', GEMINI_FALLBACK_MODEL] as const; // heavy - holds write/edit/check tools
 export const COUNCIL_REVIEWER_MODEL_IDS = [GEMINI_FALLBACK_MODEL, 'groq/qwen/qwen3.8-27b'] as const; // no tools - structured verdict only
 
-export type AgentId = 'orchestrator' | 'po-agent' | 'ba-agent' | 'architect-agent' | 'dev-agent' | 'coding-agent' | 'coding-council' | 'qa-agent' | 'tester-agent' | 'deployer-agent' | 'git-tool' | 'ci-tool' | 'vscode-agent' | 'task-planner' | 'coder' | 'evaluator';
+export type AgentId = 'orchestrator' | 'po-agent' | 'ba-agent' | 'architect-agent' | 'dev-agent' | 'coding-agent' | 'coding-council' | 'qa-agent' | 'tester-agent' | 'deployer-agent' | 'git-tool' | 'ci-tool' | 'vscode-agent' | 'task-planner' | 'coder' | 'evaluator' | 'git-agent';
 
 export interface AgentManifestEntry {
   modelId: string;
@@ -158,8 +158,16 @@ export const AGENT_MANIFEST: Record<AgentId, AgentManifestEntry> = {
     modelId: VSCODE_AGENT_MODEL_ID,
     delegatesTo: [],
     note: "The VS Code developer workspace (ADR-4): a Mastra Workspace whose filesystem and sandbox are the folder open in the developer's VS Code, reached through apps/api and the AURA extension (bridge/). The extension applies the developer's permission mode and the project's rules and hooks before every write and command. V2 adds native grep, background processes, project memory (.aura/AURA.md) and skills (load_skill). V3 adds design_docs (read an Epic's design documents from Postgres). V4 runs a Task through gates: it proposes the plan (delegate_to_planner, Gate 4; its own writes are read-only until then), the routed coder and the Evaluator implement it (delegate_to_coder), and the developer accepts the review (delegate_to_review, Gate 5).",
-    agentVersion: '0.5.0', // V5: Task branch, parallel parts on sub-branches, merge step
-    promptVersion: '3.1.0', // Task flow: plan (optional parallel parts) → Gate 4 → coders → Gate 5
+    agentVersion: '0.6.0', // V6: Gate 6 pull request (delegate_to_pr), CI status
+    promptVersion: '3.2.0', // Task flow: … → Gate 5 → PR (Gate 6) → CI
+  },
+  'git-agent': {
+    label: 'Git agent',
+    modelId: 'none (deterministic)',
+    delegatesTo: [],
+    note: 'Gate 6 of a Task in VS Code, invoked through delegate_to_pr: code drafts the pull request (title, description with provenance, reviewers), and after the developer approves it commits the accepted change, pushes the Task branch and opens the PR to development with the developer\'s own git and gh, then records it in AURA for QA (task/pr.ts). status reads the PR and its CI result. No model call.',
+    agentVersion: '1.0.0',
+    promptVersion: '1.0.0',
   },
   'task-planner': {
     label: 'Task Planner',

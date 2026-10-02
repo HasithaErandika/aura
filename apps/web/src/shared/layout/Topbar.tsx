@@ -5,6 +5,7 @@ import { Badge } from "../ui/Badge.tsx";
 import { initials } from "../lib/format.ts";
 import { ChevronDownIcon, LogoutIcon, MenuIcon } from "../icons/index.tsx";
 import { RuntimeStatus } from "./RuntimeStatus.tsx";
+import { NotificationsBell } from "./NotificationsBell.tsx";
 import { paths } from "../../app/paths.ts";
 
 export function Topbar({ title, onOpenNav }: { title: string; onOpenNav: () => void }) {
@@ -28,6 +29,7 @@ export function Topbar({ title, onOpenNav }: { title: string; onOpenNav: () => v
 
       <div className="flex items-center gap-3">
         <RuntimeStatus />
+        <NotificationsBell />
         <Menu
           trigger={
             <span className="flex items-center gap-2.5 rounded-md border border-line py-1 pl-1 pr-2 hover:bg-ink-50">

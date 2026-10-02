@@ -80,6 +80,51 @@ on:
 
 jobs:
 ${jobs}
+
+${auraReportJobs(stacks.map((st) => STACKS[st].folder))}`;
+}
+
+// Reports each pull request's CI run to AURA (POST /ci/report), so QA sees it and is notified
+// (V6). GitHub Actions OIDC proves the repository: no secret is stored. Set the repository
+// variable AURA_API_URL to turn it on; without it these jobs are skipped.
+export function auraReportJobs(needs: string[]): string {
+  const env = `        env:
+          AURA_API_URL: \${{ vars.AURA_API_URL }}
+          BRANCH: \${{ github.head_ref }}
+          SHA: \${{ github.event.pull_request.head.sha }}
+          PR: \${{ github.event.pull_request.number }}
+          RUN_URL: \${{ github.server_url }}/\${{ github.repository }}/actions/runs/\${{ github.run_id }}`;
+  const token = `TOKEN=$(curl -sS -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=aura" | jq -r .value)`;
+  const post = (body: string) => `curl -sS -X POST "$AURA_API_URL/ci/report" -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" -d "$(${body})" || echo "AURA did not accept the report"`;
+  return `  # AURA: tells QA that CI started on this pull request.
+  aura-start:
+    if: github.event_name == 'pull_request' && vars.AURA_API_URL != ''
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+    steps:
+      - name: Report to AURA
+${env}
+        run: |
+          ${token}
+          ${post(`jq -n --arg branch "$BRANCH" --arg sha "$SHA" --argjson pr "$PR" --arg url "$RUN_URL" '{status: "in_progress", branch: $branch, headSha: $sha, prNumber: $pr, runUrl: $url}'`)}
+
+  # AURA: the result of every job above, for QA and the developer's PR view.
+  aura-report:
+    needs: [${needs.join(", ")}]
+    if: always() && github.event_name == 'pull_request' && vars.AURA_API_URL != ''
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+    steps:
+      - name: Report to AURA
+${env}
+          RESULTS: \${{ toJSON(needs) }}
+        run: |
+          JOBS=$(echo "$RESULTS" | jq -c '[to_entries[] | {name: .key, result: .value.result}]')
+          CONCLUSION=$(echo "$JOBS" | jq -r 'if any(.[]; .result == "failure") then "failure" elif any(.[]; .result == "cancelled") then "cancelled" else "success" end')
+          ${token}
+          ${post(`jq -n --arg branch "$BRANCH" --arg sha "$SHA" --argjson pr "$PR" --arg url "$RUN_URL" --arg conclusion "$CONCLUSION" --argjson jobs "$JOBS" '{status: "completed", conclusion: $conclusion, branch: $branch, headSha: $sha, prNumber: $pr, runUrl: $url, jobs: $jobs}'`)}
 `;
 }
 

@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
 import * as vscode from "vscode";
-import { STATUS_LABEL, type PartView, type TaskBoard } from "./task-board.js";
+import { STATUS_LABEL, type PartView, type PrView, type TaskBoard } from "./task-board.js";
 
 // The Plan view (Gate 4: the plan as a checklist, then the coders' live steps) and the Review
 // view (Gate 5: changed files that open in VS Code's diff editor, check results, the Evaluator's
@@ -120,6 +120,43 @@ export class ReviewView extends BoardView {
         children: r.findings.map((f) => new Item(f.message, { description: [f.severity, f.file].filter(Boolean).join(" · "), icon: f.severity === "minor" ? "info" : "warning", tooltip: f.message })),
       }),
     ];
+  }
+}
+
+const CI_LABEL: Record<string, { text: string; icon: string; color?: string }> = {
+  pending: { text: "CI waiting to start", icon: "clock" },
+  running: { text: "CI running", icon: "sync~spin" },
+  success: { text: "CI passed", icon: "pass-filled", color: "testing.iconPassed" },
+  failure: { text: "CI failed", icon: "error", color: "errorForeground" },
+  cancelled: { text: "CI cancelled", icon: "circle-slash" },
+};
+
+const PR_STEP: Record<string, string> = { commit: "Committing the accepted change…", push: "Pushing the branch…", open: "Opening the pull request…" };
+
+// Gate 6 (plan §4): the PR's title, branches and reviewers; after it opens, its link and the CI
+// result AURA received from aura-ci.yml.
+export class PullRequestView extends BoardView {
+  protected roots(): Item[] {
+    const pr: PrView | null | undefined = this.board?.pr;
+    if (!pr) return [];
+    const roots: Item[] = [
+      new Item(pr.number ? `#${pr.number} ${pr.title}` : pr.title || "Pull request", {
+        icon: "git-pull-request",
+        description: pr.url ? "open on GitHub" : pr.step ? undefined : "waiting for your approval (Gate 6)",
+        tooltip: pr.url ?? pr.title,
+        ...(pr.url ? { command: { command: "vscode.open", title: "Open Pull Request", arguments: [vscode.Uri.parse(pr.url)] } } : {}),
+      }),
+      new Item("Branch", { icon: "git-branch", description: `${pr.branch} → ${pr.base}` }),
+      new Item("Reviewers", { icon: "person", description: pr.reviewers.length ? pr.reviewers.join(", ") : "none" }),
+    ];
+    if (pr.step) roots.push(new Item(PR_STEP[pr.step] ?? pr.step, { icon: "sync~spin" }));
+    if (pr.url) {
+      const ci = CI_LABEL[pr.ciState ?? ""] ?? { text: "No CI result yet", icon: "circle-outline" };
+      const jobs = pr.jobs.map((j) => new Item(j.name, { icon: j.result === "success" ? "pass" : j.result === "failure" ? "error" : "circle-outline", description: j.result }));
+      if (pr.tests) jobs.push(new Item("Tests", { icon: "beaker", description: `${pr.tests.passed} passed, ${pr.tests.failed} failed, ${pr.tests.skipped} skipped` }));
+      roots.push(new Item(ci.text, { icon: ci.icon, color: ci.color, children: jobs, ...(pr.ciUrl ? { command: { command: "vscode.open", title: "Open CI Run", arguments: [vscode.Uri.parse(pr.ciUrl)] }, tooltip: pr.ciUrl } : {}) }));
+    }
+    return roots;
   }
 }
 

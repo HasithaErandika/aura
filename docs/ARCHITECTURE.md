@@ -331,7 +331,11 @@ work happens on the Task branch `feat/<EPIC>/<TASK>`. A plan may split into 2–
 disjoint file scopes (checked by `task/split.ts`): each part runs its own coder ↔ Evaluator loop
 in a worktree (`.aura/worktrees/<TASK>_s<N>`, branch `…_s<N>`; bridge calls carry `worktree`),
 then code commits and merges the parts into the Task branch, the Evaluator proposes any conflict
-resolution, and the checks run on the merged result before Gate 5 (plan §12.6). Each turn starts with the project's
+resolution, and the checks run on the merged result before Gate 5 (plan §12.6). Gate 6
+(`delegate_to_pr`) commits, pushes and opens the pull request to `development` with the
+developer's own git and `gh`, and records it in `task_branches`; the project's `aura-ci.yml`
+reports each CI run to `POST /ci/report` with a GitHub Actions OIDC token, and QA follows both on
+the QA page with in-app notifications (plan §12.7). Each turn starts with the project's
 `.aura/AURA.md` and the list of skills (AURA's library and `.aura/skills/`). The extension applies
 the developer's permission mode, the project's rules and hooks (`.aura/settings.json`) and the
 built-in refusals before anything runs.

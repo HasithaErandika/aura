@@ -1,5 +1,5 @@
 import { readSse } from "./sse.js";
-import type { Approval, ApprovalStatus, BridgeStatus, CouncilUsage, Decision, DeviceSignIn, GitIdentity, JiraEpicDetail, JiraIssueDetail, JiraIssueSummary, Me, Project, TaskWorktree, Thread, ThreadHistory, TurnEvent } from "./types.js";
+import type { Approval, AuraNotification, ApprovalStatus, BridgeStatus, CouncilUsage, Decision, DeviceSignIn, GitIdentity, JiraEpicDetail, JiraIssueDetail, JiraIssueSummary, Me, Project, TaskPr, TaskWorktree, Thread, ThreadHistory, TurnEvent } from "./types.js";
 
 export interface AuraClientOptions {
   // apps/api base URL, e.g. http://localhost:4000
@@ -154,6 +154,16 @@ export function createAuraClient(options: AuraClientOptions) {
       // approved Gate 5 actually executes the coding agent / council).
       decide: (id: string, body: { decision: Decision; answer?: string; reason?: string; snapshotHash?: string }, signal?: AbortSignal) =>
         stream(`/approvals/${encodeURIComponent(id)}/decide`, body, signal),
+    },
+
+    // A Task's pull request and CI (V6): the VS Code PR view and the QA page.
+    taskPrs: {
+      list: (filter: { taskKey?: string; epicKey?: string } = {}) => request<{ taskPrs: TaskPr[] }>("GET", `/task-prs${q(filter)}`).then((r) => r.taskPrs),
+    },
+
+    notifications: {
+      list: () => request<{ notifications: AuraNotification[]; unread: number }>("GET", "/notifications"),
+      read: (ids?: string[]) => request<{ ok: true }>("POST", "/notifications/read", ids ? { ids } : {}),
     },
 
     council: {

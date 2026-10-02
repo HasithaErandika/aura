@@ -42,6 +42,11 @@
           "when": "aura.hasReview"
         },
         {
+          "id": "aura.pr",
+          "name": "Pull Request",
+          "when": "aura.hasPr"
+        },
+        {
           "type": "webview",
           "id": "aura.chat",
           "name": "Chat"
@@ -152,6 +157,12 @@
         "command": "aura.openDiff",
         "title": "Open Diff",
         "category": "AURA"
+      },
+      {
+        "command": "aura.refreshPr",
+        "title": "Refresh CI Status",
+        "category": "AURA",
+        "icon": "$(refresh)"
       }
     ],
     "menus": {
@@ -175,6 +186,11 @@
           "command": "aura.openRunInWeb",
           "when": "view == aura.chat",
           "group": "navigation@3"
+        },
+        {
+          "command": "aura.refreshPr",
+          "when": "view == aura.pr",
+          "group": "navigation"
         }
       ],
       "view/item/context": [

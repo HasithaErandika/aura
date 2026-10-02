@@ -180,3 +180,35 @@ export type TurnEvent =
   | { event: "decision"; data: { approvalId: string; status: ApprovalStatus; decision: Decision } }
   | { event: "error"; data: { message: string } }
   | { event: "done"; data: { runId: string; status: RunStatus; approvalId: string | null } };
+
+// A Task's pull request and its CI (apps/api /task-prs, V6).
+export interface TaskPr {
+  taskKey: string;
+  epicKey: string | null;
+  repo: string | null;
+  branch: string;
+  prNumber: number | null;
+  prUrl: string | null;
+  prTitle: string | null;
+  prState: "open" | "merged" | "closed" | null;
+  reviewers: string[];
+  headSha: string | null;
+  ciState: "pending" | "running" | "success" | "failure" | "cancelled" | null;
+  ciUrl: string | null;
+  ciSummary: { jobs?: { name: string; result: string }[]; tests?: { passed: number; failed: number; skipped: number } };
+  ciUpdatedAt: string | null;
+  openedBy: string | null;
+  runId: string | null;
+  updatedAt: string;
+}
+
+export interface AuraNotification {
+  id: string;
+  kind: "pr_opened" | "ci_passed" | "ci_failed";
+  title: string;
+  body: string;
+  link: string | null;
+  taskKey: string | null;
+  createdAt: string;
+  readAt: string | null;
+}

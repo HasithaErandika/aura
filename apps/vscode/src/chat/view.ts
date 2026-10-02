@@ -3,7 +3,7 @@ import * as vscode from "vscode";
 import type { TurnEvent } from "@aura/client";
 import type { Session } from "../session.js";
 import type { Decision } from "@aura/client";
-import type { TaskBoard } from "../task-board.js";
+import { applyTaskEvent, type TaskBoard } from "../task-board.js";
 import { addNote, addUserMessage, applyEvent, emptyChat, fromHistory, markDecided, markStopping, type ChatState } from "./model.js";
 
 // The AURA chat panel: one conversation per Task (and one general one per folder) with the VS Code
@@ -71,6 +71,14 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       if (m.type === "stop") void this.stop();
       if (m.type === "decide") void this.decide(m.approvalId, m.decision, m.reason);
     });
+  }
+
+  // A Task event from outside the chat stream (the PR view's CI refresh).
+  applyTaskEvent(data: Record<string, unknown>): void {
+    const task = applyTaskEvent(this.state.task, data);
+    if (task === this.state.task) return;
+    this.state = { ...this.state, task };
+    this.post();
   }
 
   get task(): TaskBoard | null {

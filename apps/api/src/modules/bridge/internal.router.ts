@@ -12,6 +12,7 @@ import { writeAudit } from "../audit/audit.service.js";
 import { runsRepository } from "../runs/runs.repository.js";
 import { bridgeHub } from "./hub.js";
 import { designDocsInternalRouter } from "../design-docs/design-docs.internal.js";
+import { taskPrsInternalRouter } from "../task-prs/task-prs.router.js";
 
 // Called by apps/agent-runtime only: an agent's workspace tool (read a file, run a command) is
 // forwarded to the VS Code extension of the developer who owns the run, and answered here once
@@ -37,6 +38,8 @@ export const internalRouter = Router();
 internalRouter.use(requireRuntime);
 // Design documents written by agents after an approved gate (modules/design-docs).
 internalRouter.use("/design-docs", designDocsInternalRouter);
+// Task pull requests opened at Gate 6 (modules/task-prs).
+internalRouter.use("/task-prs", taskPrsInternalRouter);
 
 const callSchema = z
   .object({

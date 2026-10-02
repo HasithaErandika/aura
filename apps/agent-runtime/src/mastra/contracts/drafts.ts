@@ -91,7 +91,7 @@ export const architectureDraftSchema = z.object({
 });
 export type ArchitectureDraft = z.infer<typeof architectureDraftSchema>;
 
-export type DraftKind = 'epic' | 'stories' | 'architecture' | 'dev-scaffold' | 'coding-task' | 'qa-plan' | 'test-run' | 'deploy-plan' | 'git-op' | 'ci-run' | 'task-plan' | 'task-review';
+export type DraftKind = 'epic' | 'stories' | 'architecture' | 'dev-scaffold' | 'coding-task' | 'qa-plan' | 'test-run' | 'deploy-plan' | 'git-op' | 'ci-run' | 'task-plan' | 'task-review' | 'task-pr';
 
 // Renders a bullet list, or a placeholder line when empty.
 function bullets(items: string[]): string {

@@ -1,7 +1,7 @@
 import * as vscode from "vscode";
 import { BridgeClient, type Approval, type BridgeState } from "./bridge-client.js";
-import { GIT_SCHEME, GitShowProvider, PlanView, ReviewView, openDiff } from "./task-views.js";
-import type { TaskBoard } from "./task-board.js";
+import { GIT_SCHEME, GitShowProvider, PlanView, PullRequestView, ReviewView, openDiff } from "./task-views.js";
+import { prEventFrom, type TaskBoard } from "./task-board.js";
 import { ChatViewProvider, type ChatActivity } from "./chat/view.js";
 import { WorkspaceExecutor } from "./executor.js";
 import { Governance } from "./governance.js";
@@ -107,9 +107,28 @@ export function activate(context: vscode.ExtensionContext) {
   });
   const planView = new PlanView();
   const reviewView = new ReviewView();
+  const prView = new PullRequestView();
+  // CI status for the PR view: from AURA's API, which aura-ci.yml reports to.
+  const refreshPr = async (quiet = false) => {
+    const taskKey = chat.task?.pr?.url ? chat.task.taskKey : null;
+    if (!taskKey) return;
+    try {
+      const [pr] = await session.client().taskPrs.list({ taskKey });
+      if (pr) chat.applyTaskEvent(prEventFrom(pr));
+    } catch (error) {
+      if (!quiet) void vscode.window.showWarningMessage(`AURA: couldn't read the pull request's CI status (${error instanceof Error ? error.message : String(error)}).`);
+    }
+  };
+  const ciPoll = setInterval(() => {
+    const state = chat.task?.pr?.ciState;
+    if (chat.task?.pr?.url && (state === "pending" || state === "running" || state === null)) void refreshPr(true);
+  }, 60_000);
+  context.subscriptions.push({ dispose: () => clearInterval(ciPoll) });
   const syncTask = (board: TaskBoard | null) => {
     planView.update(board);
     reviewView.update(board);
+    prView.update(board);
+    void vscode.commands.executeCommand("setContext", "aura.hasPr", Boolean(board?.pr));
     void vscode.commands.executeCommand("setContext", "aura.hasPlan", Boolean(board?.plan));
     void vscode.commands.executeCommand("setContext", "aura.hasReview", Boolean(board?.review));
   };
@@ -118,6 +137,8 @@ export function activate(context: vscode.ExtensionContext) {
   context.subscriptions.push(
     vscode.window.registerTreeDataProvider("aura.plan", planView),
     vscode.window.registerTreeDataProvider("aura.review", reviewView),
+    vscode.window.registerTreeDataProvider("aura.pr", prView),
+    vscode.commands.registerCommand("aura.refreshPr", () => refreshPr()),
     chat.onDidChangeTask(syncTask),
     vscode.workspace.registerTextDocumentContentProvider(GIT_SCHEME, new GitShowProvider(() => workspaceRoot()?.fsPath ?? null)),
     vscode.commands.registerCommand("aura.openDiff", async (path: string, status: string, baseRef?: string) => {

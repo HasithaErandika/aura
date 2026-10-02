@@ -58,6 +58,7 @@ const ID_PREFIX: Record<DraftKind, string> = {
   'ci-run': 'CI',
   'task-plan': 'PLAN',
   'task-review': 'REVIEW',
+  'task-pr': 'PR',
 };
 
 // Generates a short random id prefixed by the draft kind.

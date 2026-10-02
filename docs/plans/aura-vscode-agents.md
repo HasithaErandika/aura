@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | **Approved 2026-10-02** · Parts B, C, V0–V5 built (live checks pending) · V6 next |
+| **Status** | **Approved 2026-10-02** · Parts B, C, V0–V6 built (live checks pending) · V7 next |
 | **Target** | AI agent harness for a leading Sri Lankan technology company |
 | **Date** | 2026-10-02 |
 | **Needs** | ADR-4 (supersedes ADR-1, ADR-2 D1–D2/D5, ADR-3 D2/D8) |
@@ -331,7 +331,7 @@ flowchart LR
 | V3 | Design docs, ADRs, SRS, QA plans in Postgres; Architect specialists; Design documents and QA web pages (Markdown editor, no CodeMirror) | 🟡 Built and unit-tested (§12.4); Gate 3 writes nothing to disk; Project Files removed. Live Gate 3 / Gate 6 run pending |
 | V4 | Router, coder specialists, Evaluator loop, Plan and Review views | 🟡 Built and unit-tested (§12.5): a Bug goes to issue-solver; Gate 5 review in the diff editor. Live Task run pending |
 | V5 | Task Planner, parallel sub-branches, merge step | 🟡 Built and unit-tested (§12.6): a two-part Task runs as `_s1` + `_s2` and merges, including a conflict (tested against a real git repository). Live run pending |
-| V6 | Git agent, PR view, CI lane; QA page with PR and CI status per Task; notifications | PR to `development` with reviewers; QA notified of the CI result |
+| V6 | Git agent, PR view, CI lane; QA page with PR and CI status per Task; notifications | 🟡 Built and unit-tested (§12.7): PR to `development` with reviewers; QA notified of the CI result. Live PR and CI run pending |
 | V7 | Removal (§13) and docs | No code path touches `.workspaces`, Docker or a server shell |
 
 ---
@@ -378,7 +378,7 @@ Postgres). The agent turn with a live model and the VS Code UI itself are verifi
 | Initialize Project, Connect Repository | ✅ |
 | Permission prompt | ✅ Allow once · Allow for this session · Allow for this project (V2) · Deny |
 | Typing while the agent works | ✅ V4: a note to the running Task, read by the coders at their next step |
-| Plan, Review, PR views | ✅ Plan, Review (V4); ⏳ PR (V6) |
+| Plan, Review, PR views | ✅ Plan, Review (V4); PR (V6) |
 
 ### 12.3 V2 scope as built
 
@@ -405,7 +405,7 @@ Postgres). The agent turn with a live model and the VS Code UI itself are verifi
 | VS Code agent | ✅ `design_docs`: lists and reads an Epic's documents, fenced as untrusted |
 | Web | ✅ **Design documents** and **QA** pages: Epic picker, documents by kind, Markdown preview, editor with side-by-side preview, version history. Project Files, the terminal and runners panels, CodeMirror and xterm are removed; old links redirect |
 | Existing documents | ✅ `pnpm --filter api import-design-docs [--epic KAN-36] [--dry-run]` loads `.workspaces/<EPIC>/architecture` and `qa/test-plan.md` |
-| QA per Task: PR, CI, notifications | ⏳ V6 |
+| QA per Task: PR, CI, notifications | ✅ V6 (§12.7) |
 
 ### 12.5 V4 scope as built
 
@@ -469,6 +469,41 @@ flowchart LR
 | Plan view | ✅ *Branch* and a *Parallel parts* checklist (coder, state, rounds, merge result); the activity lines are prefixed with the part |
 | Review view | ✅ Changed files and diffs since the Task's start commit (covers merged commits); the parts and their merge results |
 | Gate 5 revise | Runs one coder on the merged Task branch with the developer's feedback |
+
+### 12.7 V6 scope as built
+
+```mermaid
+sequenceDiagram
+    actor D as Developer
+    participant A as vscode-agent
+    participant X as Extension (developer's git, gh)
+    participant G as GitHub
+    participant API as apps/api
+    actor Q as QA
+    A->>A: delegate_to_pr draft: title, provenance, reviewers
+    A->>D: Gate 6 card, PR view
+    D->>A: Approve
+    A->>X: commit, git push, gh pr create --base development
+    X->>G: pull request with reviewers
+    A->>API: POST /internal/task-prs
+    API->>Q: notification "PR opened"
+    G->>G: aura-ci.yml jobs
+    G->>API: POST /ci/report (OIDC token)
+    API->>Q: notification "CI passed / failed"
+    D->>API: PR view refresh (GET /task-prs)
+```
+
+| Plan item (§4, §7, §10) | Built |
+|---|---|
+| Git agent | ✅ `delegate_to_pr` (deterministic, `git-agent`): `draft` (low) writes the title, the description with provenance (plan, checks with exit codes, Evaluator verdict and rounds, parallel parts, Gate 4 and 5 drafts, the AURA run) and the reviewers (`.aura/settings.json` `"reviewers"`, or what the developer asks); `open` (medium, after Gate 6) commits the accepted change (beforeCommit hooks run), pushes the Task branch and runs `gh pr create --base development` with the developer's own GitHub sign-in, then records the PR in AURA and comments on the Jira Task; `status` (low) reads the PR and its CI |
+| Without `gh` | The branch is pushed and the agent gives a GitHub compare link; the first CI report on the PR fills in its number |
+| Gate 6 | The requester decides (same as Gates 4 and 5); the gate card says "Pull request" |
+| PR view | ✅ Title, branch → base, reviewers, the commit / push / open steps, then the PR link and CI (jobs, tests); refreshes every minute while CI runs, or on *Refresh CI Status* |
+| CI lane | ✅ `aura-ci.yml` (from Initialize Project) has `aura-start` and `aura-report` jobs on pull requests: they ask GitHub Actions for an OIDC token with audience `aura` and post to `POST /ci/report`. apps/api verifies GitHub's signature and trusts the token's repository; no secret is stored. Turn it on with the repository variable `AURA_API_URL` |
+| PR and CI per Task | ✅ In `task_branches` (migration `0012`): repository, PR number and link, reviewers, CI state (`pending`, `running`, `success`, `failure`, `cancelled`), run link, jobs and test summary |
+| QA page | ✅ *Pull requests and CI* above the test plan: each Task's PR, CI badge with the failed jobs or test counts, reviewers; no code |
+| Notifications | ✅ In-app (migration `0012`, bell in the web app's top bar): QA hears when a PR opens; QA and the developer hear once per result when CI passes or fails. Email and Slack are not built |
+| CI failures back to the coder | The agent offers `delegate_to_coder revise` with the failing jobs, then Gates 5 and 6 again |
 
 ## 13. Removed
 

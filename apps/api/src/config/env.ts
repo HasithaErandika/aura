@@ -66,6 +66,8 @@ export const env = {
   turnConcurrency: optionalNumber("TURN_CONCURRENCY", 4),
   turnConcurrencyPerUser: optionalNumber("TURN_CONCURRENCY_PER_USER", 2),
   approvalSlaHours: optionalNumber("APPROVAL_SLA_HOURS", 72),
+  // The audience aura-ci.yml asks GitHub Actions OIDC tokens for (POST /ci/report).
+  ciOidcAudience: process.env.AURA_CI_AUDIENCE ?? "aura",
   
   // Web terminal (modules/terminal): shared with apps/agent-runtime, which verifies the tickets
   // this API signs. Unset = terminal disabled.

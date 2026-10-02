@@ -109,6 +109,17 @@ worktree under `.aura/worktrees/` on a `…_s<N>` branch; AURA then merges the p
 branch and runs the checks on the result. The Plan view shows each part's progress, and the
 Review view diffs from the commit the Task started at.
 
+After you accept the change, the agent drafts the pull request (Gate 6): title, a description
+with provenance, and reviewers from `.aura/settings.json` (`"reviewers": ["octocat",
+"acme/qa-team"]`). When you approve it, AURA commits, pushes and opens the PR into `development`
+with your own `git` and GitHub CLI (`gh auth login` once; without `gh` you get a link to open it).
+The **Pull Request** view shows the PR and its CI result.
+
+CI reports to AURA from the `aura-ci.yml` that Initialize Project writes. Set the repository
+variable `AURA_API_URL` (GitHub → Settings → Secrets and variables → Actions → Variables) to your
+AURA API's public URL; no secret is needed. An existing repository can copy the `aura-start` and
+`aura-report` jobs from a newly initialized project.
+
 Commands run through your shell in the folder, with secrets (tokens, keys, passwords) removed
 from their environment. Output is capped at 30,000 characters.
 

@@ -77,6 +77,8 @@ printManifest({
   'task-planner': [],
   coder: [...new Set((await Promise.all(Object.values(coderAgents).map((a) => a.listTools()))).flatMap((t) => Object.keys(t)))],
   evaluator: [],
+  // Deterministic: git, gh and AURA's API, no model call.
+  'git-agent': [],
 } satisfies Record<AgentId, readonly string[]>);
 
 // AURA_MODE=server refuses loopback-only settings before anything starts listening.

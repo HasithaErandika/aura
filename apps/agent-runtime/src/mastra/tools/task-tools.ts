@@ -14,9 +14,11 @@ import { disciplineFromTask, type ToolWriterLike } from './delegate-tools/shared
 import { evaluatorVerdictSchema, renderPlan, renderReview, taskPlanSchema, type CoderId, type Round, type Subtask, type TaskInfo, type TaskPlanDraft, type TaskReviewDraft } from '../task/contracts';
 import { routeTask } from '../task/router';
 import { evaluatorPrompt, runCoderLoop, type LoopEvent, type LoopInput, type LoopResult } from '../task/loop';
-import { collectChange, projectChecks, runChecks, takeNotes } from '../task/workspace-ops';
+import { collectChange, projectChecks, projectReviewers, runChecks, takeNotes } from '../task/workspace-ops';
 import { splitPlan, taskBranch } from '../task/split';
-import { abortMerge, addWorktree, commitWorktree, concludeMerge, ensureTaskBranch, gitOn, mergeBranch, removeWorktree, type Git } from '../task/git-ops';
+import { abortMerge, addWorktree, commitAll, commitWorktree, concludeMerge, currentBranch, ensureTaskBranch, ghPrCreate, gitOn, headSha, mergeBranch, originUrl, pushBranch, removeWorktree } from '../task/git-ops';
+import { PR_BASE, compareUrl, parsePrUrl, parseRemote, prBody, prTitle, renderPrDraft, validReviewers, type TaskPrDraft } from '../task/pr';
+import { readTaskPr, recordTaskPr, renderPrStatus } from '../task/aura-api';
 import { checkResolution, conflictPrompt, mergeResolutionSchema, runParallel, sharedNotes, type ParallelEvent } from '../task/parallel';
 
 // A Task worked on in VS Code, through three gates (docs/plans/aura-vscode-agents.md §3):
@@ -30,6 +32,11 @@ import { checkResolution, conflictPrompt, mergeResolutionSchema, runParallel, sh
 //                        revise (low)         after a Gate 5 "Revise": the same approved plan, again,
 //                                             with the developer's feedback
 //   delegate_to_review   accept (medium)      after Gate 5: records the accepted change for the PR
+//   delegate_to_pr       draft (low)          the pull request: title, description with provenance,
+//                                             reviewers → ask_user = Gate 6
+//                        open (medium)        after Gate 6: commit, push, open the PR to development
+//                                             (the developer's git and gh), record it for QA
+//                        status (low)         the PR and its CI result (aura-ci.yml reports to AURA)
 //
 // Medium modes go through the tool gateway (gateway/gateway.ts): they run only with approved=true
 // and a real, unused human decision. Until a conversation's plan is approved, the VS Code agent's
@@ -51,6 +58,7 @@ const taskOutputSchema = z.object({
   taskKey: z.string().optional(),
   coder: z.string().optional(),
   passed: z.boolean().optional(),
+  url: z.string().optional(),
   error: z.string().optional(),
 });
 type TaskOutput = z.infer<typeof taskOutputSchema>;
@@ -348,6 +356,115 @@ export const delegateToReviewTool = createTool({
       }
       await emit(context.writer, { kind: 'accepted', draftId: record.id, taskKey: record.content.taskKey });
       return { ok: true, draftId: record.id, taskKey: record.content.taskKey };
+    } catch (error) {
+      return taskFail(error);
+    }
+  },
+});
+
+const prInputSchema = z
+  .object({
+    mode: z.enum(['draft', 'open', 'status']),
+    draftId: z.string().optional().describe('draft: the accepted review draftId. open: the PR draftId the developer approved'),
+    taskKey: z.string().optional().describe('status: the Jira Task key'),
+    title: z.string().max(200).optional().describe('draft: a different title, only if the developer asked'),
+    reviewers: z.array(z.string()).max(15).optional().describe('draft: GitHub logins or org/team; default: .aura/settings.json "reviewers"'),
+    notes: z.string().max(2000).optional().describe('draft: extra text for the description, only if the developer asked'),
+    approved: z.boolean().optional().describe('open: must be true; set only after ask_user returned an approval of the pull request'),
+  })
+  .strict();
+
+export const delegateToPrTool = createTool({
+  id: 'delegate_to_pr',
+  description:
+    "Pull request (Gate 6). draft: the accepted review draftId (+ optional title, reviewers, notes) -> AURA drafts the PR to development with its provenance (returns draftId); then ask_user (Approve / Revise / Reject); on Revise draft again with the changes. open: PR draftId + approved -> AURA commits the accepted change, pushes the Task branch and opens the PR with the developer's git and gh, and tells QA. status: taskKey -> the PR and its CI result.",
+  inputSchema: prInputSchema,
+  outputSchema: taskOutputSchema,
+  execute: async (input, context: ToolContext) => {
+    try {
+      const run = runFrom(context.requestContext);
+      if (!run) return taskFail('delegate_to_pr needs an AURA run');
+      if (input.mode === 'status') {
+        const taskKey = input.taskKey?.trim().toUpperCase();
+        if (!taskKey) return taskFail('status needs taskKey');
+        const pr = await readTaskPr(taskKey);
+        if (!pr) return taskFail(`AURA has no pull request for ${taskKey} yet`);
+        await emit(context.writer, { kind: 'pr', taskKey, url: pr.prUrl, number: pr.prNumber, branch: pr.branch, reviewers: pr.reviewers, ciState: pr.ciState, ciUrl: pr.ciUrl, ciSummary: pr.ciSummary });
+        return { ok: true, taskKey, url: pr.prUrl ?? undefined, passed: pr.ciState === 'success', markdown: renderPrStatus(pr) };
+      }
+      if (!input.draftId) return taskFail(`${input.mode} needs draftId`);
+      const bridge = bridgeFor(context.requestContext!);
+
+      if (input.mode === 'draft') {
+        const review = await draftStore.get<TaskReviewDraft>(input.draftId);
+        if (!review || review.kind !== 'task-review') return taskFail(`unknown review ${input.draftId}`);
+        if (!review.filed.accepted) return taskFail('the developer has not accepted this review (Gate 5) yet');
+        const plan = await draftStore.get<TaskPlanDraft>(review.content.planDraftId);
+        if (!plan) return taskFail(`unknown plan ${review.content.planDraftId}`);
+        const reviewers = validReviewers(input.reviewers?.length ? input.reviewers : ((await projectReviewers(bridge)) ?? []));
+        const content: TaskPrDraft = {
+          reviewDraftId: review.id,
+          planDraftId: plan.id,
+          taskKey: plan.content.task.taskKey,
+          epicKey: plan.content.task.epicKey,
+          branch: review.content.branch ?? plan.content.branch ?? taskBranch(plan.content.task),
+          base: PR_BASE,
+          baseRef: review.content.baseRef ?? null,
+          title: input.title?.trim() ? prTitle(plan.content.task.taskKey, input.title.replace(new RegExp(`^${plan.content.task.taskKey}:?\\s*`), '')) : prTitle(plan.content.task.taskKey, plan.content.task.summary),
+          body: prBody({ plan: plan.content, review: review.content, reviewDraftId: review.id, runId: run.runId, webUrl: process.env.AURA_WEB_URL, notes: input.notes }),
+          reviewers,
+        };
+        const record = await draftStore.create({ kind: 'task-pr', content, threadId: review.threadId, epicKey: content.epicKey, parentId: review.id });
+        await emit(context.writer, { kind: 'pr-draft', draftId: record.id, taskKey: content.taskKey, title: content.title, branch: content.branch, base: content.base, reviewers: content.reviewers });
+        return { ok: true, draftId: record.id, taskKey: content.taskKey, markdown: renderPrDraft(content) };
+      }
+
+      if (input.approved !== true) return taskFail('open requires approved=true, which is only set after the developer approved the pull request via ask_user');
+      const record = await draftStore.get<TaskPrDraft>(input.draftId);
+      if (!record || record.kind !== 'task-pr') return taskFail(`unknown pull request draft ${input.draftId}`);
+      const d = record.content;
+      if (typeof record.filed.url === 'string') return { ok: true, draftId: record.id, taskKey: d.taskKey, url: record.filed.url, markdown: `Already opened: ${record.filed.url}` };
+      const git = gitOn(bridge);
+      const branch = await currentBranch(git);
+      if (branch !== d.branch) return taskFail(`VS Code is on ${branch}, not the Task branch ${d.branch}. Ask the developer to switch back (git checkout ${d.branch}), then open the pull request again.`);
+      await emit(context.writer, { kind: 'pr-step', taskKey: d.taskKey, step: 'commit' });
+      await commitAll(git, d.title);
+      const sha = await headSha(git);
+      await emit(context.writer, { kind: 'pr-step', taskKey: d.taskKey, step: 'push' });
+      await pushBranch(git, d.branch);
+      const repo = parseRemote((await originUrl(git)) ?? '');
+      await emit(context.writer, { kind: 'pr-step', taskKey: d.taskKey, step: 'open' });
+      const created = await ghPrCreate(git, bridge, { branch: d.branch, base: d.base, title: d.title, body: d.body, reviewers: d.reviewers, taskKey: d.taskKey });
+      const pr = created ? parsePrUrl(created.output) : null;
+      const fallback = !pr && repo ? compareUrl(repo, d.branch, d.base) : null;
+      const recorded = await recordTaskPr({
+        taskKey: d.taskKey,
+        epicKey: d.epicKey,
+        repo,
+        branch: d.branch,
+        baseSha: d.baseRef && /^[0-9a-f]{7,64}$/.test(d.baseRef) ? d.baseRef : sha,
+        headSha: sha,
+        prNumber: pr?.number ?? null,
+        prUrl: pr?.url ?? null,
+        title: d.title,
+        reviewers: d.reviewers,
+        runId: run.runId,
+      }).catch((error: unknown) => ({ error: error instanceof Error ? error.message : String(error) }));
+      if (pr) {
+        await draftStore.markFiled(record.id, { ...record.filed, url: pr.url, number: String(pr.number), headSha: sha });
+        await jira.addComment(d.taskKey, `Pull request opened by AURA (Gate 6): ${pr.url}\nBranch ${d.branch} → ${d.base}${d.reviewers.length ? `\nReviewers: ${d.reviewers.join(', ')}` : ''}`).catch(() => undefined);
+      }
+      await emit(context.writer, { kind: 'pr', taskKey: d.taskKey, url: pr?.url ?? fallback, number: pr?.number ?? null, branch: d.branch, base: d.base, reviewers: d.reviewers, ciState: pr ? 'pending' : null });
+      const note = 'error' in recorded ? `\n\nAURA could not record it for QA: ${recorded.error}` : '';
+      if (pr) return { ok: true, draftId: record.id, taskKey: d.taskKey, url: pr.url, markdown: `Pull request #${pr.number} is open: ${pr.url}\nCI runs on it now; QA is notified of the result.${note}` };
+      const why = created ? `gh could not open it: ${created.output.trim().slice(0, 300)}` : 'the GitHub CLI (gh) is not installed or not signed in on this machine';
+      return {
+        ok: true,
+        draftId: record.id,
+        taskKey: d.taskKey,
+        url: fallback ?? undefined,
+        markdown: `The branch ${d.branch} is pushed, but ${why}. ${fallback ? `Open the pull request here: ${fallback} (paste the description from the Gate 6 card). AURA picks it up when CI runs on it.` : 'Open the pull request on GitHub.'}${note}`,
+      };
     } catch (error) {
       return taskFail(error);
     }

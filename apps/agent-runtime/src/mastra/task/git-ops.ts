@@ -122,3 +122,49 @@ export async function removeWorktree(git: Git, name: string, branch: string): Pr
 }
 
 export const CONFLICT_MARKER = /^(<{7}|>{7}|={7})( |$)/m;
+
+// ── Gate 6 ────────────────────────────────────────────────────────────────────────────────────
+
+export async function currentBranch(git: Git): Promise<string> {
+  return (await git.ok('git rev-parse --abbrev-ref HEAD')).trim();
+}
+
+// Commits everything left in the working tree (the change accepted at Gate 5). The project's
+// beforeCommit hooks run in the extension first. False when there was nothing to commit.
+export async function commitAll(git: Git, message: string): Promise<boolean> {
+  await git.ok('git add -A');
+  if ((await git.run('git diff --cached --quiet')).exitCode === 0) return false;
+  await git.ok(`git commit -m "${commitMessage(message)}"`);
+  return true;
+}
+
+export async function headSha(git: Git): Promise<string> {
+  return (await git.ok('git rev-parse HEAD')).trim();
+}
+
+export async function pushBranch(git: Git, branch: string): Promise<void> {
+  await git.ok(`git push -u origin ${ref(branch)}`);
+}
+
+export async function originUrl(git: Git): Promise<string | null> {
+  const r = await git.run('git remote get-url origin');
+  return r.exitCode === 0 ? r.output.split('\n')[0]!.trim() : null;
+}
+
+// Opens the PR with the developer's own GitHub CLI. Null when gh is missing or not signed in, so
+// the caller can fall back to a compare link. An existing PR for the branch is returned as is.
+export async function ghPrCreate(git: Git, bridge: BridgeCaller, input: { branch: string; base: string; title: string; body: string; reviewers: string[]; taskKey: string }): Promise<{ output: string; exitCode: number } | null> {
+  if ((await git.run('gh --version')).exitCode !== 0) return null;
+  if ((await git.run('gh auth status')).exitCode !== 0) return null;
+  const dir = '.aura/tmp';
+  const file = `${dir}/pr-${ref(input.taskKey)}.md`;
+  await bridge.call('fs.mkdir', { path: dir, recursive: true });
+  await bridge.call('fs.writeFile', { path: `${dir}/.gitignore`, content: '*\n', overwrite: true });
+  await bridge.call('fs.writeFile', { path: file, content: input.body, overwrite: true });
+  try {
+    const reviewers = input.reviewers.filter((r) => /^[A-Za-z0-9][A-Za-z0-9-]{0,38}(\/[A-Za-z0-9_.-]+)?$/.test(r)).map((r) => ` --reviewer ${r}`).join('');
+    return await git.run(`gh pr create --base ${ref(input.base)} --head ${ref(input.branch)} --title "${commitMessage(input.title)}" --body-file ${file}${reviewers}`);
+  } finally {
+    await bridge.call('fs.deleteFile', { path: file, force: true }).catch(() => undefined);
+  }
+}

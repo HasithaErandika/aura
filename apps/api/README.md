@@ -27,7 +27,7 @@ flowchart LR
 | `src/modules/settings/` | Settings registry, resolution, API |
 | `src/modules/bridge/` | VS Code bridge: hub, tickets, WebSocket, internal call route |
 | `src/modules/orchestration/turn-jobs.ts` | Turn queue (pg-boss), heartbeat, stale-run sweep |
-| `supabase/migrations/` | SQL migrations `0001`–`0011` |
+| `supabase/migrations/` | SQL migrations `0001`–`0012` |
 
 ## Routes
 
@@ -47,6 +47,10 @@ flowchart LR
 | `/agents` · `/jira` · `/council` · `/terminal` · `/runners` | Per grant | Registry, Jira reads, council notes, terminal tickets, runners |
 | `/design-docs` | Every pipeline role reads; Architect and QA edit their kinds | Design documents per Epic, versioned (`GET /epics`, `GET /`, `GET /:id`, `GET /:id/versions/:n`, `POST /`, `PUT /:id` with `baseVersion`) |
 | `/internal/design-docs` | Runtime token | Agents save approved documents and the VS Code agent reads them |
+| `/task-prs` | QA workspace audience (QA, developer, architect, BA, deployer, admin) | Each Task's pull request and CI result (`GET /?epicKey=&taskKey=`) |
+| `/internal/task-prs` | Runtime token | Gate 6 records the PR it opened (`POST /`); the VS Code agent reads its CI (`GET /:taskKey`) |
+| `/ci/report` | GitHub Actions OIDC token (audience `AURA_CI_AUDIENCE`) | `aura-ci.yml` reports a pull request's CI run; the token proves the repository |
+| `/notifications` | Signed in | The user's notifications (`GET /`), `POST /read` with `ids` or none for all |
 | `/workspace` · `/dev-workspace` · `/qa-workspace` · `/test-runs` · `/docker` | Per grant | Workspace files on the server; no web page uses them since V3, removed in V7 |
 
 SSE events: `run`, `text`, `tool`, `progress`, `council`, `gate`, `decision`, `error`, `done`.

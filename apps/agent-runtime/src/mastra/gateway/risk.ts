@@ -32,6 +32,8 @@ export const TOOL_RISK: Record<string, ToolRisk> = {
   delegate_to_planner: { agentId: 'task-planner', modes: { draft: 'low', revise: 'low' } },
   delegate_to_coder: { agentId: 'coder', modes: { execute: 'medium', revise: 'low' } },
   delegate_to_review: { agentId: 'coder', modes: { accept: 'medium' } },
+  // Gate 6: a PR draft and its CI status change nothing; open pushes and opens the PR.
+  delegate_to_pr: { agentId: 'git-agent', modes: { draft: 'low', open: 'medium', status: 'low' } },
 };
 
 export function riskOf(toolId: string, mode: unknown): { agentId: AgentId; tier: RiskTier } | null {

@@ -4,7 +4,7 @@ import { askUserTool } from '@mastra/core/tools';
 import { withGeminiFallback } from '../config/models';
 import { runFrom } from '../gateway/context';
 import { governed } from '../gateway/gateway';
-import { delegateToCoderTool, delegateToPlannerTool, delegateToReviewTool, planLocked } from '../tools/task-tools';
+import { delegateToCoderTool, delegateToPlannerTool, delegateToReviewTool, delegateToPrTool, planLocked } from '../tools/task-tools';
 import { bridgeFor, bridgeWorkspace, type ReadOnlyCheck } from './bridge-workspace';
 import { answeringModel, trackTokens, type TokenUsage } from '../store/token-ledger';
 import { VSCODE_AGENT_MODEL_ID } from './registry';
@@ -40,6 +40,8 @@ const INSTRUCTIONS = `You are AURA's coding agent, working in the developer's ow
   2. Propose the plan with delegate_to_planner (draft), then ask_user with the options Approve, Revise, Reject. On Revise, call delegate_to_planner (revise) with the feedback and ask again. When the work splits cleanly into 2-4 parts that change different files (for example the API and the web app), list them as subtasks with the folders each owns; AURA then runs one coder per part in parallel and merges them. Otherwise leave subtasks empty.
   3. On Approve, call delegate_to_coder (execute, approved: true). AURA switches to the Task branch, and its coders and Evaluator implement the plan and run the checks. If it reports uncommitted changes, tell the developer to commit or stash them, then try again.
   4. ask_user with Approve, Revise, Reject on the review. On Revise, call delegate_to_coder (revise) with the feedback and ask again. On Approve, call delegate_to_review (accept, approved: true).
+  5. Then call delegate_to_pr (draft) with the review draftId and ask_user with Approve, Revise, Reject on the pull request (Gate 6). On Revise, draft again with the developer's title, reviewers or notes. On Approve, call delegate_to_pr (open, approved: true) with the PR draftId. Never push or open a pull request yourself.
+  6. When the developer asks about CI, call delegate_to_pr (status). If CI failed, offer to fix it: delegate_to_coder (revise) with the failing jobs as the feedback, then Gate 5 and Gate 6 again.
   AURA shows plans and reviews to the developer itself: never repeat them.
 - A commit may be refused by the project's beforeCommit hooks: fix what they report, then commit again.
 - Report results from real command output only. Never claim a test passed without running it.
@@ -62,6 +64,7 @@ export const vscodeAgent = new Agent({
     delegate_to_planner: governed(delegateToPlannerTool),
     delegate_to_coder: governed(delegateToCoderTool),
     delegate_to_review: governed(delegateToReviewTool),
+    delegate_to_pr: governed(delegateToPrTool),
   },
   model: withGeminiFallback(VSCODE_AGENT_MODEL_ID, { reasoningFormat: 'hidden', reasoningEffort: 'low' }),
   workspace: vscodeWorkspace,

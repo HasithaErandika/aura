@@ -38,7 +38,23 @@ export interface PartView {
   merge: string | null;
 }
 
-export type TaskStatus = "plan-review" | "coding" | "code-review" | "accepted";
+// The Task's pull request (V6): the Gate 6 draft, then the opened PR and its CI.
+export interface PrView {
+  draftId: string | null;
+  title: string;
+  branch: string;
+  base: string;
+  reviewers: string[];
+  step: string | null;
+  url: string | null;
+  number: number | null;
+  ciState: string | null;
+  ciUrl: string | null;
+  jobs: { name: string; result: string }[];
+  tests: { passed: number; failed: number; skipped: number } | null;
+}
+
+export type TaskStatus = "plan-review" | "coding" | "code-review" | "accepted" | "pr-review" | "pr-open";
 
 export interface TaskBoard {
   taskKey: string;
@@ -53,7 +69,10 @@ export interface TaskBoard {
   round: number;
   maxRounds: number;
   review: { passed: boolean; rounds: number; changedFiles: ChangedFileView[]; checks: CheckView[]; summary: string; findings: FindingView[]; baseRef: string } | null;
+  pr: PrView | null;
 }
+
+const EMPTY_PR: PrView = { draftId: null, title: "", branch: "", base: "development", reviewers: [], step: null, url: null, number: null, ciState: null, ciUrl: null, jobs: [], tests: null };
 
 function parts(v: unknown): PartView[] {
   return arr<Record<string, unknown>>(v).map((p) => ({
@@ -106,6 +125,7 @@ export function applyTaskEvent(board: TaskBoard | null, data: Record<string, unk
       round: 0,
       maxRounds: 0,
       review: null,
+      pr: null,
     };
   }
   if (!board) return board;
@@ -176,6 +196,36 @@ export function applyTaskEvent(board: TaskBoard | null, data: Record<string, unk
     }
     case "accepted":
       return { ...board, status: "accepted" };
+    case "pr-draft":
+      return {
+        ...board,
+        status: "pr-review",
+        pr: { ...EMPTY_PR, draftId: str(data.draftId) || null, title: str(data.title), branch: str(data.branch) || board.branch, base: str(data.base) || "development", reviewers: arr<string>(data.reviewers) },
+      };
+    case "pr-step":
+      return { ...board, pr: { ...(board.pr ?? EMPTY_PR), step: str(data.step) || null } };
+    case "pr": {
+      const summary = (data.ciSummary ?? {}) as Record<string, unknown>;
+      const prev = board.pr ?? EMPTY_PR;
+      const tests = summary.tests as PrView["tests"] | undefined;
+      return {
+        ...board,
+        status: "pr-open",
+        pr: {
+          ...prev,
+          step: null,
+          url: str(data.url) || prev.url,
+          number: typeof data.number === "number" ? data.number : prev.number,
+          branch: str(data.branch) || prev.branch || board.branch,
+          base: str(data.base) || prev.base,
+          reviewers: Array.isArray(data.reviewers) ? arr<string>(data.reviewers) : prev.reviewers,
+          ciState: "ciState" in data ? (str(data.ciState) || null) : prev.ciState,
+          ciUrl: str(data.ciUrl) || prev.ciUrl,
+          jobs: Array.isArray(summary.jobs) ? arr<{ name: string; result: string }>(summary.jobs) : prev.jobs,
+          tests: tests && typeof tests.passed === "number" ? tests : prev.tests,
+        },
+      };
+    }
     default:
       return board;
   }
@@ -186,4 +236,11 @@ export const STATUS_LABEL: Record<TaskStatus, string> = {
   coding: "Coders working",
   "code-review": "Code waiting for your review (Gate 5)",
   accepted: "Accepted, ready for a pull request",
+  "pr-review": "Pull request waiting for your approval (Gate 6)",
+  "pr-open": "Pull request open",
 };
+
+// A PR from AURA's API (GET /task-prs) as a Task event, so the PR view refreshes its CI status.
+export function prEventFrom(pr: { prUrl: string | null; prNumber: number | null; branch: string; reviewers: string[]; ciState: string | null; ciUrl: string | null; ciSummary: unknown }): Record<string, unknown> {
+  return { kind: "pr", url: pr.prUrl, number: pr.prNumber, branch: pr.branch, reviewers: pr.reviewers, ciState: pr.ciState, ciUrl: pr.ciUrl, ciSummary: pr.ciSummary };
+}

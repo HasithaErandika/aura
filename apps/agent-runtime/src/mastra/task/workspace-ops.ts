@@ -86,23 +86,34 @@ export async function collectChange(bridge: BridgeCaller, base = 'HEAD'): Promis
   return { files, diff: combined.length > MAX_DIFF ? `${combined.slice(0, MAX_DIFF)}\n…(diff truncated)` : combined, diffStat };
 }
 
-// The project's own check commands (.aura/settings.json "checks"), which win over the plan's:
-// the team decides what proves a change, not the agent.
-export async function projectChecks(bridge: BridgeCaller): Promise<string[] | null> {
+// A list setting from the project's .aura/settings.local.json, else .aura/settings.json.
+async function projectList(bridge: BridgeCaller, key: 'checks' | 'reviewers'): Promise<string[] | null> {
   const parse = (text: string): string[] | null => {
     try {
-      const checks = (JSON.parse(text) as { checks?: unknown }).checks;
-      return Array.isArray(checks) ? checks.filter((c): c is string => typeof c === 'string' && c.trim().length > 0).slice(0, 10) : null;
+      const value = (JSON.parse(text) as Record<string, unknown>)[key];
+      return Array.isArray(value) ? value.filter((c): c is string => typeof c === 'string' && c.trim().length > 0).slice(0, key === 'checks' ? 10 : 15) : null;
     } catch {
       return null;
     }
   };
   for (const path of ['.aura/settings.local.json', '.aura/settings.json']) {
     const text = await bridge.call('fs.readFile', { path, encoding: 'utf8' }).then((r) => r.content).catch(() => null);
-    const checks = text ? parse(text) : null;
-    if (checks?.length) return checks;
+    const list = text ? parse(text) : null;
+    if (list?.length) return list;
   }
   return null;
+}
+
+// The project's own check commands (.aura/settings.json "checks"), which win over the plan's:
+// the team decides what proves a change, not the agent.
+export function projectChecks(bridge: BridgeCaller): Promise<string[] | null> {
+  return projectList(bridge, 'checks');
+}
+
+// The project's default pull request reviewers (.aura/settings.json "reviewers", GitHub logins
+// or org/team).
+export function projectReviewers(bridge: BridgeCaller): Promise<string[] | null> {
+  return projectList(bridge, 'reviewers');
 }
 
 // Notes the developer typed while the Task runs (apps/api GET /internal/runs/:id/notes).

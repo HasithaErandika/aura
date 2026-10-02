@@ -141,3 +141,11 @@ describe("Task gates in VS Code (V4)", () => {
     expect(canDecide({ id: "dev-2", role: "developer" }, scope)).toBe(false);
   });
 });
+
+describe("Pull request gate in VS Code (V6)", () => {
+  it("names Gate 6 for delegate_to_pr and lets the developer who started the run decide", () => {
+    expect(delegatedAgentFromTool("delegate_to_pr")).toBe("git-agent");
+    expect(gateInfoForPause("git-agent", [{ label: "Approve" }])).toMatchObject({ gate: 6, name: "Pull request" });
+    expect(resolveApprover("git-agent", "dev-1").requiredRole).toBeNull();
+  });
+});
