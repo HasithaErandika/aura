@@ -1,33 +1,43 @@
 # AURA
 
-Governed AI agent orchestration platform for the software delivery lifecycle. AURA coordinates specialised AI agents (Project Owner, BA, Architect, Developer, QA, Tester, Deployer) across the SDLC, uses Jira as the system of record for work, enforces role- and project-based access control outside the LLM, and gates every consequential action behind human approval.
+AI agents for the software delivery lifecycle, with a human approving every step.
 
-See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the full architecture baseline and [docs/srs/](docs/srs/) for the software requirements specification.
-
-## Layout
-
-```
-apps/            web, api, agent-runtime, cli (the `aura` command)
-packages/        aura-client (typed API client shared by the apps)
-patches/         pnpm dependency patches
-docs/            architecture, plans, srs, adr, security, runbooks, workflows, logs
+```mermaid
+flowchart LR
+    I["Idea"] --> E["Epic"] --> S["Stories"] --> D["Design"] --> C["Code"] --> T["Tests"] --> R["Release plan"]
+    H{{"Human approval at every step"}} -.-> E & S & D & C & T & R
 ```
 
-A **pnpm workspace**: `apps/` holds the runnable apps (`web`, `api`, `agent-runtime`, and the `aura` CLI in `cli`), `packages/` holds code shared between them (`aura-client`, the typed API client). One `pnpm install` at the root, one `pnpm-lock.yaml`. See [SETUP.md](SETUP.md) for what each part is and how to run it.
+- Agents for **PO, BA, Architect, Developer, QA, Tester and Deployer** draft the work.
+- **Jira** holds the work items.
+- **Permissions, approvals and audit** are plain code, outside the model.
 
-## Getting started
+## Quick start
 
 ```bash
-pnpm install      # or: make install
-make env          # create .env files from the examples, then fill them in
-make dev          # agent-runtime + api + web together (or: pnpm dev)
-make cli          # optional: put the `aura` developer CLI on your PATH
+pnpm install   # install everything
+make env       # create .env files, then fill them in
+make dev       # run runtime + api + web
 ```
 
-Full walkthrough: [SETUP.md](SETUP.md). `make help` lists every shortcut.
+Full guide: [SETUP.md](SETUP.md) · `make help` lists every command.
 
-## Docs
+## Repository
 
-- [Architecture](docs/ARCHITECTURE.md)
-- [SRS](docs/srs/00-overview.md)
-- [Daily logs](docs/logs/)
+| Folder | Contents |
+|---|---|
+| `apps/web` | React UI |
+| `apps/api` | Express API: auth, policy, approvals, audit |
+| `apps/agent-runtime` | Mastra agents and workflows |
+| `apps/cli` | `aura` developer CLI |
+| `packages/aura-client` | Shared typed API client |
+| `docs/` | Documentation |
+
+## Documentation
+
+| Doc | For |
+|---|---|
+| [docs/story.md](docs/story.md) | Plain-English introduction |
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | How the system is built |
+| [SETUP.md](SETUP.md) | Install and run |
+| [docs/README.md](docs/README.md) | Full documentation index |
