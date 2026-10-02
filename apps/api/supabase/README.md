@@ -17,6 +17,7 @@ The Orchestrator decides what happens in a run. The API only records what it obs
 | `0004_coding_agent_credentials.sql` | Coding-agent credentials (dropped again by 0007) |
 | `0005_remove_tester_role.sql` | Removes the human Tester role |
 | `0006_access_tokens_git_identity.sql` | `access_tokens`; `git_name` / `git_email` on `profiles` |
+| `0009_run_events.sql` | `run_events` (client stream of every turn), run status `INTERRUPTED` |
 | `0008_settings.sql` | `settings` (global, project and user values for the dashboard) |
 | `0007_projects_repositories.sql` | `projects`, `repositories` (one per project), `task_branches`, `task_dependencies`; drops `coding_agent_credentials` |
 

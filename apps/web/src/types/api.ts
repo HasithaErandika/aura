@@ -21,7 +21,8 @@ export type RunStatus =
   | "FAILED"
   | "REJECTED"
   | "EXPIRED"
-  | "HALTED_LOOP_GUARD";
+  | "HALTED_LOOP_GUARD"
+  | "INTERRUPTED";
 
 export interface Person {
   fullName: string | null;

@@ -31,7 +31,7 @@ Run `make doctor` to check all of these.
 ## 2. Database
 
 Run every file in `apps/api/supabase/migrations/` **in order** in the Supabase SQL editor
-(`0001` → `0008`).
+(`0001` → `0009`).
 
 ---
 
@@ -61,9 +61,10 @@ Generate each with `make terminal-secret`.
 
 ### Postgres for runtime state
 
-Set `DATABASE_URL` in `apps/agent-runtime/.env` to the Supabase **direct** connection string
+Set `DATABASE_URL` in **both** `apps/agent-runtime/.env` and `apps/api/.env` to the Supabase
+**direct** connection string
 (Project Settings → Database, session mode, port 5432). The runtime creates the `mastra` and
-`aura_runtime` schemas itself. To keep the drafts you already have locally:
+`aura_runtime` schemas; the API's turn queue creates `pgboss`. To keep the drafts you already have locally:
 
 ```bash
 DATABASE_URL=postgresql://... pnpm --filter agent-runtime migrate-state

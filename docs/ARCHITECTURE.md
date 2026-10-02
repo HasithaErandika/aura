@@ -60,8 +60,10 @@ flowchart LR
 | `packages/aura-client` | TypeScript | Typed REST + SSE client, for the coming VS Code extension | — |
 
 **Request path:** client → `apps/api` (checks who and what) → `apps/agent-runtime` (runs the
-agent) → Jira, disk, Docker. Only `apps/api` can call the runtime. API and runtime talk directly;
-there is no queue.
+agent) → Jira, disk, Docker. Only `apps/api` can call the runtime. Each agent turn runs as a
+**background job** (pg-boss on Postgres when `DATABASE_URL` is set, in-process otherwise). Every
+event a client sees is stored in `run_events` first, so a closed browser doesn't stop a turn and a
+client reconnects with `GET /runs/:id/events?after=<id>`.
 
 ---
 
@@ -325,7 +327,7 @@ tokens (estimated total saving ~40%).
 | Projects, repositories, `GitProvider` | Partial | Local provider only; not used by Gate 4 yet |
 | GitHub App, pull requests, merge flow | Not built | |
 | Runtime state in Postgres | Built | Set `DATABASE_URL`; required in server mode |
-| Job queue, durable runs | Not built | A restart loses a running turn (suspended gates survive) |
+| Job queue, resumable streams | Built | A restart marks a running turn `INTERRUPTED`; it is never re-run automatically |
 | SSO, row-level security per project | Not built | Scope is enforced in `policy.ts` |
 | Budgets per team | Not built | Per-run token budget only |
 

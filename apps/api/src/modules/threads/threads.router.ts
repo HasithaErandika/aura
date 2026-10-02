@@ -1,8 +1,7 @@
 import { Router } from "express";
 import { z } from "zod";
 import { asyncHandler } from "../../lib/http/async-handler.js";
-import { conflict, forbidden, notFound } from "../../lib/http/errors.js";
-import { SseWriter } from "../../lib/http/sse.js";
+import { conflict, forbidden, HttpError, notFound } from "../../lib/http/errors.js";
 import { agentIdSchema, idParam, parseOrThrow } from "../../lib/http/validate.js";
 import { agentTurnLimit } from "../../middleware/limits.js";
 import { currentUser } from "../../middleware/auth.js";
@@ -12,7 +11,9 @@ import { toApprovalView } from "../approvals/approvals.service.js";
 import { assertCanRunAgent, canReadAgent } from "../policy/policy.js";
 import { runsRepository } from "../runs/runs.repository.js";
 import { ACTIVE_RUN_STATUSES, toRunView } from "../runs/runs.types.js";
-import { startTurn } from "../orchestration/run-stream.service.js";
+import { createTurnRun } from "../orchestration/run-stream.service.js";
+import { streamRunEvents } from "../orchestration/follow-http.js";
+import { enqueueTurn, jobUser } from "../orchestration/turn-jobs.js";
 import { runtimeClient } from "../runtime/runtime.client.js";
 import { normalizeMessages } from "../runtime/runtime.messages.js";
 
@@ -92,7 +93,11 @@ threadsRouter.get(
 
 const sendMessageSchema = z.object({ agentId: agentIdSchema, message: z.string().trim().min(1).max(20_000) }).strict();
 
-// POST /threads/:id/messages: starts a turn and streams the runtime's progress back as SSE.
+// Queued or running turns one user may have at once, across conversations.
+const MAX_ACTIVE_TURNS_PER_USER = 5;
+
+// POST /threads/:id/messages: records the run, queues the turn as a background job and streams its
+// events back as SSE. Closing the stream doesn't stop the turn; GET /runs/:id/events reconnects.
 threadsRouter.post(
   "/:threadId/messages",
   agentTurnLimit,
@@ -111,9 +116,13 @@ threadsRouter.post(
       );
     }
 
-    const writer = new SseWriter(req, res);
-    await startTurn({ user, agentId, threadId: thread.id, message, requestId: req.requestId, writer });
-    writer.end();
+    if ((await runsRepository.countActiveForUser(user.id)) >= MAX_ACTIVE_TURNS_PER_USER) {
+      throw new HttpError(429, "rate_limited", `You already have ${MAX_ACTIVE_TURNS_PER_USER} agent turns queued or running. Wait for one to finish.`);
+    }
+
+    const run = await createTurnRun({ user, agentId, threadId: thread.id, message, requestId: req.requestId });
+    await enqueueTurn({ kind: "start", runId: run.id, message, requestId: req.requestId, user: jobUser(user) });
+    await streamRunEvents(req, res, run.id, 0);
   }),
 );
 

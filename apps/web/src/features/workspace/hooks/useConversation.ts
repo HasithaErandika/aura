@@ -277,6 +277,29 @@ export function useConversation(agentId: string, threadId: string | null) {
     [state.pendingGate, applyEvent, finishTurn, load],
   );
 
+  // A turn still queued or running when the conversation loads (page reload, another tab):
+  // follow it live. Turns run as background jobs, so leaving the page never stopped them.
+  const runId = state.run?.id ?? null;
+  const runActive = state.runStatus === "PENDING" || state.runStatus === "RUNNING";
+  useEffect(() => {
+    if (!runId || !runActive || state.busy) return;
+    const controller = new AbortController();
+    abortRef.current = controller;
+    setState((s) => ({ ...s, busy: true, error: null, streaming: null }));
+    void workspaceApi
+      .follow(runId, applyEvent, controller.signal)
+      .catch((err) => {
+        if (!controller.signal.aborted) setState((s) => ({ ...s, error: describeError(err) }));
+      })
+      .finally(() => {
+        finishTurn();
+        void load(true);
+      });
+    return () => controller.abort();
+    // Only when a different active run appears, not on every busy change.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [runId, runActive]);
+
   const cancel = useCallback(() => abortRef.current?.abort(), []);
 
   return { ...state, send, decide, reload: () => load(true), cancel };

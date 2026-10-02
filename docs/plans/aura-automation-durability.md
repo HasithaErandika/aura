@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | Approved 2026-10-02 · Parts A and B built · Part C next |
+| **Status** | Approved 2026-10-02 · Parts A, B and C built · Part D next |
 | **Date** | 2026-10-02 |
 | **Moves** | Automation L2 → L3 (part L4) · company reliability ~30 → ~60 |
 | **Covers** | Roadmap Phase 2 (durable execution), part of Phase 3 (RLS, budgets), stages A1–A3, dashboard settings |
@@ -134,14 +134,14 @@ sequenceDiagram
 
 | Step | Change | Done when |
 |---|---|---|
-| C1 | pg-boss in `apps/api`; queues `turn`, `resume`, `events`, `maintenance` | Jobs visible in the Runners tab |
-| C2 | `startTurn` / `resumeTurn` become job handlers; requests return `202 { runId }` | Closing the browser does not stop a run |
-| C3 | `GET /runs/:id/events?after=<seq>`: replay then live tail | Reconnect continues without gaps |
-| C4 | Web chat and the VS Code extension follow the events endpoint (`@aura/client`) | Same live view as today |
-| C5 | Idempotency key `(runId, phase)`; retry with backoff; dead-letter list | A gate step never runs twice |
-| C6 | Worker crash mid-turn → run `INTERRUPTED` + **Resume** button; auto-retry only at a gate boundary | No silent double execution |
-| C7 | Concurrency limits per user, project and model provider | Free-tier limits are respected |
-| C8 | `maintenance` jobs: approval expiry, stale-worktree report | Runs without a page load |
+| C1 | pg-boss 12 in `apps/api` (`aura-turn` with dead-letter `aura-turn-failed`, `aura-maintenance`); in-process when `DATABASE_URL` is empty | 🟢 Verified against Postgres (PGlite): queues, groups, schedule, jobs processed |
+| C2 | Turns run as jobs. The POST endpoints record the run, queue the job and follow its events, so existing clients keep working | 🟢 Closing the browser does not stop a run |
+| C3 | `run_events` table (migration 0009); `GET /runs/:id/events?after=<id\|turn>`: replay then live; SSE `id:` on every event | 🟢 Unit-tested replay, live delivery and stop at `done` |
+| C4 | Web chat reconnects from the last event id and re-attaches to a running turn after a reload; the VS Code extension uses the same endpoint (V1) | 🟢 Web done |
+| C5 | Turn jobs are never retried (`retryLimit: 0`); failed jobs go to the dead-letter queue; gated steps stay single-use in the gateway | 🟢 A gate step never runs twice |
+| C6 | Running turns heartbeat every 30 s; a run silent for 3 minutes becomes `INTERRUPTED` with an explanation; the user continues with a new message | 🟢 Unit-tested |
+| C7 | `TURN_CONCURRENCY` per process, `TURN_CONCURRENCY_PER_USER` across processes (pg-boss groups), max 5 queued or running turns per user | 🟡 Per project and per model provider not built |
+| C8 | Maintenance every minute: approval expiry and the stale-run sweep | 🟢 Runs without a page load |
 
 ---
 

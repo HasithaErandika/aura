@@ -25,7 +25,8 @@ flowchart LR
 | `src/modules/terminal/` | Web terminal tickets |
 | `src/modules/*` | `threads`, `runs`, `agents`, `jira`, `council`, `dashboard`, workspaces, `runners`, `health` |
 | `src/modules/settings/` | Settings registry, resolution, API |
-| `supabase/migrations/` | SQL migrations `0001`–`0008` |
+| `src/modules/orchestration/turn-jobs.ts` | Turn queue (pg-boss), heartbeat, stale-run sweep |
+| `supabase/migrations/` | SQL migrations `0001`–`0009` |
 
 ## Routes
 
@@ -37,7 +38,7 @@ flowchart LR
 | `/settings` | Signed in (shared values: admin) | Settings registry, effective values, global/project/user values |
 | `/threads` | Run grant | Conversations; `POST /threads/:id/messages` streams a turn (SSE) |
 | `/approvals` | Approver role | Inbox; `POST /approvals/:id/decide` streams the continuation (SSE) |
-| `/runs` | Requester, approver, admin | Runs and step timeline |
+| `/runs` | Requester, approver, admin | Runs and step timeline; `GET /runs/:id/events?after=` replays and follows a run's events (SSE) |
 | `/audit` | Admin | Audit explorer and export |
 | `/dashboard` | Signed in | Summary, agent quality, token usage |
 | `/agents` · `/jira` · `/council` · `/terminal` · `/runners` | Per grant | Registry, Jira reads, council notes, terminal tickets, runners |

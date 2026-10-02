@@ -1,6 +1,6 @@
 import { env } from "../../config/env.js";
 import { sha256 } from "../../lib/hash.js";
-import type { SseWriter } from "../../lib/http/sse.js";
+import type { EventSink } from "./run-events.js";
 import { errorMessage, logger } from "../../lib/logger.js";
 import type { AuthedUser } from "../../middleware/auth.js";
 import { writeAudit } from "../audit/audit.service.js";
@@ -25,7 +25,7 @@ const TOOL_RESULT_PREVIEW_CHARS = 4000;
 interface StreamContext {
   run: RunRow;
   viewer: AuthedUser;
-  writer: SseWriter;
+  writer: EventSink;
   requestId: string;
   settings: TurnSettings;
 }
@@ -395,14 +395,8 @@ export async function pipeRuntimeStream(context: StreamContext, stream: AsyncGen
   return outcome;
 }
 
-export async function startTurn(input: {
-  user: AuthedUser;
-  agentId: string;
-  threadId: string;
-  message: string;
-  requestId: string;
-  writer: SseWriter;
-}): Promise<TurnOutcome> {
+// Records a new run (status PENDING) and its audit row, before the turn is queued.
+export async function createTurnRun(input: { user: AuthedUser; agentId: string; threadId: string; message: string; requestId: string }): Promise<RunRow> {
   const run = await runsRepository.create({
     agentId: input.agentId,
     threadId: input.threadId,
@@ -420,6 +414,12 @@ export async function startTurn(input: {
     requestId: input.requestId,
     metadata: { agentId: input.agentId, threadId: input.threadId },
   });
+  return run;
+}
+
+// Runs a recorded turn against the runtime (called from the turn job, modules/orchestration/turn-jobs.ts).
+export async function startTurn(input: { run: RunRow; user: AuthedUser; message: string; requestId: string; writer: EventSink }): Promise<TurnOutcome> {
+  const { run } = input;
   input.writer.send("run", { runId: run.id, runtimeRunId: null, status: run.status });
 
   // Dashboard settings for this requester and project (modules/settings).
@@ -429,10 +429,10 @@ export async function startTurn(input: {
   let stream: AsyncGenerator<RuntimeChunk>;
   try {
     stream = await runtimeClient.stream(
-      input.agentId,
+      run.agent_id,
       {
         messages: [{ role: "user", content: input.message }],
-        memory: { thread: input.threadId, resource: input.user.id },
+        memory: { thread: run.thread_id, resource: input.user.id },
         requestContext: { [RUN_CONTEXT_KEY]: runContext(run.id, input.requestId, input.user), [SETTINGS_CONTEXT_KEY]: settings.runtime },
       },
       turn.signal,
@@ -462,7 +462,7 @@ export async function resumeTurn(input: {
   approver?: RuntimeApprover | null;
   decision: RuntimeDecision;
   requestId: string;
-  writer: SseWriter;
+  writer: EventSink;
 }): Promise<TurnOutcome> {
   let run = input.run;
   // The requester's settings, not the approver's: the run is still the requester's work.

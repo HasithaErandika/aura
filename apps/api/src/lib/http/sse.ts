@@ -29,6 +29,12 @@ export class SseWriter {
     this.res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
   }
 
+  // With the run event id, so a client can reconnect with GET /runs/:id/events?after=<id>.
+  sendWithId(id: number, event: string, data: unknown) {
+    if (this.closed) return;
+    this.res.write(`id: ${id}\nevent: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+  }
+
   comment(text: string) {
     if (this.closed) return;
     this.res.write(`: ${text}\n\n`);

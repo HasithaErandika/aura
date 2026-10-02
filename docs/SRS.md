@@ -141,8 +141,8 @@ Replacing Jira · autonomous production changes · non-TypeScript services.
 | NFR-SEC-2 | Security | Forbidden tools (policy edits, audit changes) are never callable | 🟢 |
 | NFR-SEC-3 | Security | Agent code runs in ephemeral, isolated containers | 🟡 Host checks allowed locally |
 | NFR-SEC-4 | Security | Database enforces project scope (RLS) | 🔴 |
-| NFR-REL-1 | Reliability | Runs survive a runtime restart | 🟡 Gates, drafts and memory survive (Postgres); running turns do not |
-| NFR-REL-2 | Reliability | Durable queue between API and runtime | 🔴 |
+| NFR-REL-1 | Reliability | Runs survive a runtime restart | 🟡 Gates, drafts, memory and client streams survive; a running turn is marked INTERRUPTED, not resumed |
+| NFR-REL-2 | Reliability | Durable queue between API and runtime | 🟢 pg-boss |
 | NFR-REL-3 | Reliability | Model fallback on provider failure | 🟢 Coding Council chains |
 | NFR-COST-1 | Cost | Token budget per run | 🟢 Coding Council |
 | NFR-COST-2 | Cost | Budgets per developer and team | 🔴 |
