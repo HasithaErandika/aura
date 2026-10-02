@@ -306,6 +306,11 @@ Add it to every project repository AURA works on. After saving, **Recent Deliver
 | Secret | `JIRA_WEBHOOK_SECRET` |
 | Events | Issue → **updated** (optional JQL: `project = <JIRA_PROJECT_KEY>`) |
 
+With the Jira webhook on, adding the label `aura` to a Task (or moving it into the status set
+in **Admin → Settings → Jira workflow → Status that offers the work**) notifies its assignee,
+and their VS Code offers **Start Work**. The assignee is matched to an AURA developer by email;
+if Jira hides the email, every developer is notified.
+
 **Check:** every accepted delivery appears in **Admin → Audit** as `webhook.received`.
 
 **5. Jira status names.** AURA moves each Task to *In Progress*, *In Review*, *Ready for Release*

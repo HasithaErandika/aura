@@ -91,6 +91,17 @@ export const SETTING_DEFINITIONS: readonly SettingDefinition[] = [
   ...jiraStatus("jira.statusInReview", "Status when the PR opens", "The Jira status a Task moves to when its pull request opens.", "In Review"),
   ...jiraStatus("jira.statusReadyForRelease", "Status when the PR merges", "The Jira status a Task moves to when a person merges its pull request.", "Ready for Release"),
   ...jiraStatus("jira.statusDone", "Status when released", "The Jira status an Epic's Tasks move to when its release plan is approved at Gate 8.", "Done"),
+  ...jiraStatus("jira.statusStartsWork", "Status that offers the work", "When a Task or Bug moves into this Jira status, its assignee's VS Code offers Start Work. Off by default.", "none"),
+  {
+    key: "jira.labelStartsWork",
+    group: "jira",
+    label: "Label that offers the work",
+    description: "When this label is added to a Task or Bug in Jira, its assignee's VS Code offers Start Work. none turns it off.",
+    owner: "api",
+    scopes: SHARED,
+    ...text(60),
+    fallback: () => "aura",
+  },
   {
     key: "limits.turnTimeoutMinutes",
     group: "limits",

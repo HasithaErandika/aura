@@ -7,7 +7,7 @@ import { chooseTransition, type StatusMove } from "./jira.status.js";
 import type { JiraComment, JiraEpicDetail, JiraIssueDetail, JiraIssueSummary, JiraTransition } from "./jira.types.js";
 
 const SUMMARY_FIELDS = "summary,issuetype,status,priority,assignee,updated";
-const DETAIL_FIELDS = `${SUMMARY_FIELDS},created,reporter,description`;
+const DETAIL_FIELDS = `${SUMMARY_FIELDS},created,reporter,description,parent`;
 const SEARCH_PAGE_SIZE = 100;
 const MAX_SEARCH_PAGES = 100;
 

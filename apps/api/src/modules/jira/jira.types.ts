@@ -16,6 +16,8 @@ export interface JiraIssueDetail extends JiraIssueSummary {
   description: string;
   created: string | null;
   reporter: string | null;
+  // The Epic (or other parent) the issue sits under.
+  parentKey: string | null;
 }
 
 export interface JiraEpicDetail {

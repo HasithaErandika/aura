@@ -10,6 +10,7 @@ import { connectRepository, initializeProject } from "./project.js";
 import { Session } from "./session.js";
 import { TasksProvider, type TaskNode } from "./tasks-tree.js";
 import { cleanupMergedTask } from "./merge-cleanup.js";
+import { readyOffers } from "./ready-tasks.js";
 
 // AURA for VS Code (ADR-4, docs/ARCHITECTURE.md §4-§5): agents run in the AURA cloud; their file
 // changes and commands run here, in the open folder, under the developer's permission rules.
@@ -118,6 +119,31 @@ export function activate(context: vscode.ExtensionContext) {
       if (!quiet) void vscode.window.showWarningMessage(`AURA: couldn't read the pull request's CI status (${error instanceof Error ? error.message : String(error)}).`);
     }
   };
+  // The runtime refuses a waiting Task at Gate 4 anyway; this says why before the chat opens.
+  const startWork = async (key: string, summary: string, epicKey: string) => {
+    const waiting = await session.client().taskPrs.dependencies(key).then((d) => d.waitingFor, () => []);
+    if (waiting.length) return void vscode.window.showWarningMessage(`AURA: ${key} waits for ${waiting.join(", ")} to be merged first.`);
+    await chat.startTask({ key, summary, epicKey });
+  };
+  // A Task made ready in Jira (step 3.8) is offered here; nothing starts until the developer says so.
+  const offered = new Set<string>();
+  const offerReadyTasks = async () => {
+    if (!(await session.token())) return;
+    const notifications = await session.client().notifications.list().then((r) => r.notifications, () => []);
+    for (const n of readyOffers(notifications, offered)) {
+      offered.add(n.id);
+      const key = n.taskKey;
+      void vscode.window.showInformationMessage(`AURA: ${n.title}.`, "Start Work", "Later").then(async (choice) => {
+        if (choice !== "Start Work") return;
+        await session.client().notifications.read([n.id]).catch(() => undefined);
+        const issue = await session.client().jira.issue(key).catch(() => null);
+        await startWork(key, issue?.summary ?? key, issue?.parentKey ?? "");
+      });
+    }
+  };
+  const readyPoll = setInterval(() => void offerReadyTasks(), 5 * 60_000);
+  context.subscriptions.push({ dispose: () => clearInterval(readyPoll) }, session.onDidChange(() => void offerReadyTasks()));
+  void offerReadyTasks();
   // Once per merged Task: the parts' leftover worktrees and sub-branches go.
   const cleaned = new Set<string>();
   const afterMerge = async (taskKey: string, branch: string) => {
@@ -224,13 +250,7 @@ export function activate(context: vscode.ExtensionContext) {
     }),
     vscode.commands.registerCommand("aura.startTask", async (node?: TaskNode) => {
       if (node?.kind !== "issue") return;
-      // The runtime refuses a waiting Task at Gate 4 anyway; this says why before the chat opens.
-      const waiting = await session.client().taskPrs.dependencies(node.issue.key).then((d) => d.waitingFor, () => []);
-      if (waiting.length) {
-        void vscode.window.showWarningMessage(`AURA: ${node.issue.key} waits for ${waiting.join(", ")} to be merged first.`);
-        return;
-      }
-      await chat.startTask({ key: node.issue.key, summary: node.issue.summary, epicKey: node.epicKey });
+      await startWork(node.issue.key, node.issue.summary, node.epicKey);
     }),
     vscode.commands.registerCommand("aura.openInJira", (node?: TaskNode) => {
       const url = node && (node.kind === "issue" || node.kind === "epic") ? node.issue.url : null;

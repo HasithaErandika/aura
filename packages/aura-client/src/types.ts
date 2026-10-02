@@ -29,6 +29,8 @@ export interface JiraIssueDetail extends JiraIssueSummary {
   description: string;
   created: string | null;
   reporter: string | null;
+  // The Epic (or other parent) the issue sits under.
+  parentKey: string | null;
 }
 
 export interface JiraEpicDetail {
@@ -168,7 +170,7 @@ export interface TaskPr {
 
 export interface AuraNotification {
   id: string;
-  kind: "pr_opened" | "pr_merged" | "ci_passed" | "ci_failed";
+  kind: "task_ready" | "pr_opened" | "pr_merged" | "ci_passed" | "ci_failed";
   title: string;
   body: string;
   link: string | null;

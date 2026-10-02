@@ -24,3 +24,8 @@ export async function peopleById(ids: (string | null | undefined)[]): Promise<Pe
 export function userIdsWithRole(role: Role): Promise<string[]> {
   return profilesRepository.idsWithRole(role);
 }
+
+// The developer with this email, for a Jira assignee (case-insensitive).
+export function developerIdByEmail(email: string): Promise<string | null> {
+  return profilesRepository.idWithEmailAndRole(email.replace(/[%_\\]/g, ""), "developer");
+}

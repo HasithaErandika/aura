@@ -162,6 +162,7 @@ sequenceDiagram
 | Step | Rule (in code) |
 |---|---|
 | Routing | Bug → `issue-solver`; test labels → `test-writer`; Frontend → `frontend-react`; Backend, Data, AI, Integration → `backend-nestjs` or `backend-spring` from the Epic's Gate 3 stack |
+| Ready from Jira | A Task or Bug given the label in *Label that offers the work* (default `aura`), or moved into *Status that offers the work* (off by default), notifies its assignee (`task_ready`, matched to a developer by email, else every developer; migration `0017`). Their VS Code offers **Start Work**; nothing runs or is approved without them. A Task whose branch exists is not offered |
 | Dependencies | The Architect gives each Task `dependsOn` (Task numbers); code drops self, out-of-range and cycle-closing edges (`task/dependencies.ts`). Gate 3 records them in `task_dependencies` and adds Jira "Blocks" links. Gate 4 refuses a Task until every dependency's PR is merged; Start Work says so first |
 | Plan lock | Until Gate 4 is approved, the conversation's workspace is read-only, whatever the developer's mode |
 | Task branch | `feat/<EPIC>/<TASK>` from `development` (else the current commit); never switched over uncommitted work |
@@ -327,7 +328,7 @@ flowchart LR
 | Task PRs and CI | Migrations `0012`, `0014`. `task_branches` holds each Task's PR, reviewers, CI state and merge; `aura-ci.yml` reports to `POST /ci/report` |
 | AURA QA check | Migration `0016`. Gate 3 records which Stories each Task implements (`task_stories`). Tests for a QA scenario are named `[qa:<file name>]`; each app's test runner writes JUnit XML to `reports/`. `aura-ci.yml` sends each scenario's result with the CI report; AURA passes the check only when every scenario of the Task's Stories passed (a failed or untested one fails it; no linked scenarios passes), stores it as `qa_state`, and CI posts it as the **AURA QA** commit status. Shown on the QA page and in the PR view |
 | API tests | QA's api scenarios name the contract `operationId`s they call (code keeps only ones the contract defines). The `test-writer` coder writes one test per scenario that checks status and body against the contract. `aura-ci.yml` has a `contract` job: Redocly lint, and oasdiff fails a PR that breaks the base branch's contract |
-| Webhook deliveries | Migration `0013`. Each accepted GitHub or Jira delivery is claimed once by `(source, delivery_id)`, so retries are not handled twice; a failed one is released for the retry. Audited as `webhook.received`; payloads are not stored. Handled: GitHub `pull_request` (opened, reopened, synchronize, closed/merged) |
+| Webhook deliveries | Migration `0013`. Each accepted GitHub or Jira delivery is claimed once by `(source, delivery_id)`, so retries are not handled twice; a failed one is released for the retry. Audited as `webhook.received`; payloads are not stored. Handled: GitHub `pull_request` (opened, reopened, synchronize, closed/merged); Jira `issue_updated` (a Task offered to its assignee) |
 | Notifications | Migration `0012`. In-app: QA hears when a PR opens; QA and the developer hear when CI passes or fails |
 | Source code | Not stored. Code lives in the developer's clone and on GitHub |
 
