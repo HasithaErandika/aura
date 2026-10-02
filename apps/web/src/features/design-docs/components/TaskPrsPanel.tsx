@@ -33,6 +33,7 @@ export function TaskPrsPanel() {
                 <TH>Task</TH>
                 <TH>Pull request</TH>
                 <TH>CI</TH>
+                <TH>AURA QA</TH>
                 <TH>Reviewers</TH>
                 <TH>Updated</TH>
               </TR>

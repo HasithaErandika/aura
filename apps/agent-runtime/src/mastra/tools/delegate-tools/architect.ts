@@ -17,7 +17,7 @@ import { generateObject, type MastraLike } from '../../lib/generate-object';
 import { designDocs } from '../../lib/design-docs-client';
 import { outputSchema, fail, provenance, buildProvenance, type ToolWriterLike } from './shared';
 import { untrusted, untrustedInline } from '../../gateway/untrusted';
-import { recordDependencies } from '../../task/aura-api';
+import { recordDependencies, recordStories } from '../../task/aura-api';
 import { dependencyKeys, sanitizeDependencies } from '../../task/dependencies';
 
 const architectInputSchema = z
@@ -264,8 +264,10 @@ export const delegateToArchitectTool = createTool({
           // the Jira "Blocks" links are for people and best effort.
           if (!failure && !filed.dependencies && taskKeys.length === record.content.tasks.length) {
             const pairs = dependencyKeys(sanitizeDependencies(record.content.tasks), (n) => filed[String(n - 1)]);
+            const stories = record.content.tasks.flatMap((t, i) => t.relatedStories.filter((s) => /^[A-Z][A-Z0-9_]*-\d+$/.test(s)).map((storyKey) => ({ taskKey: filed[String(i)]!, storyKey })));
             try {
               await recordDependencies(pairs);
+              await recordStories(stories);
               for (const p of pairs) await jira.linkIssues(p.taskKey, p.dependsOn, 'Blocks').catch(() => undefined);
               filed.dependencies = 'done';
               await draftStore.markFiled(record.id, filed);

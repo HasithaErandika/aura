@@ -108,7 +108,7 @@ export const AGENT_MANIFEST: Record<AgentId, AgentManifestEntry> = {
     delegatesTo: ['evaluator'],
     note: 'Implements an approved Task plan in the developer\'s VS Code, invoked through delegate_to_coder (execute after Gate 4; revise after a Gate 5 "Revise"). The router picks one of frontend-react, backend-nestjs, backend-spring, issue-solver, test-writer (agents/coders.ts); code runs the checks and reads the diff; the Evaluator reviews; code decides whether a round passed (task/loop.ts), up to vscode.evaluatorRounds rounds. delegate_to_review accept records Gate 5.',
     agentVersion: '1.0.0',
-    promptVersion: '1.1.0', // build and test against the Epic API contract (steps 3.5, 3.6)
+    promptVersion: '1.2.0', // contract (3.5, 3.6); tests tagged [qa:<scenario>], JUnit to reports/ (3.7)
   },
   evaluator: {
     label: 'Evaluator',

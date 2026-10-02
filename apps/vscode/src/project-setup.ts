@@ -65,6 +65,13 @@ export function ciWorkflow(stacks: Stack[]): string {
       - run: npm run lint --if-present
       - run: npx tsc --noEmit
       - run: npm test --if-present -- --passWithNoTests
+      - name: Keep the test report for AURA QA
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: junit-${dir}
+          path: ${dir}/reports/junit*.xml
+          if-no-files-found: ignore
       - run: npm run build --if-present`;
     })
     .join("\n\n");
@@ -105,47 +112,91 @@ export const CONTRACT_JOB = `  contract:
           if ! git show "origin/\${{ github.base_ref }}:contracts/openapi.yaml" > /tmp/base-openapi.yaml 2>/dev/null; then echo "New contract"; exit 0; fi
           docker run --rm -v /tmp:/base -v "$PWD/contracts:/head" tufin/oasdiff breaking /base/base-openapi.yaml /head/openapi.yaml --fail-on ERR`;
 
+// Reads every JUnit report CI kept and returns each QA scenario's result, from tests named
+// [qa:<scenario file name>] (roadmap step 3.7).
+export const QA_RESULTS_PY = String.raw`import glob, json, re, xml.etree.ElementTree as ET
+out = []
+for f in glob.glob("junit/**/*.xml", recursive=True):
+    try:
+        root = ET.parse(f).getroot()
+    except Exception:
+        continue
+    for tc in root.iter("testcase"):
+        name = (tc.get("name") or "") + " " + (tc.get("classname") or "")
+        for m in re.finditer(r"\[qa:([a-z0-9][a-z0-9._-]{0,119})\]", name):
+            failed = tc.find("failure") is not None or tc.find("error") is not None
+            result = "failed" if failed else "skipped" if tc.find("skipped") is not None else "passed"
+            out.append({"id": m.group(1), "result": result})
+print(json.dumps(out[:500]))`;
+
+const indent = (text: string, spaces: number) => text.split("\n").map((l) => (l ? " ".repeat(spaces) + l : l)).join("\n");
+
 // Reports each pull request's CI run to AURA (POST /ci/report), so QA sees it and is notified
-// (V6). GitHub Actions OIDC proves the repository: no secret is stored. Set the repository
-// variable AURA_API_URL to turn it on; without it these jobs are skipped.
+// (V6), and posts AURA's QA verdict as the "AURA QA" commit status (3.7). GitHub Actions OIDC
+// proves the repository: no secret is stored. Set the repository variable AURA_API_URL to turn
+// it on; without it these jobs are skipped.
 export function auraReportJobs(needs: string[]): string {
   const env = `        env:
           AURA_API_URL: \${{ vars.AURA_API_URL }}
           BRANCH: \${{ github.head_ref }}
           SHA: \${{ github.event.pull_request.head.sha }}
           PR: \${{ github.event.pull_request.number }}
-          RUN_URL: \${{ github.server_url }}/\${{ github.repository }}/actions/runs/\${{ github.run_id }}`;
+          RUN_URL: \${{ github.server_url }}/\${{ github.repository }}/actions/runs/\${{ github.run_id }}
+          GH_TOKEN: \${{ github.token }}
+          REPO: \${{ github.repository }}`;
   const token = `TOKEN=$(curl -sS -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=aura" | jq -r .value)`;
-  const post = (body: string) => `curl -sS -X POST "$AURA_API_URL/ci/report" -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" -d "$(${body})" || echo "AURA did not accept the report"`;
-  return `  # AURA: tells QA that CI started on this pull request.
+  const post = (body: string) => `RESP=$(curl -sS -X POST "$AURA_API_URL/ci/report" -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" -d "$(${body})") || RESP='{}'`;
+  const status = `STATE=$(echo "$RESP" | jq -r '.qa.state // empty' 2>/dev/null)
+          DESC=$(echo "$RESP" | jq -r '.qa.description // ""' 2>/dev/null)
+          if [ -n "$STATE" ]; then
+            curl -sS -X POST "https://api.github.com/repos/$REPO/statuses/$SHA" -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" \\
+              -d "$(jq -n --arg s "$STATE" --arg d "$DESC" --arg u "$RUN_URL" '{state: $s, context: "AURA QA", description: ($d | .[0:140]), target_url: $u}')" > /dev/null
+          else
+            echo "AURA did not accept the report"
+          fi`;
+  return `  # AURA: tells QA that CI started on this pull request; AURA QA is pending until it ends.
   aura-start:
     if: github.event_name == 'pull_request' && vars.AURA_API_URL != ''
     runs-on: ubuntu-latest
     permissions:
       id-token: write
+      statuses: write
     steps:
       - name: Report to AURA
 ${env}
         run: |
           ${token}
           ${post(`jq -n --arg branch "$BRANCH" --arg sha "$SHA" --argjson pr "$PR" --arg url "$RUN_URL" '{status: "in_progress", branch: $branch, headSha: $sha, prNumber: $pr, runUrl: $url}'`)}
+          ${status}
 
-  # AURA: the result of every job above, for QA and the developer's PR view.
+  # AURA: the result of every job above and of each QA scenario's tests, for QA and the
+  # developer's PR view; AURA's verdict becomes the "AURA QA" status on the pull request.
   aura-report:
     needs: [${needs.join(", ")}]
     if: always() && github.event_name == 'pull_request' && vars.AURA_API_URL != ''
     runs-on: ubuntu-latest
     permissions:
       id-token: write
+      statuses: write
     steps:
+      - uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          pattern: junit-*
+          path: junit
       - name: Report to AURA
 ${env}
           RESULTS: \${{ toJSON(needs) }}
         run: |
           JOBS=$(echo "$RESULTS" | jq -c '[to_entries[] | {name: .key, result: .value.result}]')
           CONCLUSION=$(echo "$JOBS" | jq -r 'if any(.[]; .result == "failure") then "failure" elif any(.[]; .result == "cancelled") then "cancelled" else "success" end')
+          SCENARIOS=$(python3 - <<'PY'
+${indent(QA_RESULTS_PY, 10)}
+          PY
+          )
           ${token}
-          ${post(`jq -n --arg branch "$BRANCH" --arg sha "$SHA" --argjson pr "$PR" --arg url "$RUN_URL" --arg conclusion "$CONCLUSION" --argjson jobs "$JOBS" '{status: "completed", conclusion: $conclusion, branch: $branch, headSha: $sha, prNumber: $pr, runUrl: $url, jobs: $jobs}'`)}
+          ${post(`jq -n --arg branch "$BRANCH" --arg sha "$SHA" --argjson pr "$PR" --arg url "$RUN_URL" --arg conclusion "$CONCLUSION" --argjson jobs "$JOBS" --argjson scenarios "$SCENARIOS" '{status: "completed", conclusion: $conclusion, branch: $branch, headSha: $sha, prNumber: $pr, runUrl: $url, jobs: $jobs, scenarios: $scenarios}'`)}
+          ${status}
 `;
 }
 

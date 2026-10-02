@@ -159,6 +159,8 @@ export interface TaskPr {
   ciUrl: string | null;
   ciSummary: { jobs?: { name: string; result: string }[]; tests?: { passed: number; failed: number; skipped: number } };
   ciUpdatedAt: string | null;
+  qaState: "pending" | "success" | "failure" | null;
+  qaSummary: { required: string[]; passed: string[]; failed: string[]; missing: string[] } | null;
   openedBy: string | null;
   runId: string | null;
   updatedAt: string;

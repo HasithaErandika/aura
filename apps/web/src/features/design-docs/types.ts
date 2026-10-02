@@ -53,5 +53,8 @@ export interface TaskPr {
   ciUrl: string | null;
   ciSummary: { jobs?: { name: string; result: string }[]; tests?: { passed: number; failed: number; skipped: number } };
   ciUpdatedAt: string | null;
+  // The AURA QA check: every QA scenario of the Task's Stories has a passing test.
+  qaState: "pending" | "success" | "failure" | null;
+  qaSummary: { required: string[]; passed: string[]; failed: string[]; missing: string[] } | null;
   updatedAt: string;
 }

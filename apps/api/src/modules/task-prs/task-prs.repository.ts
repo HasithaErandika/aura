@@ -2,7 +2,7 @@ import { dbError } from "../../lib/db.js";
 import { supabaseAdmin } from "../../lib/supabase.js";
 import type { TaskPrRow } from "./task-prs.types.js";
 
-const COLUMNS = "task_key, epic_key, repo_full_name, branch, pr_number, pr_url, pr_title, pr_state, reviewers, head_sha, merged_at, merge_sha, ci_state, ci_url, ci_summary, ci_updated_at, opened_by, run_id, updated_at";
+const COLUMNS = "task_key, epic_key, repo_full_name, branch, pr_number, pr_url, pr_title, pr_state, reviewers, head_sha, merged_at, merge_sha, ci_state, ci_url, ci_summary, ci_updated_at, qa_state, qa_summary, qa_updated_at, opened_by, run_id, updated_at";
 const LIST_LIMIT = 200;
 
 export const taskPrsRepository = {
@@ -54,6 +54,18 @@ export const taskPrsRepository = {
     if (prError) throw dbError("Could not read the dependencies' pull requests", prError);
     const state = new Map((rows ?? []).map((r) => [(r as { task_key: string }).task_key, (r as { pr_state: TaskPrRow["pr_state"] }).pr_state]));
     return keys.map((dependsOn) => ({ dependsOn, prState: state.get(dependsOn) ?? null }));
+  },
+
+  async addStories(pairs: { task_key: string; story_key: string }[]): Promise<void> {
+    if (!pairs.length) return;
+    const { error } = await supabaseAdmin.from("task_stories").upsert(pairs, { onConflict: "task_key,story_key", ignoreDuplicates: true });
+    if (error) throw dbError("Could not record the Task's Stories", error);
+  },
+
+  async storiesOf(taskKey: string): Promise<string[]> {
+    const { data, error } = await supabaseAdmin.from("task_stories").select("story_key").eq("task_key", taskKey);
+    if (error) throw dbError("Could not read the Task's Stories", error);
+    return (data ?? []).map((r) => (r as { story_key: string }).story_key);
   },
 
   async update(taskKey: string, patch: Record<string, unknown>): Promise<TaskPrRow> {

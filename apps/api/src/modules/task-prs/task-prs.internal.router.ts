@@ -4,8 +4,8 @@ import { notFound } from "../../lib/http/errors.js";
 import { parseOrThrow } from "../../lib/http/validate.js";
 import { writeAudit } from "../audit/index.js";
 import { runsRepository } from "../runs/index.js";
-import { dependenciesSchema, recordPrSchema, taskEventSchema, taskKeyParamsSchema } from "./task-prs.schemas.js";
-import { getTaskPr, recordDependencies, recordPrOpened, taskDependencies } from "./task-prs.service.js";
+import { dependenciesSchema, recordPrSchema, storiesSchema, taskEventSchema, taskKeyParamsSchema } from "./task-prs.schemas.js";
+import { getTaskPr, recordDependencies, recordPrOpened, recordStories, taskDependencies } from "./task-prs.service.js";
 import { moveEpicTasks, moveTaskStatus } from "./task-status.js";
 
 export const taskPrsInternalRouter = Router();
@@ -49,6 +49,16 @@ taskPrsInternalRouter.post(
     await recordDependencies(dependencies);
     await writeAudit({ actorId: null, actorRole: null, action: "task.dependencies_recorded", entityType: "task_branch", entityId: dependencies[0]?.taskKey, requestId: req.requestId, metadata: { dependencies } });
     res.status(201).json({ recorded: dependencies.length });
+  }),
+);
+
+// Gate 3: which Stories each Task implements, so the AURA QA check knows its scenarios.
+taskPrsInternalRouter.post(
+  "/stories",
+  asyncHandler(async (req, res) => {
+    const { stories } = parseOrThrow(storiesSchema, req.body);
+    await recordStories(stories);
+    res.status(201).json({ recorded: stories.length });
   }),
 );
 

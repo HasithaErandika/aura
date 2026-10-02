@@ -1,3 +1,5 @@
+import type { QaSummary } from "./qa-check.js";
+
 export type CiState = "pending" | "running" | "success" | "failure" | "cancelled";
 
 interface CiJob {
@@ -27,6 +29,9 @@ export interface TaskPrRow {
   ci_url: string | null;
   ci_summary: CiSummary | null;
   ci_updated_at: string | null;
+  qa_state: "pending" | "success" | "failure" | null;
+  qa_summary: QaSummary | Record<string, never> | null;
+  qa_updated_at: string | null;
   opened_by: string | null;
   run_id: string | null;
   updated_at: string;
@@ -49,6 +54,9 @@ export interface TaskPrView {
   ciUrl: string | null;
   ciSummary: CiSummary;
   ciUpdatedAt: string | null;
+  qaState: "pending" | "success" | "failure" | null;
+  qaSummary: QaSummary | null;
+  qaUpdatedAt: string | null;
   openedBy: string | null;
   runId: string | null;
   updatedAt: string;
@@ -72,6 +80,9 @@ export function toTaskPrView(r: TaskPrRow): TaskPrView {
     ciUrl: r.ci_url,
     ciSummary: r.ci_summary ?? {},
     ciUpdatedAt: r.ci_updated_at,
+    qaState: r.qa_state,
+    qaSummary: r.qa_summary && "required" in r.qa_summary ? (r.qa_summary as QaSummary) : null,
+    qaUpdatedAt: r.qa_updated_at,
     openedBy: r.opened_by,
     runId: r.run_id,
     updatedAt: r.updated_at,

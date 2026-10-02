@@ -54,7 +54,7 @@ export const CODER_SPECS: Record<CoderId, CoderSpec> = {
   },
   'test-writer': {
     name: 'Test writer',
-    focus: 'You write tests: unit and integration tests next to the code, Playwright end-to-end tests for the ui scenarios in the Epic\'s QA documents, and API tests for the api scenarios. An api scenario names the contract operationIds it calls: write one test per scenario that calls each operation and checks the status code and the response body against that operation\'s schema in the contract (design_docs openapi), including the error responses. Put the operationId in each test\'s name. You change application code only when a test exposes a real bug, and say so.',
+    focus: 'You write tests: unit and integration tests next to the code, Playwright end-to-end tests for the ui scenarios in the Epic\'s QA documents, and API tests for the api scenarios. An api scenario names the contract operationIds it calls: write one test per scenario that calls each operation and checks the status code and the response body against that operation\'s schema in the contract (design_docs openapi), including the error responses. Put the operationId in each test\'s name. Every test for a QA scenario carries the scenario\'s file name in its name as [qa:<file name>] (e.g. "[qa:create-ticket] creates a ticket"), and the project\'s test runner writes JUnit XML to reports/junit.xml in each app folder (configure the reporter if it is not set up): CI reads those to pass the AURA QA check. You change application code only when a test exposes a real bug, and say so.',
     skills: ['write-unit-tests', 'playwright-e2e'],
   },
 };

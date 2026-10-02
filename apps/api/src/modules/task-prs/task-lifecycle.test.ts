@@ -28,7 +28,7 @@ const event = (action: string, pr: Record<string, unknown> = {}) =>
     pull_request: { number: 7, html_url: "https://github.com/acme/tickets/pull/7", title: "KAN-45: list", head: { ref: "feat/KAN-36/KAN-45", sha: "abc1234" }, ...pr },
   });
 
-const row: TaskPrView = { taskKey: "KAN-45", epicKey: "KAN-36", repo: "acme/tickets", branch: "feat/KAN-36/KAN-45", prNumber: 7, prUrl: null, prTitle: "x", prState: "open", reviewers: [], headSha: "abc1234", mergedAt: null, mergeSha: null, ciState: null, ciUrl: null, ciSummary: {}, ciUpdatedAt: null, openedBy: "u1", runId: null, updatedAt: "" };
+const row: TaskPrView = { taskKey: "KAN-45", epicKey: "KAN-36", repo: "acme/tickets", branch: "feat/KAN-36/KAN-45", prNumber: 7, prUrl: null, prTitle: "x", prState: "open", reviewers: [], headSha: "abc1234", mergedAt: null, mergeSha: null, ciState: null, ciUrl: null, ciSummary: {}, ciUpdatedAt: null, qaState: null, qaSummary: null, qaUpdatedAt: null, openedBy: "u1", runId: null, updatedAt: "" };
 const AT = "2026-10-02T12:00:00.000Z";
 
 describe("pull request events", () => {

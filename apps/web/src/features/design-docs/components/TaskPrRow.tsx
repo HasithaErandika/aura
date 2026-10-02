@@ -4,6 +4,7 @@ import { ExternalLink } from "@/shared/ui/ExternalLink.tsx";
 import { TD, TR } from "@/shared/ui/Table.tsx";
 import type { TaskPr } from "../types.ts";
 import { CiStatus } from "./CiStatus.tsx";
+import { QaCheck } from "./QaCheck.tsx";
 
 export function TaskPrRow({ pr, focused }: { pr: TaskPr; focused: boolean }) {
   return (
@@ -20,6 +21,9 @@ export function TaskPrRow({ pr, focused }: { pr: TaskPr; focused: boolean }) {
       </TD>
       <TD>
         <CiStatus pr={pr} />
+      </TD>
+      <TD>
+        <QaCheck pr={pr} />
       </TD>
       <TD className="text-xs text-ink-600">{pr.reviewers.length ? pr.reviewers.join(", ") : "None"}</TD>
       <TD className="text-xs text-ink-500">{timeAgo(pr.ciUpdatedAt ?? pr.updatedAt)}</TD>

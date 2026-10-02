@@ -33,6 +33,8 @@ export const ciReportSchema = z
     runUrl: z.string().url().startsWith("https://github.com/").optional(),
     jobs: z.array(z.object({ name: z.string().min(1).max(100), result: z.string().min(1).max(30) })).max(30).default([]),
     tests: z.object({ passed: z.number().int().min(0), failed: z.number().int().min(0), skipped: z.number().int().min(0) }).optional(),
+    // Each QA scenario's test result, from tests named [qa:<file name>] (step 3.7).
+    scenarios: z.array(z.object({ id: z.string().regex(/^[a-z0-9][a-z0-9._-]{0,119}$/), result: z.enum(["passed", "failed", "skipped"]) }).strict()).max(500).optional(),
   })
   .strict();
 export type CiReport = z.infer<typeof ciReportSchema>;
@@ -51,6 +53,10 @@ export const dependenciesSchema = z
       .array(z.object({ taskKey: jiraKeySchema, dependsOn: jiraKeySchema }).strict().refine((d) => d.taskKey !== d.dependsOn, "A Task cannot depend on itself"))
       .max(500),
   })
+  .strict();
+
+export const storiesSchema = z
+  .object({ stories: z.array(z.object({ taskKey: jiraKeySchema, storyKey: jiraKeySchema }).strict()).max(1000) })
   .strict();
 
 export const taskKeyParamsSchema = z.object({ taskKey: jiraKeySchema });

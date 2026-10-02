@@ -3,8 +3,10 @@ import { logger } from "../../lib/logger.js";
 import { userIdsWithRole } from "../identity/index.js";
 import { notify } from "../notifications/index.js";
 import { githubRepositoryId } from "../projects/index.js";
+import { listDocuments } from "../design-docs/index.js";
 import { applyCiReport } from "./ci-report.js";
 import { applyPrEvent, pullRequestEventSchema } from "./pr-event.js";
+import { qaVerdict, scenarioId, type QaVerdict } from "./qa-check.js";
 import { moveTaskStatus } from "./task-status.js";
 import { taskPrsRepository } from "./task-prs.repository.js";
 import type { CiReport, RecordPrInput } from "./task-prs.schemas.js";
@@ -93,9 +95,25 @@ function ciNotificationBody(view: TaskPrView): string {
   return [failed.length ? `Failed: ${failed.join(", ")}` : "", tests ? `Tests: ${tests.passed} passed, ${tests.failed} failed, ${tests.skipped} skipped` : ""].filter(Boolean).join("\n");
 }
 
-export async function recordCiReport(repo: string, report: CiReport): Promise<TaskPrView> {
+// The QA scenarios a Task must pass: those of the Stories it implements (recorded at Gate 3).
+async function requiredScenarios(taskKey: string, epicKey: string | null): Promise<string[]> {
+  const stories = await taskPrsRepository.storiesOf(taskKey);
+  if (!stories.length || !epicKey) return [];
+  const docs = await listDocuments({ epicKey, kinds: ["qa-scenario"] });
+  return docs.filter((d) => d.issueKey !== null && stories.includes(d.issueKey)).map((d) => scenarioId(d.slug));
+}
+
+export async function recordCiReport(repo: string, report: CiReport): Promise<{ view: TaskPrView; qa: QaVerdict | null }> {
   const { taskKey, existing } = await reportTarget(repo, report);
   const { patch, notify: kind } = applyCiReport(existing, report, repo);
+  let qa: QaVerdict | null = null;
+  const at = new Date().toISOString();
+  if (report.status === "completed") {
+    qa = qaVerdict(await requiredScenarios(taskKey, existing?.epicKey ?? taskFromBranch(report.branch)?.epicKey ?? null), report.scenarios ?? []);
+    Object.assign(patch, { qa_state: qa.state, qa_summary: qa.summary, qa_updated_at: at });
+  } else {
+    Object.assign(patch, { qa_state: "pending", qa_updated_at: at });
+  }
   const view = toTaskPrView(await taskPrsRepository.update(taskKey, patch));
   if (kind) {
     await notify([...(await userIdsWithRole("qa_engineer")), view.openedBy], {
@@ -106,7 +124,11 @@ export async function recordCiReport(repo: string, report: CiReport): Promise<Ta
       taskKey: view.taskKey,
     });
   }
-  return view;
+  return { view, qa };
+}
+
+export async function recordStories(pairs: { taskKey: string; storyKey: string }[]): Promise<void> {
+  await taskPrsRepository.addStories(pairs.map((p) => ({ task_key: p.taskKey, story_key: p.storyKey })));
 }
 
 // GitHub's pull_request webhook: PRs opened outside AURA, merges by a person, closes.

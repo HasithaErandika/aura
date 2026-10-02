@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { applyTaskEvent, prEventFrom, type TaskBoard } from "./task-board.js";
-import { ciWorkflow } from "./project-setup.js";
+import { ciWorkflow, QA_RESULTS_PY } from "./project-setup.js";
 
 const plan = { kind: "plan", taskKey: "KAN-45", coder: "frontend-react", route: "Frontend Task", branch: "feat/KAN-36/KAN-45", plan: { summary: "x", steps: [], checks: [], risks: [] } };
 
@@ -19,6 +19,18 @@ describe("PR view (Gate 6)", () => {
       prEventFrom({ prUrl: "https://github.com/acme/tickets/pull/12", prNumber: 12, branch: "feat/KAN-36/KAN-45", reviewers: ["octocat"], ciState: "failure", ciUrl: "https://github.com/acme/tickets/actions/runs/1", ciSummary: { jobs: [{ name: "frontend", result: "failure" }], tests: { passed: 3, failed: 1, skipped: 0 } } }),
     );
     expect(board!.pr).toMatchObject({ ciState: "failure", jobs: [{ name: "frontend", result: "failure" }], tests: { failed: 1 } });
+  });
+});
+
+describe("aura-ci.yml reports the AURA QA check", () => {
+  it("keeps each app's JUnit report and posts AURA's verdict as the AURA QA status", () => {
+    const yaml = ciWorkflow(["frontend"]);
+    expect(yaml).toContain("name: junit-frontend\n          path: frontend/reports/junit*.xml");
+    expect(yaml).toContain("pattern: junit-*");
+    expect(yaml).toContain("statuses: write");
+    expect(yaml).toContain('context: "AURA QA"');
+    expect(yaml).toContain("scenarios: $scenarios");
+    expect(QA_RESULTS_PY).toContain(String.raw`\[qa:([a-z0-9][a-z0-9._-]{0,119})\]`);
   });
 });
 

@@ -49,5 +49,7 @@ describe("cleanup after a Task's PR is merged", () => {
     expect(board!.pr!.prState).toBe("open");
     board = applyTaskEvent(board, prEventFrom({ prUrl: "https://github.com/acme/tickets/pull/12", prNumber: 12, prState: "merged", branch: "feat/KAN-36/KAN-45", reviewers: [], ciState: "success", ciUrl: null, ciSummary: {} }));
     expect(board!.pr).toMatchObject({ prState: "merged", ciState: "success" });
+    board = applyTaskEvent(board, prEventFrom({ prUrl: "https://github.com/acme/tickets/pull/12", prNumber: 12, prState: "open", qaState: "failure", qaSummary: { required: ["a", "b"], passed: ["a"], failed: [], missing: ["b"] }, branch: "feat/KAN-36/KAN-45", reviewers: [], ciState: "success", ciUrl: null, ciSummary: {} }));
+    expect(board!.pr).toMatchObject({ qaState: "failure", qaDetail: "1/2 scenarios · not tested: b" });
   });
 });
