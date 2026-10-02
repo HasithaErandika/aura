@@ -35,6 +35,8 @@ create type public.user_role as enum (
   'admin', 'project_owner', 'business_analyst', 'architect', 'developer', 'qa_engineer', 'deployer'
 );
 
+-- The 'developer' default is typed as the old enum and cannot be cast; drop it and set it again below.
+alter table public.profiles alter column role drop default;
 alter table public.profiles alter column role type public.user_role using role::text::public.user_role;
 alter table public.profiles alter column role set default 'developer';
 alter table public.workflow_runs alter column requested_by_role type public.user_role using requested_by_role::text::public.user_role;
