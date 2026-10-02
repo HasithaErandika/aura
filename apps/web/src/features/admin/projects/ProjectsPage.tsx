@@ -18,6 +18,7 @@ import { EmptyState } from "@/shared/ui/EmptyState.tsx";
 import { Modal } from "@/shared/ui/Modal.tsx";
 import { formatDateTime } from "@/shared/lib/format.ts";
 import { GitIcon, PlusIcon } from "@/shared/icons/index.tsx";
+import { MembersModal } from "./MembersModal.tsx";
 
 export function ProjectsPage() {
   const state = useAsync(() => projectsApi.list(), []);
@@ -25,6 +26,7 @@ export function ProjectsPage() {
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [repoFor, setRepoFor] = useState<Project | null>(null);
+  const [membersFor, setMembersFor] = useState<Project | null>(null);
 
   async function handleCreate(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -74,7 +76,7 @@ export function ProjectsPage() {
     <>
       <PageHeader
         title="Projects & Repositories"
-        description="A Project ties a Jira project to the Git repository its code lives in. Task branches and pull requests are created in that repository."
+        description="A Project ties a Jira project to the Git repository its code lives in, and to the people who work on it. Only members and admins see a project."
         actions={
           <Button variant="primary" icon={<PlusIcon className="size-4" />} onClick={() => setShowForm((v) => !v)}>
             {showForm ? "Cancel" : "Add project"}
@@ -149,6 +151,9 @@ export function ProjectsPage() {
                   <TD className="text-xs text-ink-600">{formatDateTime(p.createdAt)}</TD>
                   <TD className="text-right">
                     <div className="flex justify-end gap-2">
+                      <Button size="sm" variant="ghost" onClick={() => setMembersFor(p)}>
+                        Members
+                      </Button>
                       {p.repository ? (
                         <Button size="sm" variant="ghost" onClick={() => void handleRemoveRepository(p)}>
                           Unlink repository
@@ -165,6 +170,8 @@ export function ProjectsPage() {
           </Table>
         )}
       </Card>
+
+      <MembersModal project={membersFor} onClose={() => setMembersFor(null)} />
 
       <RepositoryModal
         project={repoFor}

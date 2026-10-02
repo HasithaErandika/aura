@@ -208,7 +208,7 @@ flowchart TD
 | Area | Today | A company needs | Phase |
 |---|---|---|---|
 | Identity | Email sign-in; one role per user | SSO (Entra ID or Google Workspace), SCIM provisioning | Future (§8) |
-| Access | Roles checked in `policy.ts`; every project visible | Project membership, role per project, row-level security, least-privilege admin roles | 4 |
+| Access | Roles checked in `policy.ts`; project membership (4.1) | Project membership, role per project, row-level security, least-privilege admin roles | 4 |
 | Models | Free-tier Groq and Gemini | Paid providers under a data-processing agreement with zero retention; model allow-list per data class | 4 |
 | Data protection | Untrusted text fenced and scanned | Data class per project, secret and PII redaction before prompts, retention and erasure jobs, hosting region (Sri Lanka PDPA No. 9 of 2022) | 4 |
 | Cost | Token ledger per agent | Budgets per run, user, project and department; alerts; monthly chargeback report | 4 |
@@ -229,7 +229,7 @@ models, inside a budget, on a deployed environment with alerts. Email sign-in st
 
 | Step | Build | Proves |
 |---|---|---|
-| 4.1 | `project_members` table, project-scoped grants in `policy.ts`, RLS on runs, approvals, design documents and task PRs | People see only their projects |
+| 4.1 ✅ | `project_members` table, project-scoped grants in `policy.ts`, RLS on runs, approvals, design documents and task PRs | People see only their projects |
 | 4.2 | Model policy: provider allow-list per project data class, contracted providers first, free tier only for `public` projects; provider and model on every audit row | Data stays with approved processors |
 | 4.3 | Redaction before every prompt: secrets, keys and configured PII patterns, with findings on the draft | No secret leaves the company |
 | 4.4 | Budgets per run, user and project, enforced in the gateway; warnings at 80 %; Admin → Usage by department | Predictable cost |

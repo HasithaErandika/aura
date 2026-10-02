@@ -21,6 +21,31 @@ export const projectsRepository = {
     return (data as unknown as ProjectRow | null) ?? null;
   },
 
+  async memberProjectIds(userId: string): Promise<string[]> {
+    const { data, error } = await supabaseAdmin.from("project_members").select("project_id").eq("user_id", userId);
+    if (error) throw dbError("list memberships", error);
+    return ((data ?? []) as { project_id: string }[]).map((r) => r.project_id);
+  },
+
+  async members(projectId: string): Promise<{ user_id: string; created_at: string }[]> {
+    const { data, error } = await supabaseAdmin.from("project_members").select("user_id, created_at").eq("project_id", projectId).order("created_at");
+    if (error) throw dbError("list project members", error);
+    return (data ?? []) as { user_id: string; created_at: string }[];
+  },
+
+  async addMember(projectId: string, userId: string, addedBy: string): Promise<boolean> {
+    const { error } = await supabaseAdmin.from("project_members").insert({ project_id: projectId, user_id: userId, added_by: addedBy });
+    if (isUniqueViolation(error)) return false;
+    if (error) throw dbError("add project member", error);
+    return true;
+  },
+
+  async removeMember(projectId: string, userId: string): Promise<boolean> {
+    const { data, error } = await supabaseAdmin.from("project_members").delete().eq("project_id", projectId).eq("user_id", userId).select("user_id");
+    if (error) throw dbError("remove project member", error);
+    return (data ?? []).length > 0;
+  },
+
   async findIdByJiraKey(jiraProjectKey: string): Promise<string | null> {
     const { data, error } = await supabaseAdmin.from("projects").select("id").eq("jira_project_key", jiraProjectKey).maybeSingle();
     if (error) throw dbError("find project by Jira key", error);

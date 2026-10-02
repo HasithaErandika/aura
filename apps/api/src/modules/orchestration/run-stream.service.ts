@@ -17,6 +17,7 @@ import {
 } from "../runtime/index.js";
 import { turnSettings, type TurnSettings } from "../settings/index.js";
 import type { EventSink } from "./run-events.js";
+import { currentProjectId } from "../projects/index.js";
 
 const PREVIEW_CHARS = 4000;
 const SUMMARY_CHARS = 4000;
@@ -291,6 +292,7 @@ export async function createTurnRun(input: { user: AuthedUser; agentId: string; 
     requestedByRole: input.user.role,
     title: input.message.slice(0, 120),
     inputSummary: input.message.slice(0, SUMMARY_CHARS),
+    projectId: await currentProjectId().catch(() => null),
   });
   await writeAudit({ actorId: input.user.id, actorRole: input.user.role, action: "run.requested", entityType: "workflow_run", entityId: run.id, requestId: input.requestId, metadata: { agentId: input.agentId, threadId: input.threadId } });
   return run;

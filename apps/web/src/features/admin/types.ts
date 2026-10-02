@@ -55,3 +55,11 @@ export interface Project {
   createdAt: string;
   repository: Repository | null;
 }
+
+// Who may work on a project (step 4.1). Admins use every project without being members.
+export interface ProjectMember {
+  userId: string;
+  email: string | null;
+  fullName: string | null;
+  addedAt: string;
+}

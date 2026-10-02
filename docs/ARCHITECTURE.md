@@ -289,6 +289,7 @@ flowchart LR
 | Boundary | Control |
 |---|---|
 | User → API | Supabase session or personal access token (`aura_pat_…`, hashed, expiring, revocable) |
+| Project access | Migration `0018`. Runs, threads, approvals, agents, design documents, Task PRs, Jira, dashboard and the bridge belong to the current project: only its members (`project_members`, Admin → Projects → Members) and admins use them (`policy.ts canUseProject`). Runs record `project_id`. RLS applies the same rule to direct reads (`can_use_project()`). Nothing is scoped before a project is registered |
 | Extension → API | Browser device sign-in; bridge ticket, 60 s, single use |
 | API → runtime | `MASTRA_RUNTIME_TOKEN` bearer token |
 | GitHub Actions → API | OIDC token, audience `AURA_CI_AUDIENCE`; proves the repository, no stored secret |

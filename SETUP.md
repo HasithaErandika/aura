@@ -123,6 +123,11 @@ pnpm --filter api bootstrap-admin -- --email you@company.com --name "Your Name" 
 Sign in as the admin and add users in **Admin → Users**. Roles: `project_owner`,
 `business_analyst`, `architect`, `developer`, `qa_engineer`, `deployer`.
 
+Then create the project in **Admin → Projects & Repositories** (Jira key = `JIRA_PROJECT_KEY`)
+and add the people who work on it under **Members**. Only members and admins see a project's
+runs, approvals, design documents and pull requests; a non-member gets "You are not a member of
+this project".
+
 ---
 
 ## 6. Run
