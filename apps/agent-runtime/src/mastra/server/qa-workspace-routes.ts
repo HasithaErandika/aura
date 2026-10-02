@@ -1,5 +1,6 @@
 import { registerApiRoute } from '@mastra/core/server';
 import { qaWorkspace, listQaEpicWorkspaces } from '../workspace/qa-workspace';
+import { epicKeyParam } from './workspace-routes';
 
 // HTTP API for the QA workspace (Gate 6's test-plan.md + Playwright .spec.ts files) - mirrors
 // server/workspace-routes.ts's routes exactly, same containment guarantee (LocalFilesystem). The
@@ -7,12 +8,6 @@ import { qaWorkspace, listQaEpicWorkspaces } from '../workspace/qa-workspace';
 // only overwrite a file Gate 6 already filed, never create a new one or escape the Epic's own
 // workspace. apps/api gates who may call it (qa_engineer role only) and audits every call. A
 // later delegate_to_qa revise+file for the same Epic will overwrite it again from the new draft.
-
-function epicKeyParam(raw: string | undefined): string {
-  const epicKey = raw?.trim().toUpperCase();
-  if (!epicKey) throw new Error('epicKey is required');
-  return epicKey;
-}
 
 export const listQaEpicsRoute = registerApiRoute('/qa-workspace', {
   method: 'GET',

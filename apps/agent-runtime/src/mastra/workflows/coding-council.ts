@@ -9,7 +9,7 @@ import { generateObjectWith, type AgentLike } from '../lib/generate-object';
 import { runAllChecks, type CheckResult } from '../lib/sandbox';
 import { takeCouncilNotes } from '../store/council-notes';
 import { recordModelUsage } from '../store/usage-store';
-import { trackTokens, type TokenUsage } from '../store/token-ledger';
+import { answeringModel, trackTokens, type TokenUsage } from '../store/token-ledger';
 import { commitArgs, type Approver, type ToolWriterLike } from '../tools/delegate-tools/shared';
 import { ensureAuraExcludes } from '../workspace/dev-workspace';
 
@@ -88,13 +88,6 @@ interface GenerateResultLike {
   text?: string;
   totalUsage?: TokenUsage & { totalTokens?: number };
   response?: { modelId?: string; modelMetadata?: { modelProvider?: string; modelId?: string } };
-}
-
-// The model that actually answered (after any fallback), as the provider reported it.
-function answeringModel(result: GenerateResultLike): string {
-  const meta = result.response?.modelMetadata;
-  if (meta?.modelProvider && meta.modelId) return `${meta.modelProvider.split('.')[0]}/${meta.modelId}`;
-  return result.response?.modelId ?? 'unknown model';
 }
 
 function errorText(error: unknown): string {

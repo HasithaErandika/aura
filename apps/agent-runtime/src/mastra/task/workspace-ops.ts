@@ -1,4 +1,5 @@
 import type { BridgeCaller } from '../bridge/client';
+import { auraApiHeaders, auraApiUrl } from '../lib/aura-api';
 import type { ChangedFile, CheckResult } from './contracts';
 
 // What the Task loop does on the developer's machine itself, through the bridge (so the
@@ -118,10 +119,8 @@ export function projectReviewers(bridge: BridgeCaller): Promise<string[] | null>
 
 // Notes the developer typed while the Task runs (apps/api GET /internal/runs/:id/notes).
 export async function takeNotes(runId: string, fetchImpl: typeof fetch = fetch): Promise<string[]> {
-  const token = process.env.MASTRA_RUNTIME_TOKEN?.trim();
-  const base = (process.env.AURA_API_URL || 'http://localhost:4000').replace(/\/+$/, '');
   try {
-    const res = await fetchImpl(`${base}/internal/runs/${encodeURIComponent(runId)}/notes`, { headers: token ? { Authorization: `Bearer ${token}` } : {} });
+    const res = await fetchImpl(`${auraApiUrl()}/internal/runs/${encodeURIComponent(runId)}/notes`, { headers: auraApiHeaders(false) });
     if (!res.ok) return [];
     return ((await res.json()) as { notes: { text: string }[] }).notes.map((n) => n.text);
   } catch {

@@ -1,3 +1,4 @@
+import { REVIEWER, shellSafe } from './git-ops';
 import type { TaskPlanDraft, TaskReviewDraft } from './contracts';
 
 // Gate 6 (plan §7 "Git agent", §10): the pull request a Task opens into `development`, its
@@ -5,7 +6,6 @@ import type { TaskPlanDraft, TaskReviewDraft } from './contracts';
 // parsing of what git and gh print. Pure, so it is tested directly.
 
 export const PR_BASE = 'development';
-export const REVIEWER = /^[A-Za-z0-9][A-Za-z0-9-]{0,38}(\/[A-Za-z0-9_.-]+)?$/;
 
 // The Gate 6 draft (draft kind "task-pr").
 export interface TaskPrDraft {
@@ -21,13 +21,8 @@ export interface TaskPrDraft {
   reviewers: string[];
 }
 
-// Titles reach the shell (gh pr create --title "…"): plain words only.
-export function shellSafe(text: string, max = 120): string {
-  return text.replace(/[^\w .,:()#/+-]/g, '').replace(/\s+/g, ' ').trim().slice(0, max);
-}
-
 export function prTitle(taskKey: string, summary: string): string {
-  const s = shellSafe(summary, 100);
+  const s = shellSafe(summary).slice(0, 100).trim();
   return s && s !== taskKey ? `${taskKey}: ${s}` : taskKey;
 }
 

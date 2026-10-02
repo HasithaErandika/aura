@@ -1,6 +1,7 @@
 import { Agent } from '@mastra/core/agent';
 import { askUserTool } from '@mastra/core/tools';
 import { Memory } from '@mastra/memory';
+import { ToolCallFilter } from '@mastra/core/processors';
 import {
   delegateToPoTool,
   delegateToBaTool,
@@ -108,6 +109,8 @@ Resuming: if the human is vague ("continue", "work on <epicKey>"), ask what they
   // Routing decisions need little reasoning: low effort keeps hidden reasoning tokens down.
   model: withGeminiFallback(ORCHESTRATOR_MODEL_ID, { reasoningFormat: 'hidden', reasoningEffort: 'low' }),
   tools: orchestratorTools,
+  // Earlier turns' tool calls reach the model as their compact results only (draft ids, keys).
+  inputProcessors: [new ToolCallFilter({ preserveModelOutput: true })],
   memory: new Memory({
     options: {
       // Drafts no longer sit in the Orchestrator's history (gateway/gateway.ts sends them to the

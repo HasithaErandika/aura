@@ -15,7 +15,7 @@ import path from 'node:path';
 
 const MAX_FILE_BYTES = 512 * 1024; // a single file read/write cap - this is a Task's code, not a database dump
 
-function safeResolve(root: string, relPath: string): string {
+export function safeResolve(root: string, relPath: string): string {
   const resolvedRoot = path.resolve(root);
   const resolved = path.resolve(resolvedRoot, relPath);
   if (resolved !== resolvedRoot && !resolved.startsWith(resolvedRoot + path.sep)) {

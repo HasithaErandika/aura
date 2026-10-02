@@ -196,7 +196,7 @@ export class LocalGitProvider implements GitProvider {
     if (pull.state !== 'open') return pull.state;
     // merge-tree --write-tree (git >= 2.38) merges in memory: exit 0 = clean, 1 = conflicts.
     try {
-      await this.git(this.repoDir(repo), 'merge-tree', '--write-tree', '--quiet', `refs/heads/${pull.base}`, pull.headSha);
+      await this.git(this.repoDir(repo), 'merge-tree', '--write-tree', `refs/heads/${pull.base}`, pull.headSha);
       return 'clean';
     } catch (error) {
       if ((error as { code?: number }).code === 1) return 'conflicts';

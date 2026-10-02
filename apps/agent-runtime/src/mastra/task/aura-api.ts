@@ -1,3 +1,5 @@
+import { auraApiHeaders, auraApiUrl } from '../lib/aura-api';
+
 // The Task's pull request in AURA (apps/api /internal/task-prs, migration 0012): Gate 6 records
 // the PR it opened so QA can follow it, and the VS Code agent reads back its CI result.
 
@@ -31,9 +33,7 @@ export interface TaskPrState {
 }
 
 function api(path: string): { url: string; headers: Record<string, string> } {
-  const token = process.env.MASTRA_RUNTIME_TOKEN?.trim();
-  const base = (process.env.AURA_API_URL || 'http://localhost:4000').replace(/\/+$/, '');
-  return { url: `${base}/internal/task-prs${path}`, headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) } };
+  return { url: `${auraApiUrl()}/internal/task-prs${path}`, headers: auraApiHeaders() };
 }
 
 export async function recordTaskPr(record: TaskPrRecord, fetchImpl: typeof fetch = fetch): Promise<TaskPrState> {

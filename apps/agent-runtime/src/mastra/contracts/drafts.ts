@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { bullets } from './markdown';
 
 // Structured drafts the PO and BA and Architect agents produce. Agents propose JSON against these
 // schemas; rendering for humans and filing to Jira are deterministic code, so nothing a
@@ -94,10 +95,6 @@ export type ArchitectureDraft = z.infer<typeof architectureDraftSchema>;
 export type DraftKind = 'epic' | 'stories' | 'architecture' | 'dev-scaffold' | 'coding-task' | 'qa-plan' | 'test-run' | 'deploy-plan' | 'git-op' | 'ci-run' | 'task-plan' | 'task-review' | 'task-pr';
 
 // Renders a bullet list, or a placeholder line when empty.
-function bullets(items: string[]): string {
-  return items.length ? items.map((i) => `- ${i}`).join('\n') : '- none';
-}
-
 const PO_PERSPECTIVE = '*Drafted by the AURA PO Agent, from a product-ownership perspective: business value, scope, and stakeholder impact.*';
 const BA_PERSPECTIVE = '*Drafted by the AURA BA Agent, from a business-analyst perspective: functional detail, testability, and delivery scope.*';
 const ARCHITECT_PERSPECTIVE = '*Drafted by the AURA Architect Agent, from a technical-design perspective: decomposition, API/data/security shape, and delivery tasks.*';

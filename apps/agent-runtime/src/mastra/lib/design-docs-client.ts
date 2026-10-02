@@ -1,4 +1,5 @@
 import type { DesignDocLink, DesignDocWrite } from '../contracts/drafts';
+import { auraApiHeaders, auraApiUrl } from './aura-api';
 
 // Saves and reads design documents in apps/api (design_documents, migration 0010) over the
 // internal routes (/internal/design-docs, runtime token), the same way bridge/client.ts sends
@@ -21,18 +22,13 @@ export interface DesignDocContent {
   content: string;
 }
 
-function apiUrl(): string {
-  return (process.env.AURA_API_URL || 'http://localhost:4000').replace(/\/+$/, '');
-}
-
 export function designDocsClient(fetchImpl: typeof fetch = fetch) {
   async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
-    const token = process.env.MASTRA_RUNTIME_TOKEN?.trim();
     let res: Response;
     try {
-      res = await fetchImpl(`${apiUrl()}/internal/design-docs${path}`, {
+      res = await fetchImpl(`${auraApiUrl()}/internal/design-docs${path}`, {
         ...init,
-        headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+        headers: auraApiHeaders(),
       });
     } catch (error) {
       throw new Error(`AURA API unreachable from the runtime (${error instanceof Error ? error.message : String(error)})`);

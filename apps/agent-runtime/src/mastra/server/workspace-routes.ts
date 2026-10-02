@@ -7,7 +7,7 @@ import { draftStore } from '../store/draft-store';
 // prevents path traversal and symlink escapes. Reads have always been open; writes
 // (writeWorkspaceFileRoute) are new and deliberately narrow - see its own comment.
 
-function epicKeyParam(raw: string | undefined): string {
+export function epicKeyParam(raw: string | undefined): string {
   const epicKey = raw?.trim().toUpperCase();
   if (!epicKey) throw new Error('epicKey is required');
   return epicKey;

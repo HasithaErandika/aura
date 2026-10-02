@@ -1,3 +1,4 @@
+import { auraApiHeaders, auraApiUrl } from '../lib/aura-api';
 import type { BridgeArgs, BridgeError, BridgeOp, BridgeResultValue } from '@aura/bridge';
 
 // Sends one workspace operation (read a file, run a command) to the developer's VS Code, through
@@ -21,23 +22,18 @@ export interface BridgeCaller {
 
 type Outcome = { ok: true; value: unknown } | { ok: false; error: BridgeError };
 
-function apiUrl(): string {
-  return (process.env.AURA_API_URL || 'http://localhost:4000').replace(/\/+$/, '');
-}
-
 // A caller bound to one AURA run, so apps/api knows whose VS Code to use. `readOnly`, checked on
 // every call, makes the extension answer as in plan mode (a Task's plan waiting for Gate 4).
 // `worktree` points every call at a parallel sub-task's worktree (`.aura/worktrees/<name>`).
 export function bridgeCaller(runId: string, fetchImpl: typeof fetch = fetch, options: { readOnly?: () => Promise<boolean>; worktree?: string } = {}): BridgeCaller {
   return {
     async call(op, args, timeoutMs) {
-      const token = process.env.MASTRA_RUNTIME_TOKEN?.trim();
       const readOnly = (await options.readOnly?.().catch(() => false)) === true;
       let res: Response;
       try {
-        res = await fetchImpl(`${apiUrl()}/internal/bridge/calls`, {
+        res = await fetchImpl(`${auraApiUrl()}/internal/bridge/calls`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+          headers: auraApiHeaders(),
           body: JSON.stringify({ runId, op, args, ...(timeoutMs ? { timeoutMs } : {}), ...(readOnly ? { readOnly: true } : {}), ...(options.worktree ? { worktree: options.worktree } : {}) }),
         });
       } catch (error) {

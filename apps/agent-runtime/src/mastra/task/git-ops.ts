@@ -5,6 +5,8 @@ import type { BridgeCaller } from '../bridge/client';
 // `_s<N>` sub-branch, a commit per part, and the merge back into the Task branch.
 
 const WORKTREES = '.aura/worktrees';
+// A GitHub login or org/team.
+export const REVIEWER = /^[A-Za-z0-9][A-Za-z0-9-]{0,38}(\/[A-Za-z0-9_.-]+)?$/;
 const REF = /^[\w./-]+$/;
 
 export class GitStepError extends Error {
@@ -22,9 +24,13 @@ function ref(name: string): string {
   return name;
 }
 
-// Commit messages go through the shell: keep them to plain words.
+// Text that goes inside a double-quoted shell argument: plain words only.
+export function shellSafe(text: string): string {
+  return text.replace(/[^\w .,:()#/+-]/g, '').replace(/\s+/g, ' ').trim().slice(0, 120);
+}
+
 export function commitMessage(text: string): string {
-  return text.replace(/[^\w .,:()#/+-]/g, '').replace(/\s+/g, ' ').trim().slice(0, 120) || 'AURA change';
+  return shellSafe(text) || 'AURA change';
 }
 
 export interface Git {
@@ -162,7 +168,7 @@ export async function ghPrCreate(git: Git, bridge: BridgeCaller, input: { branch
   await bridge.call('fs.writeFile', { path: `${dir}/.gitignore`, content: '*\n', overwrite: true });
   await bridge.call('fs.writeFile', { path: file, content: input.body, overwrite: true });
   try {
-    const reviewers = input.reviewers.filter((r) => /^[A-Za-z0-9][A-Za-z0-9-]{0,38}(\/[A-Za-z0-9_.-]+)?$/.test(r)).map((r) => ` --reviewer ${r}`).join('');
+    const reviewers = input.reviewers.filter((r) => REVIEWER.test(r)).map((r) => ` --reviewer ${r}`).join('');
     return await git.run(`gh pr create --base ${ref(input.base)} --head ${ref(input.branch)} --title "${commitMessage(input.title)}" --body-file ${file}${reviewers}`);
   } finally {
     await bridge.call('fs.deleteFile', { path: file, force: true }).catch(() => undefined);

@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { bullets } from '../contracts/markdown';
 
 // A Task worked on in VS Code (docs/plans/aura-vscode-agents.md §3, §7): the plan the developer
 // approves at Gate 4, the coder ↔ Evaluator rounds, and the review they approve at Gate 5. The
@@ -140,10 +141,6 @@ export interface TaskReviewDraft {
 // blocker or major finding, whatever the Evaluator's own approved flag says.
 export function roundPassed(verdict: EvaluatorVerdict, checks: CheckResult[]): boolean {
   return verdict.approved && checks.every((c) => c.passed) && !verdict.findings.some((f) => f.severity !== 'minor');
-}
-
-function bullets(items: string[]): string {
-  return items.length ? items.map((i) => `- ${i}`).join('\n') : '- none';
 }
 
 export function renderPlan(draft: TaskPlanDraft): string {

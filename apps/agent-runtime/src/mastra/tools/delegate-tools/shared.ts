@@ -100,14 +100,6 @@ export function commitArgs(approver: Approver | null, message: string, trailers:
   return [...id.before, 'commit', ...extra, ...id.author, '-m', message, ...(all.length ? ['-m', all.join('\n')] : [])];
 }
 
-// Turns a title into a lowercase, hyphenated, filesystem-safe slug.
-export function slugify(title: string): string {
-  return title
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/(^-|-$)/g, '')
-    .slice(0, 60);
-}
 
 // Builds the structured provenance record for a filed/revised artifact. modelId is passed
 // separately from the manifest's default (rather than always read from AGENT_MANIFEST) because

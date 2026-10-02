@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import type { DesignDocLink, DesignDocWrite } from './drafts';
+import { bullets } from './markdown';
 
 // The QA Agent's plan (Gate 6). Mirrors the Architect's draft/revise/file shape
 // (contracts/drafts.ts): the agent proposes structured content, deterministic code renders and
@@ -42,10 +43,6 @@ export type QaDraft = z.infer<typeof qaDraftSchema>;
 
 const QA_PERSPECTIVE =
   '*Drafted by the AURA QA Agent, from a test-coverage perspective: what to verify and how, for each approved Story - the generated Playwright source is the real test, not a description of one.*';
-
-function bullets(items: string[]): string {
-  return items.length ? items.map((i) => `- ${i}`).join('\n') : '- none';
-}
 
 export function renderTestPlan(draft: QaDraft): string {
   return [

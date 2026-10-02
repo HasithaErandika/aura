@@ -2,7 +2,7 @@ import { createTool } from '@mastra/core/tools';
 import { z } from 'zod';
 import { readFile, readdir, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
-import { buildFileTools } from './file-tools';
+import { buildFileTools, safeResolve } from './file-tools';
 import { CHECK_IDS, runCheck, type CheckResult } from '../lib/sandbox';
 
 // Tools for the Coding Council's agents (agents/council-agents.ts), bound by closure to one
@@ -13,15 +13,6 @@ import { CHECK_IDS, runCheck, type CheckResult } from '../lib/sandbox';
 const MAX_FILE_BYTES = 512 * 1024;
 const MAX_SEARCH_HITS = 60;
 const SKIP_DIRS = new Set(['node_modules', '.git', 'dist', 'build', '.aura', '.worktrees', 'coverage']);
-
-function safeResolve(root: string, relPath: string): string {
-  const resolvedRoot = path.resolve(root);
-  const resolved = path.resolve(resolvedRoot, relPath);
-  if (resolved !== resolvedRoot && !resolved.startsWith(resolvedRoot + path.sep)) {
-    throw new Error(`Path "${relPath}" resolves outside the Task's directory - refused`);
-  }
-  return resolved;
-}
 
 async function* walk(root: string, dir: string): AsyncGenerator<string> {
   for (const entry of await readdir(dir, { withFileTypes: true })) {

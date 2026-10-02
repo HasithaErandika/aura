@@ -23,7 +23,6 @@ import { architectWorkflow } from './workflows/architect-workflow';
 import { qaWorkflow } from './workflows/qa-workflow';
 import { testerWorkflow } from './workflows/tester-workflow';
 import { printManifest, type AgentId } from './agents/registry';
-import { jiraMcp } from './mcp/jira-client';
 import { getArchitectThreadRoute, listEpicsRoute, listWorkspaceFilesRoute, readWorkspaceFileRoute, writeWorkspaceFileRoute } from './server/workspace-routes';
 import { findTaskWorktreeRoute, listDevWorkspaceFilesRoute, readDevWorkspaceFileRoute, writeDevWorkspaceFileRoute } from './server/dev-workspace-routes';
 import { listDockerRunsRoute } from './server/docker-runs-routes';
@@ -122,9 +121,6 @@ export const mastra = new Mastra({
       metricsRoute,
       tokenUsageRoute,
     ],
-  },
-  mcpServers: {
-    ...(await jiraMcp.toMCPServerProxies()),
   },
   storage: new MastraCompositeStore({
     id: 'composite-storage',
