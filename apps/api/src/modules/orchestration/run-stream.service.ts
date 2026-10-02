@@ -50,6 +50,15 @@ export function preview(value: unknown, max = PREVIEW_CHARS): unknown {
   return value;
 }
 
+// The model that answered a turn, as provider/model, from the runtime's finish chunk.
+export function modelFromFinish(payload: Data | undefined): string | null {
+  const response = payload?.response as { modelId?: unknown; modelMetadata?: { modelProvider?: unknown } } | undefined;
+  if (typeof response?.modelId !== "string" || !response.modelId) return null;
+  const provider = typeof response.modelMetadata?.modelProvider === "string" ? response.modelMetadata.modelProvider.split(".")[0] : "";
+  // Groq serves openai/gpt-oss-120b: the provider, not the model's maker, is who saw the data.
+  return provider && !response.modelId.startsWith(`${provider}/`) ? `${provider}/${response.modelId}` : response.modelId;
+}
+
 export function runtimeErrorMessage(payload: Data | undefined): string {
   const inner = payload?.error ?? payload;
   if (inner && typeof inner === "object" && typeof (inner as { message?: unknown }).message === "string") return (inner as { message: string }).message;
@@ -77,6 +86,11 @@ async function pipeRuntimeStream(context: StreamContext, stream: AsyncGenerator<
   const involved = new Set(run.agents_involved ?? []);
   let outcome: TurnOutcome = { status: "RUNNING", approvalId: null };
   let finished = false;
+  // provider/model ids that saw this turn's data (step 4.2), for the audit trail.
+  const models = new Set<string>();
+  const noteModels = (list: unknown) => {
+    if (Array.isArray(list)) for (const m of list) if (typeof m === "string" && m.length <= 200) models.add(m);
+  };
 
   // Steps are buffered and written at durable points so streaming never waits on the database.
   const buffered: NewRunStep[] = [];
@@ -128,7 +142,7 @@ async function pipeRuntimeStream(context: StreamContext, stream: AsyncGenerator<
     run = await runsRepository.update(run.id, { status: "SUSPENDED_FOR_APPROVAL", runtime_run_id: runtimeRunId });
     step("suspended", { toolName, toolCallId, payload: { approvalId: approval.id, producingAgent: scope.producingAgent, requiredRole: scope.requiredRole } });
     await flushSteps();
-    await systemAudit({ action: "approval.requested", entityType: "approval_request", entityId: approval.id, requestId, metadata: { runId: run.id, producingAgent: scope.producingAgent, requiredRole: scope.requiredRole } });
+    await systemAudit({ action: "approval.requested", entityType: "approval_request", entityId: approval.id, requestId, metadata: { runId: run.id, producingAgent: scope.producingAgent, requiredRole: scope.requiredRole, models: [...models] } });
     outcome = { status: "SUSPENDED_FOR_APPROVAL", approvalId: approval.id };
     writer.send("gate", {
       approvalId: approval.id,
@@ -146,6 +160,7 @@ async function pipeRuntimeStream(context: StreamContext, stream: AsyncGenerator<
   };
 
   const onGateway = async (data: Data) => {
+    noteModels(data.models);
     step("progress", { payload: { source: "gateway", ...data } });
     writer.send("progress", { source: "gateway", ...data });
     const audit = { entityType: "workflow_run", entityId: run.id, requestId };
@@ -164,6 +179,8 @@ async function pipeRuntimeStream(context: StreamContext, stream: AsyncGenerator<
 
   const onFinish = async (chunk: RuntimeChunk) => {
     finished = true;
+    const answered = modelFromFinish(chunk.payload);
+    if (answered) noteModels([answered]);
     if (outcome.status === "RUNNING") {
       step("finish", { payload: { usage: preview(chunk.payload?.usage), reason: chunk.payload?.finishReason ?? null } });
       run = await runsRepository.update(run.id, { status: "SUCCEEDED", output_summary: summary(), finished_at: now() });
@@ -280,6 +297,7 @@ async function pipeRuntimeStream(context: StreamContext, stream: AsyncGenerator<
 
   if (assistantText.trim()) step("text", { payload: { text: assistantText.trim().slice(0, PREVIEW_CHARS) } });
   await flushSteps();
+  await systemAudit({ action: "run.turn_ended", entityType: "workflow_run", entityId: run.id, requestId, metadata: { status: outcome.status, models: [...models], providers: [...new Set([...models].map((m) => m.split("/")[0]))] } });
   writer.send("done", { runId: run.id, status: outcome.status, approvalId: outcome.approvalId });
   return outcome;
 }

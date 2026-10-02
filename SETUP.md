@@ -261,6 +261,19 @@ in **Profile → Preferences**. Settings override `.env` values, which remain fa
 Models are set in code in `apps/agent-runtime/src/mastra/agents/registry.ts`. Each agent tries Groq
 first and falls back to Gemini (`config/models.ts`).
 
+**Model policy.** Set each project's **Data class** in Admin → Settings → Governance:
+
+| Data class | Allowed providers | Set in `apps/agent-runtime/.env` |
+|---|---|---|
+| `public` (default) | Any, free tiers included | — |
+| `internal` | Providers under a contract | `AURA_CONTRACTED_PROVIDERS=anthropic,openai` |
+| `confidential` | Contracted with zero data retention | `AURA_ZERO_RETENTION_PROVIDERS=anthropic` |
+
+With `internal` or `confidential` and no allowed provider in an agent's model list, its calls are
+refused with a message naming the policy: add a contracted provider's models first. The runtime
+prints the policy at startup (`[aura-models]`). Admin → Audit shows which provider and model
+answered each turn (`run.turn_ended`).
+
 ---
 
 ### Webhooks (GitHub and Jira)

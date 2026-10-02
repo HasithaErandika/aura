@@ -382,6 +382,20 @@ Evals are deterministic code checks: structure, completeness, grounding, honesty
 injection resistance and token cost. Agents run on Groq first and fall back to Gemini
 (`config/models.ts`).
 
+**Model policy** (`config/model-policy.ts`). Each project has a data class (Admin → Settings →
+Governance). On every model call, code switches off the providers that class does not allow and
+refuses the call if none is left; the gateway runs each tool inside the turn's context so nested
+agent and workflow calls follow the same policy.
+
+| Data class | Providers allowed |
+|---|---|
+| `public` (default) | Any configured provider, free tiers included |
+| `internal` | `AURA_CONTRACTED_PROVIDERS` |
+| `confidential` | `AURA_ZERO_RETENTION_PROVIDERS` |
+
+Every model that answers is recorded: gateway events carry the models used inside a tool call,
+and the API writes them on `approval.requested` and `run.turn_ended` audit rows (provider/model).
+
 ---
 
 ## 9. Status

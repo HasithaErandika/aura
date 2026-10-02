@@ -1,6 +1,7 @@
 import { Agent } from '@mastra/core/agent';
 import { withGeminiFallback } from '../config/models';
 import { BA_MODEL_ID } from './registry';
+import { governedModels } from '../config/model-policy';
 
 // Drafts and revises Stories as structured JSON from an approved Epic.
 // Invoked only by the Orchestrator at Gate 2; Epic reading and Story filing are handled by `delegate_to_ba`.
@@ -30,7 +31,7 @@ one-line placeholder:
 - definitionOfDone: the concrete checks that make this shippable, not generic boilerplate.
 When revising, apply the feedback and keep every other story unchanged.`,
 
-  model: withGeminiFallback(BA_MODEL_ID, { reasoningFormat: 'hidden' }),
+  model: governedModels(withGeminiFallback(BA_MODEL_ID, { reasoningFormat: 'hidden' })),
   defaultOptions: {
     maxSteps: 1,
   },

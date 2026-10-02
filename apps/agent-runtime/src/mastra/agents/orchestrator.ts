@@ -7,6 +7,7 @@ import { withGeminiFallback } from '../config/models';
 import { ORCHESTRATOR_MODEL_ID } from './registry';
 import { governed } from '../gateway/gateway';
 import { answeringModel, trackTokens, type TokenUsage } from '../store/token-ledger';
+import { governedModels } from '../config/model-policy';
 
 // The Orchestrator's tools; each delegate tool goes through the gateway, ask_user is the gate itself.
 export const orchestratorTools = {
@@ -68,7 +69,7 @@ Test plan: delegate_to_qa draft (epicKey). "Do you approve this test plan?" Repo
 
 Resuming: if the human is vague ("continue", "work on <epicKey>"), ask what they want to do with that Epic instead of guessing a gate.`,
 
-  model: withGeminiFallback(ORCHESTRATOR_MODEL_ID, { reasoningFormat: 'hidden', reasoningEffort: 'low' }),
+  model: governedModels(withGeminiFallback(ORCHESTRATOR_MODEL_ID, { reasoningFormat: 'hidden', reasoningEffort: 'low' })),
   tools: orchestratorTools,
   // Earlier turns' tool calls reach the model as their compact results only (draft ids, keys).
   inputProcessors: [new ToolCallFilter({ preserveModelOutput: true })],

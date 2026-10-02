@@ -78,6 +78,16 @@ export const SETTING_DEFINITIONS: readonly SettingDefinition[] = [
     fallback: () => "warn",
   },
   {
+    key: "governance.dataClass",
+    group: "governance",
+    label: "Data class",
+    description: "Which model providers may see this project's data. public: any provider, free tiers included. internal: only providers under contract (AURA_CONTRACTED_PROVIDERS). confidential: only contracted providers with zero data retention (AURA_ZERO_RETENTION_PROVIDERS). A call no allowed provider can serve is refused.",
+    owner: "runtime",
+    scopes: SHARED,
+    ...choice(["public", "internal", "confidential"]),
+    fallback: () => "public",
+  },
+  {
     key: "governance.vscodeModes",
     group: "governance",
     label: "VS Code permission modes",
