@@ -31,6 +31,7 @@
     "@mastra/observability": "1.17.8",
     "@mastra/pg": "1.25.0",
     "pg": "^8.23.1",
+    "yaml": "^2.9.1",
     "zod": "^4.4.3"
   },
   "devDependencies": {

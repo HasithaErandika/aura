@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { bullets } from './markdown';
+import { checkOpenApi } from '../lib/openapi';
 
 // Structured drafts the PO and BA and Architect agents produce. Agents propose JSON against these
 // schemas; rendering for humans and filing to Jira are deterministic code, so nothing a
@@ -89,6 +90,8 @@ export const architectureDraftSchema = z.object({
   securityDesign: z.string().min(10).describe('AuthN/AuthZ, data protection, risk tier of new tools or endpoints'),
   aiDesign: z.string().describe('Agent/LLM-specific design notes; empty string if this Epic has none'),
   deploymentAndTestingNotes: z.string().min(10).describe('Rollout approach and what needs test coverage'),
+  // The Epic's OpenAPI 3.1 contract (YAML), checked by code; empty when the Epic has no HTTP API.
+  openapi: z.string().default(''),
   adrs: z.array(adrSchema).min(1).max(10),
   tasks: z.array(architectureTaskSchema).min(1).max(30),
 });
@@ -228,6 +231,7 @@ export function renderArchitecture(draft: ArchitectureDraft): string {
     '## API design',
     draft.apiDesign,
     '',
+    ...(draft.openapi.trim() ? ['## API contract (OpenAPI 3.1)', ...contractOutline(draft.openapi), ''] : []),
     ...(draft.integrationDesign.trim() ? ['## Integration design', draft.integrationDesign, ''] : []),
     '## Data design',
     draft.dataDesign,
@@ -291,7 +295,7 @@ export function renderPlan(draft: ArchitectureDraft): string {
 // One design document saved to apps/api (design_documents, ADR-5): the slug is its stable name
 // within the Epic, so filing again adds a version instead of a second document.
 export interface DesignDocWrite {
-  kind: 'architecture' | 'srs' | 'plan' | 'adr' | 'qa-plan' | 'qa-scenario';
+  kind: 'architecture' | 'srs' | 'plan' | 'adr' | 'openapi' | 'qa-plan' | 'qa-scenario';
   slug: string;
   title: string;
   content: string;
@@ -321,6 +325,7 @@ export function architectureDocuments(draft: ArchitectureDraft): DesignDocWrite[
     { kind: 'architecture', slug: 'architecture', title: `Architecture for ${heading}`, content: renderArchitecture(draft) },
     { kind: 'srs', slug: 'srs', title: `Requirements analysis for ${heading}`, content: renderRequirementsDoc(draft) },
     { kind: 'plan', slug: 'plan', title: `Delivery plan for ${heading}`, content: renderPlan(draft) },
+    ...(draft.openapi.trim() ? [{ kind: 'openapi' as const, slug: 'openapi', title: `API contract for ${heading}`, content: draft.openapi }] : []),
     ...draft.adrs.map((adr, i): DesignDocWrite => {
       const number = String(i + 1).padStart(4, '0');
       return { kind: 'adr', slug: `adr/${number}-${docSlug(adr.title)}`, title: `ADR-${i + 1}. ${adr.title}`, content: renderAdr(adr, i).replace(/^## /, '# ') };
@@ -340,4 +345,11 @@ export function architectureFiledComment(draft: ArchitectureDraft, docs: DesignD
     '----',
     stamp,
   ].join('\n');
+}
+
+// The contract's operations, one line each, for the Gate 3 review; the full YAML is its own document.
+function contractOutline(openapi: string): string[] {
+  const { operations, problems } = checkOpenApi(openapi);
+  if (problems.length) return [`Contract problems: ${problems.join('; ')}`];
+  return operations.map((o) => `- \`${o.method.toUpperCase()} ${o.path}\` ${o.operationId}`);
 }

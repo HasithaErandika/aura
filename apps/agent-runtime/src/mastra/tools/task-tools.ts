@@ -18,6 +18,7 @@ import { collectChange, projectChecks, projectReviewers, runChecks, takeNotes } 
 import { splitPlan, taskBranch } from '../task/split';
 import { abortMerge, addWorktree, commitAll, commitWorktree, concludeMerge, currentBranch, ensureTaskBranch, ghPrCreate, gitOn, headSha, mergeBranch, originUrl, pushBranch, removeWorktree } from '../task/git-ops';
 import { PR_BASE, compareUrl, parsePrUrl, parseRemote, prBody, prTitle, renderPrDraft, validReviewers, type TaskPrDraft } from '../task/pr';
+import { writeContract } from '../task/contract';
 import { readTaskPr, recordTaskPr, renderPrStatus, reportTaskEvent, waitingFor } from '../task/aura-api';
 import { checkResolution, conflictPrompt, mergeResolutionSchema, runParallel, sharedNotes, type ParallelEvent } from '../task/parallel';
 
@@ -434,6 +435,8 @@ export const delegateToPrTool = createTool({
       const branch = await currentBranch(git);
       if (branch !== d.branch) return taskFail(`VS Code is on ${branch}, not the Task branch ${d.branch}. Ask the developer to switch back (git checkout ${d.branch}), then open the pull request again.`);
       await emit(context.writer, { kind: 'pr-step', taskKey: d.taskKey, step: 'commit' });
+      // Best effort: a missing or unreadable contract never blocks the pull request.
+      await writeContract(bridge, d.epicKey).catch(() => false);
       await commitAll(git, d.title);
       const sha = await headSha(git);
       await emit(context.writer, { kind: 'pr-step', taskKey: d.taskKey, step: 'push' });

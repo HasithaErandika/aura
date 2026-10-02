@@ -1,7 +1,7 @@
 import { agentLabel } from "@/shared/lib/agents.ts";
 import type { DesignDoc, DocKind, DocVersion } from "../types.ts";
 
-export const ARCHITECT_KINDS: DocKind[] = ["architecture", "srs", "plan", "adr"];
+export const ARCHITECT_KINDS: DocKind[] = ["architecture", "srs", "plan", "openapi", "adr"];
 export const QA_KINDS: DocKind[] = ["qa-plan", "qa-scenario"];
 export const ADDABLE_KINDS: DocKind[] = ["adr", "qa-scenario"];
 
@@ -10,9 +10,15 @@ export const KIND_LABELS: Record<DocKind, string> = {
   srs: "Requirements (SRS)",
   plan: "Delivery plan",
   adr: "ADRs",
+  openapi: "API contract",
   "qa-plan": "Test plan",
   "qa-scenario": "Test scenarios",
 };
+
+// The API contract is OpenAPI YAML, not Markdown: shown as a code block.
+export function previewSource(kind: DocKind, content: string): string {
+  return kind === "openapi" ? `\`\`\`yaml\n${content.replace(/\n+$/, "")}\n\`\`\`` : content;
+}
 
 export function groupByKind(documents: DesignDoc[], kinds: DocKind[]): Array<{ kind: DocKind; documents: DesignDoc[] }> {
   return kinds

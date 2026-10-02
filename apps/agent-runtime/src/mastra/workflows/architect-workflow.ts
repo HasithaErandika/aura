@@ -2,6 +2,7 @@ import { createStep, createWorkflow } from '@mastra/core/workflows';
 import { z } from 'zod';
 import { adrSchema, architectureDraftSchema, architectureTaskSchema } from '../contracts/drafts';
 import { generateObject } from '../lib/generate-object';
+import { checkOpenApi } from '../lib/openapi';
 
 // The Architect's design as a Mastra Workflow: one validated model call per section, independent
 // sections in .parallel(), the step order decided by code. Parallel specialists return their section
@@ -23,6 +24,7 @@ const stateSchema = z.object({
   securityDesign: z.string(),
   aiDesign: z.string(),
   deploymentAndTestingNotes: z.string(),
+  openapi: z.string().default(''),
 });
 
 // Synthesizes requirement themes from the approved Stories into requirementsSummary.
@@ -49,6 +51,7 @@ const requirementsAnalysisStep = createStep({
       securityDesign: '',
       aiDesign: '',
       deploymentAndTestingNotes: '',
+      openapi: '',
     });
     return { ready: true as const };
   },
@@ -174,6 +177,33 @@ const deploymentTestingStep = createStep({
   },
 });
 
+// The Epic's API contract as OpenAPI 3.1 YAML, checked by code; one retry with the problems,
+// then no contract rather than a broken one. Coders and QA build and test against it.
+const apiContractStep = createStep({
+  id: 'api-contract',
+  inputSchema: ready,
+  outputSchema: ready,
+  stateSchema,
+  execute: async ({ state, setState, mastra }) => {
+    const schema = z.object({ hasApi: z.boolean().describe('false when this Epic adds or changes no HTTP endpoints'), openapi: z.string().describe('The OpenAPI 3.1 document as YAML; empty string when hasApi is false') });
+    const base = `Write the OpenAPI 3.1 contract for the HTTP API of Epic ${state.epicKey}: ${state.epicSummary}. It is the single source of truth coders build against and QA tests against.\n\nRules: "openapi: 3.1.0"; info with title and version; every operation has a unique camelCase operationId, a summary, request body and parameter schemas, and responses with schemas (including error responses); shared schemas under components/schemas, referenced with $ref; include securitySchemes if the API is authenticated. Only endpoints this design adds or changes.\n\nAPI design:\n${state.apiDesign}\n\nData design:\n${state.dataDesign}\n\nSecurity design:\n${state.securityDesign}\n\nReturn only the JSON the schema describes.`;
+    let prompt = base;
+    let openapi = '';
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      const out = await generateObject(mastra, 'architect', prompt, schema);
+      if (!out.hasApi) break;
+      const { problems } = checkOpenApi(out.openapi);
+      if (!problems.length) {
+        openapi = out.openapi.trim() + '\n';
+        break;
+      }
+      prompt = `${base}\n\nYour previous contract had these problems; fix every one:\n${problems.map((p) => `- ${p}`).join('\n')}`;
+    }
+    await setState({ ...state, openapi });
+    return { ready: true as const };
+  },
+});
+
 // Produces the Architecture Decision Records and architecture tasks from the full design.
 const assembleStep = createStep({
   id: 'assemble',
@@ -199,6 +229,7 @@ const assembleStep = createStep({
       securityDesign: state.securityDesign,
       aiDesign: state.aiDesign,
       deploymentAndTestingNotes: state.deploymentAndTestingNotes,
+      openapi: state.openapi,
       adrs,
       tasks,
     };
@@ -216,5 +247,6 @@ export const architectWorkflow = createWorkflow({
   .then(systemDecompositionStep)
   .parallel([frontendDesignStep, apiDesignStep, integrationDesignStep, dataDesignStep, securityDesignStep, aiDesignStep])
   .then(deploymentTestingStep)
+  .then(apiContractStep)
   .then(assembleStep)
   .commit();

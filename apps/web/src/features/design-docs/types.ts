@@ -1,4 +1,4 @@
-export type DocKind = "architecture" | "srs" | "plan" | "adr" | "qa-plan" | "qa-scenario";
+export type DocKind = "architecture" | "srs" | "plan" | "adr" | "openapi" | "qa-plan" | "qa-scenario";
 
 export interface DesignDoc {
   id: string;

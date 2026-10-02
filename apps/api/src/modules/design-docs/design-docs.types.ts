@@ -1,8 +1,8 @@
-export const DOC_KINDS = ["architecture", "srs", "plan", "adr", "qa-plan", "qa-scenario"] as const;
+export const DOC_KINDS = ["architecture", "srs", "plan", "adr", "openapi", "qa-plan", "qa-scenario"] as const;
 export type DocKind = (typeof DOC_KINDS)[number];
 
 const QA_KINDS: readonly DocKind[] = ["qa-plan", "qa-scenario"];
-const SINGLETON_KINDS: readonly DocKind[] = ["architecture", "srs", "plan", "qa-plan"];
+const SINGLETON_KINDS: readonly DocKind[] = ["architecture", "srs", "plan", "openapi", "qa-plan"];
 
 export function owningAgent(kind: DocKind): "architect-agent" | "qa-agent" {
   return QA_KINDS.includes(kind) ? "qa-agent" : "architect-agent";

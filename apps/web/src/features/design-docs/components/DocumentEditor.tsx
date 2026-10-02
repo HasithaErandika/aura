@@ -7,6 +7,7 @@ import { Input } from "@/shared/ui/Input.tsx";
 import { Markdown } from "@/shared/ui/Markdown.tsx";
 import { Textarea } from "@/shared/ui/Textarea.tsx";
 import { designDocsApi } from "../api.ts";
+import { previewSource } from "../lib/docs.ts";
 import type { DesignDoc } from "../types.ts";
 
 const CONFLICT = "Someone saved a newer version while you were editing. Copy your changes, reload, and apply them to the latest version.";
@@ -35,7 +36,7 @@ export function DocumentEditor({ doc, content, onSaved }: { doc: DesignDoc; cont
   return (
     <div className="space-y-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <p className="text-xs text-ink-500">Markdown. Saving adds version {doc.currentVersion + 1}; earlier versions stay in History.</p>
+        <p className="text-xs text-ink-500">{doc.kind === "openapi" ? "OpenAPI 3.1 YAML, checked on save." : "Markdown."} Saving adds version {doc.currentVersion + 1}; earlier versions stay in History.</p>
         <Button size="sm" variant="ghost" onClick={() => setPreview((p) => !p)} aria-pressed={preview}>
           {preview ? "Hide preview" : "Show preview"}
         </Button>
@@ -44,7 +45,7 @@ export function DocumentEditor({ doc, content, onSaved }: { doc: DesignDoc; cont
         <Textarea aria-label="Document content" className="min-h-[50vh] font-mono text-sm" value={draft} onChange={(e) => setDraft(e.target.value)} spellCheck={false} />
         {preview ? (
           <div className="min-w-0 rounded-lg border border-line p-4">
-            <Markdown source={draft} />
+            <Markdown source={previewSource(doc.kind, draft)} />
           </div>
         ) : null}
       </div>
