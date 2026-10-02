@@ -81,8 +81,29 @@ on:
 jobs:
 ${jobs}
 
-${auraReportJobs(stacks.map((st) => STACKS[st].folder))}`;
+${CONTRACT_JOB}
+
+${auraReportJobs([...stacks.map((st) => STACKS[st].folder), "contract"])}`;
 }
+
+// The Epic's API contract (contracts/openapi.yaml, committed at Gate 6): it must lint, and a pull
+// request must not break the contract already on its base branch. Skipped when there is none.
+export const CONTRACT_JOB = `  contract:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Lint the API contract
+        run: |
+          if [ ! -f contracts/openapi.yaml ]; then echo "No API contract"; exit 0; fi
+          npx --yes @redocly/cli@1 lint contracts/openapi.yaml
+      - name: No breaking changes against the base branch
+        if: github.event_name == 'pull_request'
+        run: |
+          if [ ! -f contracts/openapi.yaml ]; then exit 0; fi
+          if ! git show "origin/\${{ github.base_ref }}:contracts/openapi.yaml" > /tmp/base-openapi.yaml 2>/dev/null; then echo "New contract"; exit 0; fi
+          docker run --rm -v /tmp:/base -v "$PWD/contracts:/head" tufin/oasdiff breaking /base/base-openapi.yaml /head/openapi.yaml --fail-on ERR`;
 
 // Reports each pull request's CI run to AURA (POST /ci/report), so QA sees it and is notified
 // (V6). GitHub Actions OIDC proves the repository: no secret is stored. Set the repository

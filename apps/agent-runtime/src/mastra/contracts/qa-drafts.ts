@@ -11,6 +11,8 @@ export const testScenarioSchema = z.object({
   storyKeys: z.array(z.string().min(1)).min(1).describe('Story key(s) this scenario tests'),
   steps: z.array(z.string().min(1)).min(1).describe('Steps and expected results, specific enough to write the test from'),
   fileName: z.string().min(3).max(120).describe('Kebab-case file name for this scenario, no extension, e.g. "submit-ticket-with-valid-fields"'),
+  // Default keeps drafts saved before the API contract existed parseable.
+  operationIds: z.array(z.string()).default([]).describe('api scenarios: the operationIds from the Epic API contract this scenario calls; empty for ui scenarios or when there is no contract'),
 });
 export type TestScenario = z.infer<typeof testScenarioSchema>;
 
@@ -32,6 +34,14 @@ export type QaDraft = z.infer<typeof qaDraftSchema>;
 const QA_PERSPECTIVE =
   '*Drafted by the AURA QA Agent: what to verify for each approved Story. The test-writer coder turns each scenario into a test on the Task branch.*';
 
+const operations = (s: TestScenario) => (s.operationIds.length ? ` · **Operations:** ${s.operationIds.map((id) => `\`${id}\``).join(', ')}` : '');
+
+// Code keeps only operationIds the Epic's contract defines; with no contract, none.
+export function keepKnownOperations(draft: QaDraft, known: readonly string[]): QaDraft {
+  const ids = new Set(known);
+  return { ...draft, scenarios: draft.scenarios.map((s) => ({ ...s, operationIds: [...new Set(s.operationIds)].filter((id) => ids.has(id)) })) };
+}
+
 export function renderTestPlan(draft: QaDraft): string {
   return [
     `# Test plan for ${draft.epicKey}`,
@@ -48,7 +58,7 @@ export function renderTestPlan(draft: QaDraft): string {
     '',
     ...draft.scenarios.map(
       (s, i) =>
-        `### ${i + 1}. ${s.title} (${s.type.toUpperCase()})\n**Tests:** ${s.storyKeys.join(', ')} · **File:** tests/${s.fileName}.spec.ts\n\n${bullets(s.steps)}\n`,
+        `### ${i + 1}. ${s.title} (${s.type.toUpperCase()})\n**Tests:** ${s.storyKeys.join(', ')}${operations(s)} · **File:** tests/${s.fileName}.spec.ts\n\n${bullets(s.steps)}\n`,
     ),
   ].join('\n');
 }
@@ -58,7 +68,7 @@ export function renderScenarioDoc(scenario: TestScenario): string {
   return [
     `# ${scenario.title}`,
     '',
-    `**Type:** ${scenario.type.toUpperCase()} · **Tests:** ${scenario.storyKeys.join(', ')} · **Spec file:** tests/${scenario.fileName}.spec.ts`,
+    `**Type:** ${scenario.type.toUpperCase()} · **Tests:** ${scenario.storyKeys.join(', ')}${operations(scenario)} · **Spec file:** tests/${scenario.fileName}.spec.ts`,
     '',
     '## Steps',
     '',

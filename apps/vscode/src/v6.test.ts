@@ -22,10 +22,21 @@ describe("PR view (Gate 6)", () => {
   });
 });
 
+describe("aura-ci.yml checks the API contract", () => {
+  it("lints contracts/openapi.yaml and fails a PR that breaks the base branch's contract", () => {
+    const yaml = ciWorkflow(["backend"]);
+    expect(yaml).toContain("  contract:\n    runs-on: ubuntu-latest");
+    expect(yaml).toContain("npx --yes @redocly/cli@1 lint contracts/openapi.yaml");
+    expect(yaml).toContain('git show "origin/${{ github.base_ref }}:contracts/openapi.yaml"');
+    expect(yaml).toContain("tufin/oasdiff breaking /base/base-openapi.yaml /head/openapi.yaml --fail-on ERR");
+    expect(yaml).toContain('if [ ! -f contracts/openapi.yaml ]; then echo "No API contract"; exit 0; fi');
+  });
+});
+
 describe("aura-ci.yml reports to AURA", () => {
   it("adds start and report jobs that prove the repository with GitHub OIDC", () => {
     const yaml = ciWorkflow(["frontend", "backend"]);
-    expect(yaml).toContain("  aura-report:\n    needs: [frontend, backend]");
+    expect(yaml).toContain("  aura-report:\n    needs: [frontend, backend, contract]");
     expect(yaml).toContain("id-token: write");
     expect(yaml).toContain("audience=aura");
     expect(yaml).toContain('"$AURA_API_URL/ci/report"');

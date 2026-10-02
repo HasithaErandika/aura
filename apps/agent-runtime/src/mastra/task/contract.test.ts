@@ -48,7 +48,7 @@ describe('the Epic API contract (OpenAPI 3.1)', () => {
 
   it('is written to contracts/openapi.yaml at Gate 6 when the Epic has one', async () => {
     const client = { list: vi.fn(async () => [{ id: 'doc-1' }]), read: vi.fn(async () => ({ content: OPENAPI })) } as unknown as DesignDocsClient;
-    const bridge = { call: vi.fn(async () => ({})) };
+    const bridge = { call: vi.fn(async () => null) };
     expect(await writeContract(bridge, 'KAN-36', client)).toBe(true);
     expect(bridge.call).toHaveBeenCalledWith('fs.writeFile', { path: CONTRACT_PATH, content: OPENAPI, overwrite: true });
     const none = { list: vi.fn(async () => []), read: vi.fn() } as unknown as DesignDocsClient;

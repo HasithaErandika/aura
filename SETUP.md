@@ -207,6 +207,11 @@ type in **Chat**.
 | Gate 6 pull request | Chat card and **Pull Request** view: approve, and AURA commits, pushes and opens the PR into `development` |
 | After the PR | CI result, then the merge, appear in the Pull Request view |
 
+`aura-ci.yml` from Initialize Project includes the `contract` job (API contract lint and
+breaking-change check). A repository initialized earlier needs it added by hand: copy the
+`contract` job from `CONTRACT_JOB` in `apps/vscode/src/project-setup.ts` into
+`.github/workflows/aura-ci.yml`, and add `contract` to the `needs` of `aura-report`.
+
 **Stop** (button, `Esc`, status bar or **AURA: Stop**) ends the turn; **AURA: Resume**
 continues it; **AURA: Open Run in Web** shows the run's steps and approvals. The status bar shows
 the permission mode; click it to change it. The **AURA** output channel logs every file change and
