@@ -1,6 +1,6 @@
-import { api } from "../../../shared/api/client.ts";
-import type { AdminUser } from "../../../types/api.ts";
-import type { Role } from "../../../shared/lib/roles.ts";
+import { api } from "@/shared/api/client.ts";
+import type { AdminUser } from "../types.ts";
+import type { Role } from "@/shared/lib/roles.ts";
 
 export const usersApi = {
   list: () => api.get<{ users: AdminUser[] }>("/users").then((r) => r.users),

@@ -1,22 +1,25 @@
 import { useState, type FormEvent } from "react";
-import { useAuth } from "../../../shared/auth/useAuth.ts";
-import { useAsync } from "../../../shared/hooks/useAsync.ts";
-import { describeError } from "../../../shared/api/errors.ts";
+import { useProfile } from "@/shared/auth/useAuth.ts";
+import { useAsync } from "@/shared/hooks/useAsync.ts";
+import { describeError } from "@/shared/api/errors.ts";
 import { usersApi } from "./api.ts";
-import { ROLES, ROLE_LABELS, roleLabel, type Role } from "../../../shared/lib/roles.ts";
-import { PageHeader } from "../../../shared/ui/PageHeader.tsx";
-import { Card, CardHeader } from "../../../shared/ui/Card.tsx";
-import { Alert } from "../../../shared/ui/Alert.tsx";
-import { Button } from "../../../shared/ui/Button.tsx";
-import { Field, Input, Select } from "../../../shared/ui/Field.tsx";
-import { SkeletonRows } from "../../../shared/ui/Skeleton.tsx";
-import { Table, TBody, TD, TH, THead, TR } from "../../../shared/ui/Table.tsx";
-import { Badge } from "../../../shared/ui/Badge.tsx";
-import { formatDateTime } from "../../../shared/lib/format.ts";
-import { PlusIcon } from "../../../shared/icons/index.tsx";
+import { ROLES, ROLE_LABELS, roleLabel, type Role } from "@/shared/lib/roles.ts";
+import { PageHeader } from "@/shared/ui/PageHeader.tsx";
+import { Card } from "@/shared/ui/Card.tsx";
+import { CardHeader } from "@/shared/ui/CardHeader.tsx";
+import { Alert } from "@/shared/ui/Alert.tsx";
+import { Button } from "@/shared/ui/Button.tsx";
+import { Field } from "@/shared/ui/Field.tsx";
+import { Input } from "@/shared/ui/Input.tsx";
+import { Select } from "@/shared/ui/Select.tsx";
+import { SkeletonRows } from "@/shared/ui/SkeletonRows.tsx";
+import { Table, TBody, TD, TH, THead, TR } from "@/shared/ui/Table.tsx";
+import { Badge } from "@/shared/ui/Badge.tsx";
+import { formatDateTime } from "@/shared/lib/format.ts";
+import { PlusIcon } from "@/shared/icons/index.tsx";
 
 export function UsersPage() {
-  const { profile } = useAuth();
+  const me = useProfile();
   const state = useAsync(() => usersApi.list(), []);
   const [showForm, setShowForm] = useState(false);
   const [creating, setCreating] = useState(false);
@@ -135,7 +138,7 @@ export function UsersPage() {
             </THead>
             <TBody>
               {(state.data ?? []).map((u) => {
-                const self = u.id === profile?.id;
+                const self = u.id === me.id;
                 return (
                   <TR key={u.id}>
                     <TD>
@@ -146,7 +149,12 @@ export function UsersPage() {
                       {self ? (
                         <Badge tone="outline">{roleLabel(u.role)} (you)</Badge>
                       ) : (
-                        <Select value={u.role ?? ""} onChange={(e) => void handleRole(u.id, e.target.value as Role)} className="h-8 w-44 text-xs">
+                        <Select aria-label={`Role for ${u.email}`} value={u.role ?? ""} onChange={(e) => e.target.value && void handleRole(u.id, e.target.value as Role)} className="h-8 w-44 text-xs">
+                          {u.role ? null : (
+                            <option value="" disabled>
+                              Unassigned
+                            </option>
+                          )}
                           {ROLES.map((r) => (
                             <option key={r} value={r}>
                               {ROLE_LABELS[r]}

@@ -1,7 +1,9 @@
-import { api } from "../../shared/api/client.ts";
-import type { Approval, Run, RunStep } from "../../types/api.ts";
+import { api } from "@/shared/api/client.ts";
+import type { Run } from "@/shared/api/types.ts";
+import type { RunDetail } from "./types.ts";
 
 export const runsApi = {
-  list: () => api.get<{ runs: Run[] }>("/runs").then((r) => r.runs),
-  get: (id: string) => api.get<{ run: Run; steps: RunStep[]; approvals: Approval[] }>(`/runs/${id}`),
+  list: () => api.get<{ runs: Run[] }>("/runs?limit=200").then((r) => r.runs),
+  get: (id: string) => api.get<RunDetail>(`/runs/${id}`),
+  stop: (id: string) => api.post<{ result: unknown }>(`/runs/${id}/stop`),
 };

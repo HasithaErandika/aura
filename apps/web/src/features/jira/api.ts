@@ -1,16 +1,15 @@
-import { api } from "../../shared/api/client.ts";
-import type { JiraComment, JiraEpicDetail, JiraIssueDetail, JiraIssueSummary, JiraTransition } from "../../types/api.ts";
+import { api } from "@/shared/api/client.ts";
+import type { JiraComment, JiraEpicDetail, JiraIssueDetail, JiraIssueSummary, JiraTransition } from "./types.ts";
 
-// Reads Jira Epics/Stories/Tasks/Bugs through apps/api's /jira routes, which fetch Jira directly -
-// never through the agent runtime, so browsing Jira never runs an agent (PO or BA included).
+const issuePath = (key: string) => `/jira/issues/${encodeURIComponent(key)}`;
+
 export const jiraApi = {
   status: () => api.get<{ configured: boolean }>("/jira/status"),
-  epics: (q?: string) => api.get<{ epics: JiraIssueSummary[] }>(`/jira/epics${q?.trim() ? `?q=${encodeURIComponent(q.trim())}` : ""}`).then((r) => r.epics),
+  epics: (q: string) => api.get<{ epics: JiraIssueSummary[] }>(`/jira/epics${q.trim() ? `?q=${encodeURIComponent(q.trim())}` : ""}`).then((r) => r.epics),
   epic: (epicKey: string) => api.get<JiraEpicDetail>(`/jira/epics/${encodeURIComponent(epicKey)}`),
-  issue: (key: string) => api.get<{ issue: JiraIssueDetail }>(`/jira/issues/${encodeURIComponent(key)}`).then((r) => r.issue),
-  transitions: (key: string) => api.get<{ transitions: JiraTransition[] }>(`/jira/issues/${encodeURIComponent(key)}/transitions`).then((r) => r.transitions),
-  transition: (key: string, transitionId: string) =>
-    api.post<{ issue: JiraIssueDetail }>(`/jira/issues/${encodeURIComponent(key)}/transitions`, { transitionId }).then((r) => r.issue),
-  comments: (key: string) => api.get<{ comments: JiraComment[] }>(`/jira/issues/${encodeURIComponent(key)}/comments`).then((r) => r.comments),
-  comment: (key: string, body: string) => api.post<{ comment: JiraComment }>(`/jira/issues/${encodeURIComponent(key)}/comments`, { body }).then((r) => r.comment),
+  issue: (key: string) => api.get<{ issue: JiraIssueDetail }>(issuePath(key)).then((r) => r.issue),
+  transitions: (key: string) => api.get<{ transitions: JiraTransition[] }>(`${issuePath(key)}/transitions`).then((r) => r.transitions),
+  transition: (key: string, transitionId: string) => api.post<{ issue: JiraIssueDetail }>(`${issuePath(key)}/transitions`, { transitionId }).then((r) => r.issue),
+  comments: (key: string) => api.get<{ comments: JiraComment[] }>(`${issuePath(key)}/comments`).then((r) => r.comments),
+  comment: (key: string, body: string) => api.post<{ comment: JiraComment }>(`${issuePath(key)}/comments`, { body }).then((r) => r.comment),
 };

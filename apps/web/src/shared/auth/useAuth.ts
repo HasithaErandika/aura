@@ -6,3 +6,9 @@ export function useAuth(): AuthState {
   if (!ctx) throw new Error("useAuth must be used within AuthProvider");
   return ctx;
 }
+
+export function useProfile() {
+  const { profile } = useAuth();
+  if (!profile) throw new Error("useProfile must be used inside RequireAuth");
+  return profile;
+}

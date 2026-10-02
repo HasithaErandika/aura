@@ -1,11 +1,11 @@
-import { DocumentsWorkspace } from "./DocumentsWorkspace.tsx";
-import { ARCHITECT_KINDS } from "./api.ts";
+import { DocumentsWorkspace } from "./components/DocumentsWorkspace.tsx";
+import { ARCHITECT_KINDS } from "./lib/docs.ts";
 
 export function DesignDocsPage() {
   return (
     <DocumentsWorkspace
       title="Design documents"
-      description="Each Epic's architecture plan, requirements (SRS), delivery plan and ADRs. The Architect edits them; everyone on the pipeline reads them, and so does the VS Code agent."
+      description="Each Epic's architecture plan, requirements, delivery plan and ADRs. The Architect edits them; the pipeline and the VS Code agent read them."
       kinds={ARCHITECT_KINDS}
     />
   );

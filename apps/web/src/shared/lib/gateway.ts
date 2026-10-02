@@ -1,5 +1,4 @@
-// Plain-language view of the runtime's tool gateway events (agent-runtime gateway/gateway.ts),
-// shared by the chat's tool activity and the Run Console timeline.
+import type { StateTone } from "./tone.ts";
 
 export interface GatewayFinding {
   source: string;
@@ -21,19 +20,16 @@ export interface GatewayEvent {
   findings?: GatewayFinding[];
 }
 
-export type Tone = "neutral" | "success" | "warning" | "danger";
-
-const TOOL_LABELS: Record<string, string> = {
+export const TOOL_LABELS: Record<string, string> = {
   delegate_to_po: "PO Agent",
   delegate_to_ba: "BA Agent",
   delegate_to_architect: "Architect Agent",
-  delegate_to_dev: "Dev Agent",
-  delegate_to_code: "Coding Agent",
   delegate_to_qa: "QA Agent",
-  delegate_to_test: "Tester Agent",
   delegate_to_deploy: "Deployer Agent",
-  delegate_to_git: "Git tool",
-  delegate_to_ci: "CI tool",
+  delegate_to_planner: "Task Planner",
+  delegate_to_coder: "Coder",
+  delegate_to_review: "Code review",
+  delegate_to_pr: "Git Agent",
 };
 
 const REASONS: Record<string, string> = {
@@ -46,13 +42,20 @@ const REASONS: Record<string, string> = {
   injection: "possible prompt injection in the source",
 };
 
-export function toolLabel(tool: string | undefined): string {
-  return (tool && TOOL_LABELS[tool]) ?? tool ?? "tool";
+export function toolLabel(tool: string | null | undefined): string {
+  if (!tool) return "tool";
+  return TOOL_LABELS[tool] ?? tool;
 }
 
-export function gatewaySummary(e: GatewayEvent): { title: string; tone: Tone } {
+export function isDelegateTool(tool: string | null | undefined): boolean {
+  return Boolean(tool && tool.startsWith("delegate_to_"));
+}
+
+export function gatewaySummary(e: GatewayEvent): { title: string; tone: StateTone } {
   const what = `${toolLabel(e.tool)}${e.mode ? ` (${e.mode})` : ""}`;
-  if (e.outcome === "blocked") return { title: `Safety check stopped ${what}: ${REASONS[e.reason ?? ""] ?? e.reason ?? "refused"}`, tone: e.reason === "loop_guard" ? "warning" : "danger" };
+  if (e.outcome === "blocked") {
+    return { title: `Safety check stopped ${what}: ${REASONS[e.reason ?? ""] ?? e.reason ?? "refused"}`, tone: e.reason === "loop_guard" ? "warning" : "danger" };
+  }
   if (e.findings?.length) return { title: `Possible prompt injection found while running ${what}`, tone: "warning" };
   if (e.outcome === "error" || e.outcome === "failed") return { title: `${what} failed after the safety check`, tone: "danger" };
   return { title: `Approved step ran: ${what}`, tone: "success" };

@@ -1,7 +1,6 @@
 import type { ReactNode } from "react";
 import { cn } from "../lib/cn.ts";
-
-export type Tone = "neutral" | "success" | "warning" | "danger" | "brand" | "outline";
+import type { Tone } from "../lib/tone.ts";
 
 const tones: Record<Tone, string> = {
   neutral: "bg-neutral-soft text-neutral",
@@ -15,7 +14,7 @@ const tones: Record<Tone, string> = {
 export function Badge({ tone = "neutral", children, className, dot }: { tone?: Tone; children: ReactNode; className?: string; dot?: boolean }) {
   return (
     <span className={cn("inline-flex items-center gap-1.5 rounded-md px-2 py-0.5 text-[11px] font-semibold leading-5 whitespace-nowrap", tones[tone], className)}>
-      {dot ? <span className="size-1.5 rounded-full bg-current" /> : null}
+      {dot ? <span className="size-1.5 rounded-full bg-current" aria-hidden /> : null}
       {children}
     </span>
   );

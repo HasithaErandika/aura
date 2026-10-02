@@ -6,20 +6,20 @@ React + Vite + TypeScript + Tailwind CSS v4. The human side of the platform: rol
 
 ```
 src/
-  app/            App, router, route paths
+  app/            App, router, route paths, lazy pages from each feature's index.ts
   config/         typed environment
-  types/          API contracts shared by every feature
   shared/
-    api/          fetch client, SSE reader, Supabase client, error helpers
+    api/          fetch client, SSE reader, Supabase client, shared API types
     auth/         AuthProvider, useAuth, route guards
     layout/       AppShell, Sidebar, Topbar, navigation (derived from grants), runtime status
-    ui/           neutral component kit (Button, Card, Table, Badge, Field, Menu, Markdown, ...)
-    icons/ brand/ hooks/ lib/
+    ui/           small single-purpose components (Button, Card, Section, Stat, AsyncView, Modal, ...)
+    components/   domain components shared by features (status pills, gate cards, tool activity)
+    settings/ icons/ brand/ hooks/ lib/
   features/
     landing/ auth/ dashboard/ workspace/ approvals/ runs/ registry/ design-docs/ jira/ profile/ audit/ admin/
 ```
 
-Each feature owns its API calls (`api.ts`), hooks, and components. Nothing renders placeholder data; every list, count, and status comes from `apps/api`.
+Each feature is a module: its `index.ts` exports only its pages, and it owns its `api.ts`, `types.ts`, hooks and components. ESLint blocks deep imports into another feature and feature imports from `shared/`. Nothing renders placeholder data; every list, count, and status comes from `apps/api`.
 
 ## Design rules
 

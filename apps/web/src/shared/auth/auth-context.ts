@@ -1,6 +1,6 @@
 import { createContext } from "react";
 import type { Session } from "@supabase/supabase-js";
-import type { Me } from "../../types/api.ts";
+import type { Me } from "../api/types.ts";
 
 export interface AuthState {
   session: Session | null;

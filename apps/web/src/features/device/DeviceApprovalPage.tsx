@@ -1,12 +1,15 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { useSearchParams } from "react-router-dom";
-import { api } from "../../shared/api/client.ts";
-import { describeError } from "../../shared/api/errors.ts";
-import { PageHeader } from "../../shared/ui/PageHeader.tsx";
-import { Card, CardBody, CardHeader } from "../../shared/ui/Card.tsx";
-import { Alert } from "../../shared/ui/Alert.tsx";
-import { Button } from "../../shared/ui/Button.tsx";
-import { Field, Input } from "../../shared/ui/Field.tsx";
+import { api } from "@/shared/api/client.ts";
+import { describeError } from "@/shared/api/errors.ts";
+import { PageHeader } from "@/shared/ui/PageHeader.tsx";
+import { Card } from "@/shared/ui/Card.tsx";
+import { CardBody } from "@/shared/ui/CardBody.tsx";
+import { CardHeader } from "@/shared/ui/CardHeader.tsx";
+import { Alert } from "@/shared/ui/Alert.tsx";
+import { Button } from "@/shared/ui/Button.tsx";
+import { Field } from "@/shared/ui/Field.tsx";
+import { Input } from "@/shared/ui/Input.tsx";
 
 interface DeviceGrant {
   userCode: string;
@@ -14,9 +17,6 @@ interface DeviceGrant {
   expiresAt: string;
 }
 
-// Approve a VS Code sign-in (apps/api modules/identity/device.router.ts). VS Code shows a code
-// and opens this page with it; approving creates a 90-day access token for that VS Code, listed
-// (and revocable) on the Profile page.
 export function DeviceApprovalPage() {
   const [params] = useSearchParams();
   const [code, setCode] = useState(params.get("code") ?? "");

@@ -1,62 +1,14 @@
-import { api, followRunStream, streamRequest } from "../../shared/api/client.ts";
-import type { Decision, RegistryAgent, StreamEvent, Thread, ThreadHistory } from "../../types/api.ts";
+import { api } from "@/shared/api/client.ts";
+import type { RegistryAgent } from "@/shared/api/types.ts";
+import type { Thread, ThreadHistory } from "./types.ts";
 
-export type StreamListener = (event: StreamEvent) => void;
-
-function asStreamEvent(event: string, data: unknown): StreamEvent | null {
-  switch (event) {
-    case "run":
-    case "text":
-    case "tool":
-    case "gate":
-    case "decision":
-    case "error":
-    case "done":
-      return { event, data } as StreamEvent;
-    default:
-      return null;
-  }
-}
+const q = (agentId: string) => `agentId=${encodeURIComponent(agentId)}`;
 
 export const workspaceApi = {
   agents: () => api.get<{ agents: RegistryAgent[] }>("/agents").then((r) => r.agents),
-  threads: (agentId: string) => api.get<{ threads: Thread[] }>(`/threads?agentId=${encodeURIComponent(agentId)}`).then((r) => r.threads),
-  createThread: (agentId: string, title?: string) => api.post<{ thread: Thread }>("/threads", { agentId, title }).then((r) => r.thread),
-  updateThread: (agentId: string, threadId: string, title: string) =>
-    api.patch<{ thread: Thread }>(`/threads/${threadId}?agentId=${encodeURIComponent(agentId)}`, { agentId, title }).then((r) => r.thread),
-  deleteThread: (agentId: string, threadId: string) => api.delete<void>(`/threads/${threadId}?agentId=${encodeURIComponent(agentId)}`),
-  history: (agentId: string, threadId: string) => api.get<ThreadHistory>(`/threads/${threadId}/messages?agentId=${encodeURIComponent(agentId)}`),
-
-  send: (agentId: string, threadId: string, message: string, listener: StreamListener, signal?: AbortSignal) =>
-    streamRequest(`/threads/${threadId}/messages`, { agentId, message }, {
-      signal,
-      onEvent: (event, data) => {
-        const parsed = asStreamEvent(event, data);
-        if (parsed) listener(parsed);
-      },
-    }),
-
-  // Re-attach to a turn that is still running (it runs as a background job on the server).
-  follow: (runId: string, listener: StreamListener, signal?: AbortSignal) =>
-    followRunStream(runId, {
-      signal,
-      onEvent: (event, data) => {
-        const parsed = asStreamEvent(event, data);
-        if (parsed) listener(parsed);
-      },
-    }),
-
-  decide: (
-    approvalId: string,
-    body: { decision: Decision; answer?: string; reason?: string; snapshotHash?: string },
-    listener: StreamListener,
-    signal?: AbortSignal,
-  ) =>
-    streamRequest(`/approvals/${approvalId}/decide`, body, {
-      signal,
-      onEvent: (event, data) => {
-        const parsed = asStreamEvent(event, data);
-        if (parsed) listener(parsed);
-      },
-    }),
+  threads: (agentId: string) => api.get<{ threads: Thread[] }>(`/threads?${q(agentId)}`).then((r) => r.threads),
+  createThread: (agentId: string) => api.post<{ thread: Thread }>("/threads", { agentId }).then((r) => r.thread),
+  renameThread: (agentId: string, threadId: string, title: string) => api.patch<{ thread: Thread }>(`/threads/${threadId}`, { agentId, title }).then((r) => r.thread),
+  deleteThread: (agentId: string, threadId: string) => api.delete<void>(`/threads/${threadId}?${q(agentId)}`),
+  history: (agentId: string, threadId: string) => api.get<ThreadHistory>(`/threads/${threadId}/messages?${q(agentId)}`),
 };

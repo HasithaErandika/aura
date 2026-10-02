@@ -1,5 +1,5 @@
-import { api } from "../../shared/api/client.ts";
-import type { AuditEntry } from "../../types/api.ts";
+import { api } from "@/shared/api/client.ts";
+import type { AuditEntry } from "./types.ts";
 
 export interface AuditQuery {
   action?: string;

@@ -1,279 +1,174 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { describeError } from "../../../shared/api/errors.ts";
-import { usePolling } from "../../../shared/hooks/usePolling.ts";
-import type { Approval, ChatMessage, ChatToolActivity, Decision, Run, RunStatus, StreamEvent, Thread } from "../../../types/api.ts";
+import { describeError } from "@/shared/api/errors.ts";
+import { turnsApi } from "@/shared/api/turns.ts";
+import type { DecisionInput, Run, StreamEvent } from "@/shared/api/types.ts";
+import { usePolling } from "@/shared/hooks/usePolling.ts";
+import { toPendingGate } from "@/shared/lib/approvals.ts";
+import { isRunStreaming } from "@/shared/lib/status.ts";
 import { workspaceApi } from "../api.ts";
+import { applyStreamEvent, commitStreaming, newMessage, type LiveState } from "../lib/conversation.ts";
+import type { ChatMessage, Thread } from "../types.ts";
 
-export interface PendingGate {
-  approvalId: string;
-  runId: string;
-  producingAgent: string | null;
-  gate: { number: number; name: string; outcome: string } | null;
-  requiredRole: string | null;
-  question: string;
-  options: Array<{ label: string; value?: string; description?: string }>;
-  selectionMode: "single_select" | "multi_select" | null;
-  snapshot: string | null;
-  snapshotHash: string | null;
-  expiresAt: string;
-  canDecide: boolean;
-}
-
-export interface ConversationState {
+export interface ConversationState extends LiveState {
+  threadId: string | null;
   messages: ChatMessage[];
-  streaming: ChatMessage | null;
-  pendingGate: PendingGate | null;
   run: Run | null;
-  runStatus: RunStatus | null;
-  // The thread row (title/updatedAt) as of the last history load - lets a caller patch its
-  // own thread-list cache instead of refetching the whole list after every turn.
   thread: Thread | null;
   busy: boolean;
+  stopping: boolean;
   loading: boolean;
-  error: string | null;
 }
 
-function gateFromApproval(a: Approval): PendingGate {
-  return {
-    approvalId: a.id,
-    runId: a.runId,
-    producingAgent: a.producingAgent,
-    gate: a.gate,
-    requiredRole: a.requiredRole,
-    question: a.question,
-    options: a.options,
-    selectionMode: a.selectionMode,
-    snapshot: a.snapshot,
-    snapshotHash: a.snapshotHash,
-    expiresAt: a.expiresAt,
-    canDecide: Boolean(a.canDecide),
-  };
+function freshState(threadId: string | null): ConversationState {
+  return { threadId, messages: [], streaming: null, pendingGate: null, run: null, runStatus: null, liveRunId: null, thread: null, busy: false, stopping: false, loading: Boolean(threadId), error: null };
 }
 
-let localId = 0;
-const nextId = () => `local-${++localId}`;
-
-// Owns one conversation: history from the API, the live turn from the SSE stream, and the
-// pending human gate. When the gate belongs to another role, it polls until that person
-// decides so the requester sees the continuation.
 export function useConversation(agentId: string, threadId: string | null) {
-  const [state, setState] = useState<ConversationState>({
-    messages: [],
-    streaming: null,
-    pendingGate: null,
-    run: null,
-    runStatus: null,
-    thread: null,
-    busy: false,
-    loading: Boolean(threadId),
-    error: null,
-  });
+  const [state, setState] = useState<ConversationState>(() => freshState(threadId));
+  if (state.threadId !== threadId) setState(freshState(threadId));
+
+  const current = useRef(threadId);
+  const busyRef = useRef(false);
+  const turn = useRef(0);
   const abortRef = useRef<AbortController | null>(null);
   const pendingText = useRef("");
-  const flushHandle = useRef<number | null>(null);
-
-  const flushText = useCallback(() => {
-    flushHandle.current = null;
-    const delta = pendingText.current;
-    if (!delta) return;
-    pendingText.current = "";
-    setState((s) => {
-      const streaming: ChatMessage = s.streaming ?? { id: nextId(), role: "assistant", text: "", tools: [], createdAt: new Date().toISOString() };
-      return { ...s, streaming: { ...streaming, text: streaming.text + delta } };
-    });
-  }, []);
-
-  const queueText = useCallback(
-    (delta: string) => {
-      pendingText.current += delta;
-      if (flushHandle.current === null) flushHandle.current = window.requestAnimationFrame(flushText);
-    },
-    [flushText],
-  );
-
-  const load = useCallback(
-    async (silent = false) => {
-      if (!threadId) {
-        setState((s) => ({ ...s, messages: [], streaming: null, pendingGate: null, run: null, runStatus: null, thread: null, loading: false, error: null }));
-        return;
-      }
-      if (!silent) setState((s) => ({ ...s, loading: true, error: null }));
-      try {
-        const history = await workspaceApi.history(agentId, threadId);
-        setState((s) => ({
-          ...s,
-          messages: history.messages,
-          streaming: s.busy ? s.streaming : null,
-          pendingGate: history.pendingApproval ? gateFromApproval(history.pendingApproval) : null,
-          run: history.latestRun,
-          runStatus: history.latestRun?.status ?? null,
-          thread: history.thread,
-          loading: false,
-          error: null,
-        }));
-      } catch (err) {
-        setState((s) => ({ ...s, loading: false, error: describeError(err) }));
-      }
-    },
-    [agentId, threadId],
-  );
+  const frame = useRef<number | null>(null);
 
   useEffect(() => {
-    abortRef.current?.abort();
+    current.current = threadId;
+    return () => {
+      abortRef.current?.abort();
+      if (frame.current !== null) window.cancelAnimationFrame(frame.current);
+      frame.current = null;
+      pendingText.current = "";
+      busyRef.current = false;
+    };
+  }, [threadId]);
+
+  const update = useCallback((forThread: string | null, fn: (s: ConversationState) => ConversationState) => {
+    if (current.current !== forThread) return;
+    setState((s) => (s.threadId === forThread ? fn(s) : s));
+  }, []);
+
+  const flushText = useCallback(
+    (forThread: string | null) => {
+      if (frame.current !== null) window.cancelAnimationFrame(frame.current);
+      frame.current = null;
+      const delta = pendingText.current;
+      pendingText.current = "";
+      if (delta) update(forThread, (s) => applyStreamEvent(s, { event: "text", data: { delta } }));
+    },
+    [update],
+  );
+
+  const listener = useCallback(
+    (forThread: string | null) => (event: StreamEvent) => {
+      if (event.event === "text") {
+        pendingText.current += event.data.delta;
+        if (frame.current === null) frame.current = window.requestAnimationFrame(() => flushText(forThread));
+        return;
+      }
+      flushText(forThread);
+      update(forThread, (s) => applyStreamEvent(s, event));
+    },
+    [flushText, update],
+  );
+
+  const load = useCallback(async () => {
+    const forThread = threadId;
+    if (!forThread) return;
+    try {
+      const history = await workspaceApi.history(agentId, forThread);
+      update(forThread, (s) => ({
+        ...s,
+        messages: s.busy ? s.messages : history.messages,
+        pendingGate: history.pendingApproval ? toPendingGate(history.pendingApproval) : s.busy ? s.pendingGate : null,
+        run: history.latestRun,
+        runStatus: s.busy ? s.runStatus : (history.latestRun?.status ?? null),
+        thread: history.thread,
+        loading: false,
+      }));
+    } catch (err) {
+      update(forThread, (s) => ({ ...s, loading: false, error: describeError(err) }));
+    }
+  }, [agentId, threadId, update]);
+
+  useEffect(() => {
     void load();
   }, [load]);
 
-  const waitingOnSomeoneElse = Boolean(state.pendingGate && !state.pendingGate.canDecide && !state.busy);
-  usePolling(() => load(true), 6000, waitingOnSomeoneElse);
+  const finishTurn = useCallback(
+    async (forThread: string | null) => {
+      flushText(forThread);
+      if (current.current === forThread) busyRef.current = false;
+      update(forThread, (s) => ({ ...s, messages: commitStreaming(s.messages, s.streaming), streaming: null, busy: false, stopping: false }));
+      await load();
+    },
+    [flushText, update, load],
+  );
 
-  const applyEvent = useCallback((event: StreamEvent) => {
-    if (event.event === "text") {
-      queueText(event.data.delta);
-      return;
-    }
-    // Any non-text event must see the text that preceded it in order.
-    if (pendingText.current) {
-      if (flushHandle.current !== null) window.cancelAnimationFrame(flushHandle.current);
-      flushText();
-    }
-    setState((s) => {
-      const streaming: ChatMessage = s.streaming ?? { id: nextId(), role: "assistant", text: "", tools: [], createdAt: new Date().toISOString() };
-      switch (event.event) {
-        case "run":
-          return { ...s, streaming, runStatus: event.data.status };
-        case "tool": {
-          const { phase, toolName, toolCallId, args, result, error } = event.data;
-          const tools = [...streaming.tools];
-          const idx = tools.findIndex((t) => t.toolCallId === toolCallId && toolCallId);
-          const next: ChatToolActivity =
-            phase === "call"
-              ? { toolCallId, toolName, state: "call", args }
-              : phase === "result"
-                ? { ...(idx >= 0 ? tools[idx]! : { toolCallId, toolName, args: undefined }), state: "result", result }
-                : { ...(idx >= 0 ? tools[idx]! : { toolCallId, toolName, args: undefined }), state: "error", result: error, isError: true };
-          if (idx >= 0) tools[idx] = next;
-          else tools.push(next);
-          return { ...s, streaming: { ...streaming, tools } };
-        }
-        case "gate":
-          return {
-            ...s,
-            streaming,
-            runStatus: "SUSPENDED_FOR_APPROVAL",
-            pendingGate: { ...event.data, snapshotHash: null },
-          };
-        case "progress": {
-          // A workflow-backed delegate tool (e.g. the Architect) reports its own internal
-          // step progress; shown as a synthetic tool-activity row so it appears in the same
-          // list as delegate_to_* calls without a separate UI element.
-          const { stepId, phase, status, source } = event.data;
-          if (source === "gateway") {
-            // The runtime's safety checkpoint: a gated step that ran, a refusal, or an
-            // injection warning. One row each, finished (it reports after the fact).
-            const tools = [...streaming.tools, { toolCallId: `gateway-${streaming.tools.length}-${event.data.tool ?? ""}`, toolName: "gateway", state: "result", result: event.data, isError: event.data.outcome === "blocked" }];
-            return { ...s, streaming: { ...streaming, tools } };
-          }
-          const toolCallId = `progress-${stepId ?? "step"}`;
-          const tools = [...streaming.tools];
-          const idx = tools.findIndex((t) => t.toolCallId === toolCallId);
-          const next: ChatToolActivity = { toolCallId, toolName: `architect_step_${stepId ?? "unknown"}`, state: phase === "start" ? "call" : "result", result: status };
-          if (idx >= 0) tools[idx] = next;
-          else tools.push(next);
-          return { ...s, streaming: { ...streaming, tools } };
-        }
-        case "decision":
-          return { ...s, pendingGate: null };
-        case "error":
-          return { ...s, error: event.data.message, runStatus: "FAILED" };
-        case "done":
-          return { ...s, runStatus: event.data.status };
-        default:
-          return s;
+  const runTurn = useCallback(
+    async (start: (signal: AbortSignal, onEvent: (e: StreamEvent) => void) => Promise<void>, before?: (s: ConversationState) => ConversationState) => {
+      const forThread = threadId;
+      const token = ++turn.current;
+      const controller = new AbortController();
+      abortRef.current = controller;
+      busyRef.current = true;
+      update(forThread, (s) => ({ ...(before ? before(s) : s), busy: true, stopping: false, error: null, streaming: null, liveRunId: null }));
+      try {
+        await start(controller.signal, listener(forThread));
+      } catch (err) {
+        if (!controller.signal.aborted) update(forThread, (s) => ({ ...s, error: describeError(err) }));
+      } finally {
+        if (turn.current === token) await finishTurn(forThread);
       }
-    });
-  }, [queueText, flushText]);
-
-  const finishTurn = useCallback(() => {
-    if (flushHandle.current !== null) window.cancelAnimationFrame(flushHandle.current);
-    flushText();
-    setState((s) => {
-      const messages = s.streaming && (s.streaming.text || s.streaming.tools.length) ? [...s.messages, s.streaming] : s.messages;
-      return { ...s, messages, streaming: null, busy: false };
-    });
-  }, [flushText]);
+    },
+    [threadId, update, listener, finishTurn],
+  );
 
   const send = useCallback(
     async (message: string) => {
-      if (!threadId) return;
-      const controller = new AbortController();
-      abortRef.current = controller;
-      setState((s) => ({
-        ...s,
-        busy: true,
-        error: null,
-        messages: [...s.messages, { id: nextId(), role: "user", text: message, tools: [], createdAt: new Date().toISOString() }],
-        streaming: null,
-      }));
-      try {
-        await workspaceApi.send(agentId, threadId, message, applyEvent, controller.signal);
-      } catch (err) {
-        if (!controller.signal.aborted) setState((s) => ({ ...s, error: describeError(err) }));
-      } finally {
-        finishTurn();
-        void load(true);
-      }
+      if (!threadId || busyRef.current) return;
+      await runTurn(
+        (signal, onEvent) => turnsApi.send(agentId, threadId, message, onEvent, signal),
+        (s) => ({ ...s, messages: [...s.messages, newMessage("user", message)] }),
+      );
     },
-    [agentId, threadId, applyEvent, finishTurn, load],
+    [agentId, threadId, runTurn],
   );
 
   const decide = useCallback(
-    async (body: { decision: Decision; answer?: string; reason?: string }) => {
+    async (body: DecisionInput) => {
       const gate = state.pendingGate;
-      if (!gate) return;
-      const controller = new AbortController();
-      abortRef.current = controller;
-      setState((s) => ({ ...s, busy: true, error: null, streaming: null }));
-      try {
-        await workspaceApi.decide(
-          gate.approvalId,
-          { ...body, snapshotHash: gate.snapshotHash ?? undefined },
-          applyEvent,
-          controller.signal,
-        );
-      } catch (err) {
-        if (!controller.signal.aborted) setState((s) => ({ ...s, error: describeError(err) }));
-      } finally {
-        finishTurn();
-        void load(true);
-      }
+      if (!gate || busyRef.current) return;
+      await runTurn((signal, onEvent) => turnsApi.decide(gate.approvalId, { ...body, snapshotHash: gate.snapshotHash ?? undefined }, onEvent, signal));
     },
-    [state.pendingGate, applyEvent, finishTurn, load],
+    [state.pendingGate, runTurn],
   );
 
-  // A turn still queued or running when the conversation loads (page reload, another tab):
-  // follow it live. Turns run as background jobs, so leaving the page never stopped them.
-  const runId = state.run?.id ?? null;
-  const runActive = state.runStatus === "PENDING" || state.runStatus === "RUNNING";
+  const stop = useCallback(async () => {
+    const runId = state.liveRunId ?? (state.run && isRunStreaming(state.run.status) ? state.run.id : null);
+    if (!runId) {
+      abortRef.current?.abort();
+      return;
+    }
+    const forThread = threadId;
+    update(forThread, (s) => ({ ...s, stopping: true }));
+    try {
+      await turnsApi.stop(runId);
+    } catch (err) {
+      update(forThread, (s) => ({ ...s, stopping: false, error: describeError(err) }));
+    }
+  }, [state.liveRunId, state.run, threadId, update]);
+
+  const followId = state.run && isRunStreaming(state.run.status) ? state.run.id : null;
   useEffect(() => {
-    if (!runId || !runActive || state.busy) return;
-    const controller = new AbortController();
-    abortRef.current = controller;
-    setState((s) => ({ ...s, busy: true, error: null, streaming: null }));
-    void workspaceApi
-      .follow(runId, applyEvent, controller.signal)
-      .catch((err) => {
-        if (!controller.signal.aborted) setState((s) => ({ ...s, error: describeError(err) }));
-      })
-      .finally(() => {
-        finishTurn();
-        void load(true);
-      });
-    return () => controller.abort();
-    // Only when a different active run appears, not on every busy change.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [runId, runActive]);
+    if (!followId || busyRef.current) return;
+    void runTurn((signal, onEvent) => turnsApi.follow(followId, onEvent, signal));
+  }, [followId, runTurn]);
 
-  const cancel = useCallback(() => abortRef.current?.abort(), []);
+  const waitingOnOthers = Boolean(state.pendingGate && !state.pendingGate.canDecide && !state.busy);
+  usePolling(load, 6000, waitingOnOthers);
 
-  return { ...state, send, decide, reload: () => load(true), cancel };
+  return { ...state, send, decide, stop, reload: load };
 }

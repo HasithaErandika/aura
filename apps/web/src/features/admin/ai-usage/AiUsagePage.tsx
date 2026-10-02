@@ -1,40 +1,20 @@
 import { useState } from "react";
-import { useAsync } from "../../../shared/hooks/useAsync.ts";
-import { dashboardApi } from "../../dashboard/api.ts";
-import { PageHeader } from "../../../shared/ui/PageHeader.tsx";
-import { Card, CardHeader } from "../../../shared/ui/Card.tsx";
-import { Alert } from "../../../shared/ui/Alert.tsx";
-import { Stat } from "../../../shared/ui/Stat.tsx";
-import { Select } from "../../../shared/ui/Field.tsx";
-import { SkeletonRows } from "../../../shared/ui/Skeleton.tsx";
-import { EmptyState } from "../../../shared/ui/EmptyState.tsx";
-import { Table, TBody, TD, TH, THead, TR } from "../../../shared/ui/Table.tsx";
-import { BoltIcon } from "../../../shared/icons/index.tsx";
+import { useAsync } from "@/shared/hooks/useAsync.ts";
+import { aiUsageApi } from "./api.ts";
+import { agentLabel } from "@/shared/lib/agents.ts";
+import { PageHeader } from "@/shared/ui/PageHeader.tsx";
+import { Card } from "@/shared/ui/Card.tsx";
+import { CardHeader } from "@/shared/ui/CardHeader.tsx";
+import { Alert } from "@/shared/ui/Alert.tsx";
+import { Stat } from "@/shared/ui/Stat.tsx";
+import { Select } from "@/shared/ui/Select.tsx";
+import { SkeletonRows } from "@/shared/ui/SkeletonRows.tsx";
+import { EmptyState } from "@/shared/ui/EmptyState.tsx";
+import { Table, TBody, TD, TH, THead, TR } from "@/shared/ui/Table.tsx";
+import { BoltIcon } from "@/shared/icons/index.tsx";
 
-// Admin: where the AI's tokens go (the runtime's token ledger) and how good each agent's work is
-// in practice (how humans decided on its gates). docs/ARCHITECTURE.md §8 explains the numbers.
 
-const AGENT_LABELS: Record<string, string> = {
-  orchestrator: "Orchestrator",
-  "po-agent": "PO Agent",
-  "ba-agent": "BA Agent",
-  "architect-agent": "Architect Agent",
-  "dev-agent": "Dev Agent",
-  "qa-agent": "QA Agent",
-  "tester-agent": "Tester Agent",
-  "deployer-agent": "Deployer Agent",
-  "coding-council": "Coding Council",
-  "coding-agent": "Coding Agent (single)",
-  po: "PO Agent",
-  ba: "BA Agent",
-  architect: "Architect Agent",
-  dev: "Dev Agent",
-  qa: "QA Agent",
-  tester: "Tester Agent",
-  deployer: "Deployer Agent",
-};
 
-const label = (agent: string) => AGENT_LABELS[agent] ?? (agent.startsWith("eval:") ? `Eval: ${AGENT_LABELS[agent.slice(5)] ?? agent.slice(5)}` : agent);
 const num = (n: number) => n.toLocaleString();
 const pct = (n: number | null) => (n === null ? "-" : `${Math.round(n * 100)}%`);
 
@@ -51,8 +31,8 @@ function ShareBar({ share }: { share: number }) {
 
 export function AiUsagePage() {
   const [days, setDays] = useState(7);
-  const usage = useAsync(() => dashboardApi.tokenUsage(days), [days]);
-  const quality = useAsync(() => dashboardApi.agentQuality(Math.max(days, 30)), [days]);
+  const usage = useAsync(() => aiUsageApi.tokenUsage(days), [days]);
+  const quality = useAsync(() => aiUsageApi.agentQuality(Math.max(days, 30)), [days]);
   const t = usage.data?.totals;
 
   return (
@@ -105,7 +85,7 @@ export function AiUsagePage() {
             <TBody>
               {usage.data.agents.map((a) => (
                 <TR key={a.agent}>
-                  <TD className="text-sm font-medium text-ink-900">{label(a.agent)}</TD>
+                  <TD className="text-sm font-medium text-ink-900">{agentLabel(a.agent)}</TD>
                   <TD className="text-right tabular-nums">{num(a.calls)}</TD>
                   <TD className="text-right tabular-nums">{num(a.input)}</TD>
                   <TD className="text-right tabular-nums">{num(a.output)}</TD>
@@ -174,7 +154,7 @@ export function AiUsagePage() {
             <TBody>
               {quality.data.agents.map((q) => (
                 <TR key={q.agent}>
-                  <TD className="text-sm font-medium text-ink-900">{label(q.agent)}</TD>
+                  <TD className="text-sm font-medium text-ink-900">{agentLabel(q.agent)}</TD>
                   <TD className="text-right tabular-nums">{q.gates}</TD>
                   <TD className="text-right tabular-nums">{q.approve}</TD>
                   <TD className="text-right tabular-nums">{q.revise}</TD>

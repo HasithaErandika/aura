@@ -1,23 +1,24 @@
 import { useState, type FormEvent } from "react";
-import { useAsync } from "../../../shared/hooks/useAsync.ts";
-import { describeError } from "../../../shared/api/errors.ts";
+import { useAsync } from "@/shared/hooks/useAsync.ts";
+import { describeError } from "@/shared/api/errors.ts";
 import { projectsApi } from "./api.ts";
-import type { Project, RepositoryProvider } from "../../../types/api.ts";
-import { PageHeader } from "../../../shared/ui/PageHeader.tsx";
-import { Card, CardHeader } from "../../../shared/ui/Card.tsx";
-import { Alert } from "../../../shared/ui/Alert.tsx";
-import { Button } from "../../../shared/ui/Button.tsx";
-import { Field, Input, Select } from "../../../shared/ui/Field.tsx";
-import { SkeletonRows } from "../../../shared/ui/Skeleton.tsx";
-import { Table, TBody, TD, TH, THead, TR } from "../../../shared/ui/Table.tsx";
-import { Badge } from "../../../shared/ui/Badge.tsx";
-import { EmptyState } from "../../../shared/ui/EmptyState.tsx";
-import { Modal } from "../../../shared/ui/Modal.tsx";
-import { formatDateTime } from "../../../shared/lib/format.ts";
-import { GitIcon, PlusIcon } from "../../../shared/icons/index.tsx";
+import type { Project, RepositoryProvider } from "../types.ts";
+import { PageHeader } from "@/shared/ui/PageHeader.tsx";
+import { Card } from "@/shared/ui/Card.tsx";
+import { CardHeader } from "@/shared/ui/CardHeader.tsx";
+import { Alert } from "@/shared/ui/Alert.tsx";
+import { Button } from "@/shared/ui/Button.tsx";
+import { Field } from "@/shared/ui/Field.tsx";
+import { Input } from "@/shared/ui/Input.tsx";
+import { Select } from "@/shared/ui/Select.tsx";
+import { SkeletonRows } from "@/shared/ui/SkeletonRows.tsx";
+import { Table, TBody, TD, TH, THead, TR } from "@/shared/ui/Table.tsx";
+import { Badge } from "@/shared/ui/Badge.tsx";
+import { EmptyState } from "@/shared/ui/EmptyState.tsx";
+import { Modal } from "@/shared/ui/Modal.tsx";
+import { formatDateTime } from "@/shared/lib/format.ts";
+import { GitIcon, PlusIcon } from "@/shared/icons/index.tsx";
 
-// Admin: register a Project (a Jira project) and the one Git repository its code lives in
-// (docs/plans/aura-git-control-plane.md Phase 1.1). Gate 4 will branch from this repository.
 export function ProjectsPage() {
   const state = useAsync(() => projectsApi.list(), []);
   const [showForm, setShowForm] = useState(false);

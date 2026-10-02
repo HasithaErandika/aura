@@ -1,5 +1,3 @@
-// No "tester" role: qa_engineer owns Gate 6 and starts/oversees the bounded Tester Agent loop
-// that replaced the old manual Gate 7 (see apps/agent-runtime's workflows/tester-workflow.ts).
 export const ROLES = ["admin", "project_owner", "business_analyst", "architect", "developer", "qa_engineer", "deployer"] as const;
 
 export type Role = (typeof ROLES)[number];

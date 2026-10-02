@@ -1,7 +1,5 @@
 import { api } from "../api/client.ts";
 
-// In-app notifications (apps/api /notifications, V6): a Task's PR opened, its CI passed or failed.
-
 export interface AppNotification {
   id: string;
   kind: "pr_opened" | "ci_passed" | "ci_failed";

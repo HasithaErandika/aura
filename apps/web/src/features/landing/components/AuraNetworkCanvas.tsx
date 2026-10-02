@@ -1,29 +1,20 @@
 import { useEffect, useRef } from "react";
+import { PALETTE as CANVAS_PALETTE } from "@/shared/icons/palette.ts";
 
-// Exact palette from the geometric logo mark:
-const PALETTE = [
-  "#FFB800", // Golden Yellow
-  "#FF6A00", // Vibrant Orange
-  "#E91E63", // Pinkish Magenta
-  "#7B1FA2", // Deep Violet / Purple
-  "#C2185B", // Ruby Magenta
-  "#E30613", // Dialog Red
-];
 
-// Helper to interpolate between hex colors for smooth triangle color mixing
 function hexToRgb(hex: string) {
   const num = parseInt(hex.replace("#", ""), 16);
   return [(num >> 16) & 255, (num >> 8) & 255, num & 255];
 }
 
 function mixColors(factor: number): string {
-  const scaled = Math.max(0, Math.min(1, factor)) * (PALETTE.length - 1);
+  const scaled = Math.max(0, Math.min(1, factor)) * (CANVAS_PALETTE.length - 1);
   const idx1 = Math.floor(scaled);
-  const idx2 = Math.min(PALETTE.length - 1, idx1 + 1);
+  const idx2 = Math.min(CANVAS_PALETTE.length - 1, idx1 + 1);
   const t = scaled - idx1;
 
-  const rgb1 = hexToRgb(PALETTE[idx1]);
-  const rgb2 = hexToRgb(PALETTE[idx2]);
+  const rgb1 = hexToRgb(CANVAS_PALETTE[idx1]);
+  const rgb2 = hexToRgb(CANVAS_PALETTE[idx2]);
 
   const r = Math.round(rgb1[0] + (rgb2[0] - rgb1[0]) * t);
   const g = Math.round(rgb1[1] + (rgb2[1] - rgb1[1]) * t);
@@ -52,7 +43,6 @@ export function AuraNetworkCanvas() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const animationRef = useRef<number | null>(null);
 
-  // Interaction State
   const rotationRef = useRef({ x: 0.3, y: -0.5 });
   const isDraggingRef = useRef(false);
   const lastMousePosRef = useRef({ x: 0, y: 0 });
@@ -89,11 +79,9 @@ export function AuraNetworkCanvas() {
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
 
-    // Generate Structured Low-Poly Icosahedron / Geodesic Tessellation Mesh
     const phi = (1 + Math.sqrt(5)) / 2;
     const radius = 210;
 
-    // Base Icosahedron Vertices
     const rawVertices: Vec3[] = [
       { x: -1, y: phi, z: 0 }, { x: 1, y: phi, z: 0 }, { x: -1, y: -phi, z: 0 }, { x: 1, y: -phi, z: 0 },
       { x: 0, y: -1, z: phi }, { x: 0, y: 1, z: phi }, { x: 0, y: -1, z: -phi }, { x: 0, y: 1, z: -phi },
@@ -107,7 +95,6 @@ export function AuraNetworkCanvas() {
       };
     });
 
-    // Base Icosahedron Indices (20 triangular faces)
     const baseIndices = [
       [0, 11, 5], [0, 5, 1], [0, 1, 7], [0, 7, 10], [0, 10, 11],
       [1, 5, 9], [5, 11, 4], [11, 10, 2], [10, 7, 6], [7, 1, 8],
@@ -115,7 +102,6 @@ export function AuraNetworkCanvas() {
       [4, 9, 5], [2, 4, 11], [6, 2, 10], [8, 6, 7], [9, 8, 1],
     ];
 
-    // Midpoint tessellation subdivision to create a rich low-poly geometric crystal
     const subVertices: Vec3[] = [...rawVertices];
     const subIndices: number[][] = [];
     const cache = new Map<string, number>();
@@ -153,7 +139,6 @@ export function AuraNetworkCanvas() {
       subIndices.push([ab, bc, ca]);
     });
 
-    // ResizeObserver setup
     const resizeObserver = new ResizeObserver((entries) => {
       for (const entry of entries) {
         const { width, height } = entry.contentRect;
@@ -169,7 +154,6 @@ export function AuraNetworkCanvas() {
 
     resizeObserver.observe(canvas);
 
-    // Light source position for realistic 3D facet shading
     const lightDir = { x: 0.5, y: -0.7, z: 0.5 };
     const lightLen = Math.sqrt(lightDir.x * lightDir.x + lightDir.y * lightDir.y + lightDir.z * lightDir.z);
     const normLight = { x: lightDir.x / lightLen, y: lightDir.y / lightLen, z: lightDir.z / lightLen };
@@ -182,7 +166,6 @@ export function AuraNetworkCanvas() {
       const centerX = width / 2;
       const centerY = height / 2;
 
-      // Auto rotation
       if (!isDraggingRef.current) {
         rotationRef.current.y += 0.003;
         rotationRef.current.x += 0.001;
@@ -193,7 +176,6 @@ export function AuraNetworkCanvas() {
       const cosX = Math.cos(rotationRef.current.x);
       const sinX = Math.sin(rotationRef.current.x);
 
-      // Rotate vertices
       const transformedVerts: Vec3[] = subVertices.map((v) => {
         const x = v.x * cosY - v.z * sinY;
         let z = v.x * sinY + v.z * cosY;
@@ -206,7 +188,6 @@ export function AuraNetworkCanvas() {
         return { x, y, z };
       });
 
-      // Process 3D Faces for rendering
       const faces: Face3D[] = subIndices.map(([i1, i2, i3]) => {
         const v1 = transformedVerts[i1];
         const v2 = transformedVerts[i2];
@@ -215,12 +196,10 @@ export function AuraNetworkCanvas() {
         const centerZ = (v1.z + v2.z + v3.z) / 3;
         const centerY = (v1.y + v2.y + v3.y) / 3;
 
-        // Map spatial location & angle to color mixing
         const angle = Math.atan2(v1.y, v1.x);
         const colorFactor = (Math.sin(angle * 1.5 + centerY / 180) + 1) / 2;
         const baseColor = mixColors(colorFactor);
 
-        // Normal Vector calculation for facet lighting
         const ax = v2.x - v1.x;
         const ay = v2.y - v1.y;
         const az = v2.z - v1.z;
@@ -238,14 +217,11 @@ export function AuraNetworkCanvas() {
         return { v1, v2, v3, baseColor, centerZ, normalZ: nz, lightFactor };
       });
 
-      // Filter out back-facing facets & sort by depth (back-to-front rendering)
       const visibleFaces = faces
-        .filter((f) => f.normalZ > 0) // Back-face culling for clean 3D solid geometry
+        .filter((f) => f.normalZ > 0)
         .sort((a, b) => a.centerZ - b.centerZ);
 
-      // Render 3D Tessellated Triangular Facets
       visibleFaces.forEach(({ v1, v2, v3, baseColor, centerZ, lightFactor }) => {
-        // Perspective projection
         const scale1 = 700 / (700 + v1.z);
         const scale2 = 700 / (700 + v2.z);
         const scale3 = 700 / (700 + v3.z);
@@ -254,10 +230,8 @@ export function AuraNetworkCanvas() {
         const p2 = { x: v2.x * scale2 + centerX, y: v2.y * scale2 + centerY };
         const p3 = { x: v3.x * scale3 + centerX, y: v3.y * scale3 + centerY };
 
-        // Shading based on depth and light angle
         const depthAlpha = Math.max(0.35, Math.min(0.9, (centerZ + radius) / (2 * radius)));
 
-        // Draw Facet Polygon
         ctx.beginPath();
         ctx.moveTo(p1.x, p1.y);
         ctx.lineTo(p2.x, p2.y);
@@ -268,7 +242,6 @@ export function AuraNetworkCanvas() {
         ctx.globalAlpha = depthAlpha * lightFactor * 0.9;
         ctx.fill();
 
-        // Subtle crisp facet border line
         ctx.strokeStyle = "rgba(255, 255, 255, 0.4)";
         ctx.globalAlpha = depthAlpha * 0.4;
         ctx.lineWidth = 1;
@@ -290,8 +263,10 @@ export function AuraNetworkCanvas() {
   return (
     <canvas
       ref={canvasRef}
+      role="img"
+      aria-label="AURA agent network, drag to rotate"
       className="h-full w-full cursor-grab active:cursor-grabbing"
-      style={{ minHeight: "460px" }}
+      style={{ minHeight: "360px" }}
       onMouseDown={handleMouseDown}
       onMouseMove={handleMouseMove}
       onMouseUp={handleMouseUp}

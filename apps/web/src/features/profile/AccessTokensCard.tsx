@@ -1,13 +1,17 @@
 import { useState } from "react";
-import { useAsync } from "../../shared/hooks/useAsync.ts";
-import { describeError } from "../../shared/api/errors.ts";
-import { env } from "../../config/env.ts";
-import { Card, CardHeader, CardBody } from "../../shared/ui/Card.tsx";
-import { Alert } from "../../shared/ui/Alert.tsx";
-import { Badge } from "../../shared/ui/Badge.tsx";
-import { Button } from "../../shared/ui/Button.tsx";
-import { Input, Select, Field } from "../../shared/ui/Field.tsx";
-import { PlusIcon, TrashIcon } from "../../shared/icons/index.tsx";
+import { useAsync } from "@/shared/hooks/useAsync.ts";
+import { describeError } from "@/shared/api/errors.ts";
+import { env } from "@/config/env.ts";
+import { Card } from "@/shared/ui/Card.tsx";
+import { CardHeader } from "@/shared/ui/CardHeader.tsx";
+import { CardBody } from "@/shared/ui/CardBody.tsx";
+import { Alert } from "@/shared/ui/Alert.tsx";
+import { Badge } from "@/shared/ui/Badge.tsx";
+import { Button } from "@/shared/ui/Button.tsx";
+import { Input } from "@/shared/ui/Input.tsx";
+import { Select } from "@/shared/ui/Select.tsx";
+import { Field } from "@/shared/ui/Field.tsx";
+import { PlusIcon, TrashIcon } from "@/shared/icons/index.tsx";
 import { tokensApi, type AccessToken } from "./api.ts";
 
 const EXPIRY_OPTIONS = [30, 90, 180, 365];
@@ -22,8 +26,6 @@ function tokenStatus(token: AccessToken) {
   return <Badge tone="success" dot>Active</Badge>;
 }
 
-// Personal access tokens for the `aura` CLI and the VS Code extension. The raw token is shown
-// exactly once, right after creation - the API only keeps its hash.
 export function AccessTokensCard() {
   const tokens = useAsync(() => tokensApi.list(), []);
   const [name, setName] = useState("");

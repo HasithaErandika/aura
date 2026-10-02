@@ -1,23 +1,26 @@
 const dateTime = new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" });
 const dateOnly = new Intl.DateTimeFormat(undefined, { dateStyle: "medium" });
 
+function toTime(value: string | null | undefined): number | null {
+  if (!value) return null;
+  const t = new Date(value).getTime();
+  return Number.isNaN(t) ? null : t;
+}
+
 export function formatDateTime(value: string | null | undefined): string {
-  if (!value) return "";
-  const d = new Date(value);
-  return Number.isNaN(d.getTime()) ? "" : dateTime.format(d);
+  const t = toTime(value);
+  return t === null ? "" : dateTime.format(t);
 }
 
 export function formatDate(value: string | null | undefined): string {
-  if (!value) return "";
-  const d = new Date(value);
-  return Number.isNaN(d.getTime()) ? "" : dateOnly.format(d);
+  const t = toTime(value);
+  return t === null ? "" : dateOnly.format(t);
 }
 
-export function timeAgo(value: string | null | undefined): string {
-  if (!value) return "";
-  const then = new Date(value).getTime();
-  if (Number.isNaN(then)) return "";
-  const seconds = Math.round((Date.now() - then) / 1000);
+export function timeAgo(value: string | null | undefined, now = Date.now()): string {
+  const then = toTime(value);
+  if (then === null) return "";
+  const seconds = Math.round((now - then) / 1000);
   if (seconds < 45) return "just now";
   const minutes = Math.round(seconds / 60);
   if (minutes < 60) return `${minutes} min ago`;
@@ -28,10 +31,10 @@ export function timeAgo(value: string | null | undefined): string {
   return formatDate(value);
 }
 
-export function timeUntil(value: string | null | undefined): string {
-  if (!value) return "";
-  const then = new Date(value).getTime();
-  const seconds = Math.round((then - Date.now()) / 1000);
+export function timeUntil(value: string | null | undefined, now = Date.now()): string {
+  const then = toTime(value);
+  if (then === null) return "";
+  const seconds = Math.round((then - now) / 1000);
   if (seconds <= 0) return "expired";
   const hours = Math.floor(seconds / 3600);
   if (hours < 1) return `${Math.max(1, Math.round(seconds / 60))} min left`;
@@ -39,10 +42,10 @@ export function timeUntil(value: string | null | undefined): string {
   return `${Math.round(hours / 24)} d left`;
 }
 
-export function duration(start: string, end: string | null | undefined): string {
-  const a = new Date(start).getTime();
-  const b = end ? new Date(end).getTime() : Date.now();
-  if (Number.isNaN(a) || Number.isNaN(b)) return "";
+export function duration(start: string, end: string | null | undefined, now = Date.now()): string {
+  const a = toTime(start);
+  const b = end ? toTime(end) : now;
+  if (a === null || b === null) return "";
   const seconds = Math.max(0, Math.round((b - a) / 1000));
   if (seconds < 60) return `${seconds}s`;
   const minutes = Math.floor(seconds / 60);
@@ -51,8 +54,7 @@ export function duration(start: string, end: string | null | undefined): string 
 }
 
 export function initials(name: string | null | undefined, fallback = "?"): string {
-  if (!name) return fallback;
-  const parts = name.trim().split(/\s+/).filter(Boolean);
+  const parts = (name ?? "").trim().split(/\s+/).filter(Boolean);
   if (parts.length === 0) return fallback;
   return parts
     .slice(0, 2)
@@ -65,5 +67,17 @@ export function humanize(value: string): string {
 }
 
 export function truncate(text: string, max: number): string {
-  return text.length > max ? `${text.slice(0, max - 1).trimEnd()}...` : text;
+  return text.length > max ? `${text.slice(0, max - 3).trimEnd()}...` : text;
+}
+
+export function formatNumber(n: number): string {
+  return n.toLocaleString();
+}
+
+export function percent(n: number | null | undefined): string {
+  return typeof n === "number" ? `${Math.round(n * 100)}%` : "-";
+}
+
+export function personName(person: { fullName: string | null; email: string } | null | undefined, fallback = "Unknown"): string {
+  return person ? (person.fullName ?? person.email) : fallback;
 }
