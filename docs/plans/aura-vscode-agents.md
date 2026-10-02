@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | **Approved 2026-10-02** · Parts B, C, V0, V1 and V2 built (live checks pending) · V3 next |
+| **Status** | **Approved 2026-10-02** · Parts B, C, V0, V1, V2 and V3 built (live checks pending) · V4 next |
 | **Target** | AI agent harness for a leading Sri Lankan technology company |
 | **Date** | 2026-10-02 |
 | **Needs** | ADR-4 (supersedes ADR-1, ADR-2 D1–D2/D5, ADR-3 D2/D8) |
@@ -326,9 +326,9 @@ flowchart LR
 |---|---|---|
 | Part B, C | Postgres state; queued, resumable runs | A run survives a runtime restart |
 | V0 | ADR-4. Spike: API WebSocket relay + Mastra `Workspace` bridge provider; `read_file` and `execute_command` round-trip with a permission prompt | 🟢 **Passed** (see §12.1) |
-| V1 | Extension base: device-flow sign-in, Tasks view, AURA panel with streaming, Stop / Resume / Open Run in Web, status bar with the active run, Initialize / Connect Repository | 🟡 Built and unit-tested (§12.2); live check in VS Code pending. Tasks are not yet linked to Stories in Jira (V3) |
+| V1 | Extension base: device-flow sign-in, Tasks view, AURA panel with streaming, Stop / Resume / Open Run in Web, status bar with the active run, Initialize / Connect Repository | 🟡 Built and unit-tested (§12.2); live check in VS Code pending. Tasks are linked to their Stories in Jira since V3 |
 | V2 | Full tool set, permission engine, modes, hooks, `.aura/AURA.md`, skills | 🟡 Built and unit-tested (§12.3); the end-to-end Task with a live model is pending |
-| V3 | Design docs, ADRs, SRS, QA plans in Postgres; Architect specialists; Design documents and QA web pages (Markdown editor, no CodeMirror) | Gate 3 writes nothing to disk; Project Files removed |
+| V3 | Design docs, ADRs, SRS, QA plans in Postgres; Architect specialists; Design documents and QA web pages (Markdown editor, no CodeMirror) | 🟡 Built and unit-tested (§12.4); Gate 3 writes nothing to disk; Project Files removed. Live Gate 3 / Gate 6 run pending |
 | V4 | Router, coder specialists, Evaluator loop, Plan and Review views | A Bug goes to issue-solver; Gate 5 review in the diff editor |
 | V5 | Task Planner, parallel sub-branches, merge step | A two-scope Task runs as `_s1` + `_s2` and merges |
 | V6 | Git agent, PR view, CI lane; QA page with PR and CI status per Task; notifications | PR to `development` with reviewers; QA notified of the CI result |
@@ -393,6 +393,20 @@ Postgres). The agent turn with a live model and the VS Code UI itself are verifi
 | Skills | ✅ Library: `nestjs-module`, `react-feature`, `debug-failing-test`, `write-unit-tests`, `playwright-e2e`, `code-review`, `git-hygiene`; plus `.aura/skills/<name>/SKILL.md`, which replaces a library skill of the same name |
 | Initialize Project | ✅ Also writes a starting `.aura/settings.json` (lint before commit, `.env` files never read) |
 
+### 12.4 V3 scope as built
+
+| Plan item (§0, §7, §11) | Built |
+|---|---|
+| Postgres | ✅ Migration `0010`: `design_documents` (one row per Epic and slug) and `design_document_versions` (append-only, SHA-256 per version, author person or agent, note, draft id). Kinds: `architecture`, `srs`, `plan`, `adr`, `qa-plan`, `qa-scenario` |
+| API | ✅ `/design-docs`: every pipeline role reads; the role with the Architect's or QA's run grant edits that agent's kinds. A save names its `baseVersion`; a stale save is refused (409), an unchanged one adds no version. `/internal/design-docs` for the runtime. All writes audited |
+| Gate 3 | ✅ `file` saves the architecture plan, SRS, delivery plan and one document per ADR to Postgres (nothing on disk); the Jira comment links the web pages; each Task is linked to the Stories it implements |
+| Architect specialists | ✅ Frontend and integration designers join API, data, security and AI in parallel; both sections are optional (empty when the Epic has no UI or no external system) |
+| Gate 6 | ✅ The test plan and one document per scenario (steps, Story, no code) go to Postgres; a scenario the Tester loop revises gets a new version. The Playwright files stay in the QA workspace until V6, because Gate 7 still runs them there |
+| VS Code agent | ✅ `design_docs`: lists and reads an Epic's documents, fenced as untrusted |
+| Web | ✅ **Design documents** and **QA** pages: Epic picker, documents by kind, Markdown preview, editor with side-by-side preview, version history. Project Files, the terminal and runners panels, CodeMirror and xterm are removed; old links redirect |
+| Existing documents | ✅ `pnpm --filter api import-design-docs [--epic KAN-36] [--dry-run]` loads `.workspaces/<EPIC>/architecture` and `qa/test-plan.md` |
+| QA per Task: PR, CI, notifications | ⏳ V6 |
+
 ## 13. Removed
 
 | Removed | Files / config |
@@ -401,8 +415,8 @@ Postgres). The agent turn with a live model and the VS Code UI itself are verifi
 | Docker | `lib/docker-exec.ts`, `SANDBOX_MODE`, Docker scaffold, Docker test runs, `delegate_to_ci` |
 | Host checks | `lib/sandbox.ts` |
 | Web terminal, Runners | `terminal/*`, `TERMINAL_*` (ticket signing reused for the bridge) |
-| Project Files (all of it, for every role) | `apps/web/src/features/project-files/*`, `/app/project-files` route and nav item, `access.ts` matrix |
-| CodeMirror | `@uiw/react-codemirror`, `@uiw/codemirror-theme-vscode`, `@codemirror/lang-*` in `apps/web/package.json`; `shared/lib/vscodeTheme.ts` |
+| Project Files (all of it, for every role) — **removed in V3** | `apps/web/src/features/project-files/*`, `/app/project-files` route and nav item, `access.ts` matrix |
+| CodeMirror, xterm — **removed in V3** | `@uiw/react-codemirror`, `@uiw/codemirror-theme-vscode`, `@codemirror/lang-*`, `@xterm/*` in `apps/web/package.json`; `shared/lib/vscodeTheme.ts` |
 | Workspace file routes in the API | `modules/workspace`, `dev-workspace`, `qa-workspace`, `test-runs`, `docker`, `runners` |
 | Coding Council, single coding agent | `coding-council.ts`, `council-agents.ts`, `mastra-coding-agent.ts` |
 | `aura` CLI | `apps/cli` — **removed 2026-10-02** |

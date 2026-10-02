@@ -10,7 +10,8 @@ export const ApprovalDetailPage = lazy(() => import("../features/approvals/Appro
 export const RunsPage = lazy(() => import("../features/runs/RunsPage.tsx").then((m) => ({ default: m.RunsPage })));
 export const RunDetailPage = lazy(() => import("../features/runs/RunDetailPage.tsx").then((m) => ({ default: m.RunDetailPage })));
 export const RegistryPage = lazy(() => import("../features/registry/RegistryPage.tsx").then((m) => ({ default: m.RegistryPage })));
-export const ProjectFilesPage = lazy(() => import("../features/project-files/ProjectFilesPage.tsx").then((m) => ({ default: m.ProjectFilesPage })));
+export const DesignDocsPage = lazy(() => import("../features/design-docs/DesignDocsPage.tsx").then((m) => ({ default: m.DesignDocsPage })));
+export const QaPage = lazy(() => import("../features/design-docs/QaPage.tsx").then((m) => ({ default: m.QaPage })));
 export const JiraPage = lazy(() => import("../features/jira/JiraPage.tsx").then((m) => ({ default: m.JiraPage })));
 export const ProfilePage = lazy(() => import("../features/profile/ProfilePage.tsx").then((m) => ({ default: m.ProfilePage })));
 export const AuditPage = lazy(() => import("../features/audit/AuditPage.tsx").then((m) => ({ default: m.AuditPage })));

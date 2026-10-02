@@ -89,6 +89,10 @@ always win.
 `.aura/AURA.md` is the project memory every agent turn starts with (like `CLAUDE.md`), and
 `.aura/skills/<name>/SKILL.md` adds a skill the agent can load next to AURA's own.
 
+The agent also reads the Task's Epic design documents (architecture plan, ADRs, SRS, test plan
+and scenarios) from AURA with its `design_docs` tool. It never changes them; the Architect and QA
+edit them on the web.
+
 Commands run through your shell in the folder, with secrets (tokens, keys, passwords) removed
 from their environment. Output is capped at 30,000 characters.
 

@@ -27,7 +27,7 @@ flowchart LR
 | `src/modules/settings/` | Settings registry, resolution, API |
 | `src/modules/bridge/` | VS Code bridge: hub, tickets, WebSocket, internal call route |
 | `src/modules/orchestration/turn-jobs.ts` | Turn queue (pg-boss), heartbeat, stale-run sweep |
-| `supabase/migrations/` | SQL migrations `0001`–`0009` |
+| `supabase/migrations/` | SQL migrations `0001`–`0010` |
 
 ## Routes
 
@@ -45,7 +45,9 @@ flowchart LR
 | `/audit` | Admin | Audit explorer and export |
 | `/dashboard` | Signed in | Summary, agent quality, token usage |
 | `/agents` · `/jira` · `/council` · `/terminal` · `/runners` | Per grant | Registry, Jira reads, council notes, terminal tickets, runners |
-| `/workspace` · `/dev-workspace` · `/qa-workspace` · `/test-runs` · `/docker` | Per grant | Project Files data |
+| `/design-docs` | Every pipeline role reads; Architect and QA edit their kinds | Design documents per Epic, versioned (`GET /epics`, `GET /`, `GET /:id`, `GET /:id/versions/:n`, `POST /`, `PUT /:id` with `baseVersion`) |
+| `/internal/design-docs` | Runtime token | Agents save approved documents and the VS Code agent reads them |
+| `/workspace` · `/dev-workspace` · `/qa-workspace` · `/test-runs` · `/docker` | Per grant | Workspace files on the server; no web page uses them since V3, removed in V7 |
 
 SSE events: `run`, `text`, `tool`, `progress`, `council`, `gate`, `decision`, `error`, `done`.
 

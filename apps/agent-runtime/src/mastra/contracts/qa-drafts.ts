@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import type { DesignDocLink, DesignDocWrite } from './drafts';
 
 // The QA Agent's plan (Gate 6). Mirrors the Architect's draft/revise/file shape
 // (contracts/drafts.ts): the agent proposes structured content, deterministic code renders and
@@ -69,15 +70,40 @@ export function renderTestPlan(draft: QaDraft): string {
   ].join('\n');
 }
 
-// Renders the Jira comment posted on the Epic after filing the test plan - points at the QA
-// workspace's real files, same pattern as architectureFiledComment.
-export function qaFiledComment(draft: QaDraft, testPlanPath: string, scenarioPaths: string[], stamp: string): string {
+// One scenario as a design document for QA: what it tests and how, without the Playwright
+// source (QA reads scenarios, not code; the spec file is reviewed in the PR).
+export function renderScenarioDoc(scenario: TestScenario): string {
+  return [
+    `# ${scenario.title}`,
+    '',
+    `**Type:** ${scenario.type.toUpperCase()} · **Tests:** ${scenario.storyKeys.join(', ')} · **Spec file:** tests/${scenario.fileName}.spec.ts`,
+    ...(scenario.revision > 1 ? ['', `**Revision ${scenario.revision}:** ${scenario.revisionNote ?? 'revised'}`] : []),
+    '',
+    '## Steps',
+    '',
+    bullets(scenario.steps),
+  ].join('\n');
+}
+
+// The documents Gate 6 saves once the human approved the test plan: the plan, and one
+// document per scenario, linked to the first Story it tests.
+export function qaDocuments(draft: QaDraft): DesignDocWrite[] {
+  return [
+    { kind: 'qa-plan', slug: 'qa-plan', title: `Test plan for ${draft.epicKey}`, content: renderTestPlan(draft) },
+    ...draft.scenarios.map(
+      (s): DesignDocWrite => ({ kind: 'qa-scenario', slug: `qa/${s.fileName.toLowerCase().replace(/[^a-z0-9._-]+/g, '-')}`, title: s.title, content: renderScenarioDoc(s), issueKey: /^[A-Z][A-Z0-9_]*-\d+$/.test(s.storyKeys[0] ?? '') ? s.storyKeys[0] : undefined }),
+    ),
+  ];
+}
+
+// Renders the Jira comment posted on the Epic after filing the test plan - links the saved
+// documents, same pattern as architectureFiledComment.
+export function qaFiledComment(draft: QaDraft, docs: DesignDocLink[], stamp: string): string {
   return [
     `AURA QA Agent filed a test plan with ${draft.scenarios.length} scenario${draft.scenarios.length === 1 ? '' : 's'} for this Epic.`,
     '',
-    `Test plan and Playwright source (QA workspace for ${draft.epicKey}):`,
-    `- ${testPlanPath}`,
-    ...scenarioPaths.map((p) => `- ${p}`),
+    `Test plan and scenarios for ${draft.epicKey} (AURA web app, QA):`,
+    ...docs.map((d) => `- ${d.title}: ${d.url}`),
     '',
     '----',
     stamp,

@@ -164,6 +164,17 @@ export function canEditArchitectWorkspace(role: Role): boolean {
   return canRunAgent(role, "architect-agent");
 }
 
+// Design documents (modules/design-docs): every pipeline role reads them; the Architect edits the
+// architecture plan, SRS, delivery plan and ADRs, QA edits the test plan and scenarios - the same
+// role that runs the agent producing that kind of document. Admins read but don't author.
+export function canViewDesignDocs(role: Role): boolean {
+  return canViewEpicArtifacts(role);
+}
+
+export function canEditDesignDoc(role: Role, owningAgent: "architect-agent" | "qa-agent"): boolean {
+  return canRunAgent(role, owningAgent);
+}
+
 // Read-only browsing of Jira Epics/Stories/Tasks, fetched directly from Jira - see modules/jira.
 export function canViewJira(role: Role): boolean {
   return canViewEpicArtifacts(role);

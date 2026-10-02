@@ -9,7 +9,7 @@ import { generateObject } from '../lib/generate-object';
 // .parallel(), and the step sequence is decided by this code, never by a model - matching
 // principle 1 ("agents propose, deterministic systems decide"). Shared read-only context
 // (epicKey/epicSummary/storiesText and the sections already written) flows through workflow
-// `state`; the four parallel branches return their own section as their *output* instead of
+// `state`; the six parallel specialists (frontend, API, integration, data, security, AI) return their own section as their *output* instead of
 // writing to `state`, since concurrent setState calls on shared state would race.
 
 const ready = z.object({ ready: z.literal(true) });
@@ -21,7 +21,9 @@ const stateSchema = z.object({
   techStackText: z.string(),
   requirementsSummary: z.string(),
   decomposition: z.string(),
+  frontendDesign: z.string(),
   apiDesign: z.string(),
+  integrationDesign: z.string(),
   dataDesign: z.string(),
   securityDesign: z.string(),
   aiDesign: z.string(),
@@ -45,7 +47,9 @@ const requirementsAnalysisStep = createStep({
       techStackText,
       requirementsSummary,
       decomposition: '',
+      frontendDesign: '',
       apiDesign: '',
+      integrationDesign: '',
       dataDesign: '',
       securityDesign: '',
       aiDesign: '',
@@ -122,7 +126,33 @@ const aiDesignStep = createStep({
   },
 });
 
+// Designs the React app: screens, routes, state, components - or empty when there is no UI.
+const frontendDesignStep = createStep({
+  id: 'frontend-design',
+  inputSchema: ready,
+  outputSchema: z.object({ frontendDesign: z.string() }),
+  stateSchema,
+  execute: async ({ state, mastra }) => {
+    const prompt = designPrompt(state, 'Design the frontend: screens and routes, state management, data fetching and the main components. If this Epic has no user interface, return an empty string rather than inventing one');
+    return generateObject(mastra, 'architect', prompt, z.object({ frontendDesign: z.string() }));
+  },
+});
+
+// Designs integrations: external systems, events, queues, third-party APIs - or empty when none.
+const integrationDesignStep = createStep({
+  id: 'integration-design',
+  inputSchema: ready,
+  outputSchema: z.object({ integrationDesign: z.string() }),
+  stateSchema,
+  execute: async ({ state, mastra }) => {
+    const prompt = designPrompt(state, 'Design the integrations: external systems, events and queues, third-party APIs, retries and failure handling. If this Epic integrates with nothing outside the system, return an empty string rather than inventing one');
+    return generateObject(mastra, 'architect', prompt, z.object({ integrationDesign: z.string() }));
+  },
+});
+
 const parallelOutputSchema = z.object({
+  'frontend-design': z.object({ frontendDesign: z.string() }),
+  'integration-design': z.object({ integrationDesign: z.string() }),
   'api-design': z.object({ apiDesign: z.string() }),
   'data-design': z.object({ dataDesign: z.string() }),
   'security-design': z.object({ securityDesign: z.string() }),
@@ -140,9 +170,11 @@ const deploymentTestingStep = createStep({
     const dataDesign = inputData['data-design'].dataDesign;
     const securityDesign = inputData['security-design'].securityDesign;
     const aiDesign = inputData['ai-design'].aiDesign;
-    const prompt = `Describe the rollout approach and what needs test coverage for Epic ${state.epicKey}: ${state.epicSummary}, given:\n\nAPI design:\n${apiDesign}\n\nData design:\n${dataDesign}\n\nSecurity design:\n${securityDesign}\n\nReturn only the JSON the schema describes.`;
+    const frontendDesign = inputData['frontend-design'].frontendDesign;
+    const integrationDesign = inputData['integration-design'].integrationDesign;
+    const prompt = `Describe the rollout approach and what needs test coverage for Epic ${state.epicKey}: ${state.epicSummary}, given:\n\nFrontend design:\n${frontendDesign || '(none)'}\n\nAPI design:\n${apiDesign}\n\nIntegration design:\n${integrationDesign || '(none)'}\n\nData design:\n${dataDesign}\n\nSecurity design:\n${securityDesign}\n\nReturn only the JSON the schema describes.`;
     const { deploymentAndTestingNotes } = await generateObject(mastra, 'architect', prompt, z.object({ deploymentAndTestingNotes: z.string().min(10) }));
-    await (setState as (s: z.infer<typeof stateSchema>) => Promise<void>)({ ...state, apiDesign, dataDesign, securityDesign, aiDesign, deploymentAndTestingNotes });
+    await (setState as (s: z.infer<typeof stateSchema>) => Promise<void>)({ ...state, frontendDesign, apiDesign, integrationDesign, dataDesign, securityDesign, aiDesign, deploymentAndTestingNotes });
     return { ready: true as const };
   },
 });
@@ -154,7 +186,7 @@ const assembleStep = createStep({
   outputSchema: architectureDraftSchema,
   stateSchema,
   execute: async ({ state, mastra }) => {
-    const prompt = `Given the full design below for Epic ${state.epicKey}: ${state.epicSummary}, write the Architecture Decision Records and the architecture tasks. Every Story implied by the requirements synthesis should be implemented by at least one task; set each task's relatedStories to the exact Story keys it implements.\n\nRequirements synthesis:\n${state.requirementsSummary}\n\nDecomposition:\n${state.decomposition}\n\nAPI design:\n${state.apiDesign}\n\nData design:\n${state.dataDesign}\n\nSecurity design:\n${state.securityDesign}\n\nAI design:\n${state.aiDesign || '(none)'}\n\nDeployment and testing notes:\n${state.deploymentAndTestingNotes}\n\nReturn only the JSON the schema describes.`;
+    const prompt = `Given the full design below for Epic ${state.epicKey}: ${state.epicSummary}, write the Architecture Decision Records and the architecture tasks. Every Story implied by the requirements synthesis should be implemented by at least one task; set each task's relatedStories to the exact Story keys it implements.\n\nRequirements synthesis:\n${state.requirementsSummary}\n\nDecomposition:\n${state.decomposition}\n\nFrontend design:\n${state.frontendDesign || '(none)'}\n\nAPI design:\n${state.apiDesign}\n\nIntegration design:\n${state.integrationDesign || '(none)'}\n\nData design:\n${state.dataDesign}\n\nSecurity design:\n${state.securityDesign}\n\nAI design:\n${state.aiDesign || '(none)'}\n\nDeployment and testing notes:\n${state.deploymentAndTestingNotes}\n\nReturn only the JSON the schema describes.`;
     const { adrs, tasks } = await generateObject(mastra, 'architect', prompt, z.object({ adrs: z.array(adrSchema).min(1).max(10), tasks: z.array(architectureTaskSchema).min(1).max(30) }));
     return {
       epicKey: state.epicKey,
@@ -165,7 +197,9 @@ const assembleStep = createStep({
       techStack: { frontend: '', backend: '', database: '' },
       requirementsSummary: state.requirementsSummary,
       decomposition: state.decomposition,
+      frontendDesign: state.frontendDesign,
       apiDesign: state.apiDesign,
+      integrationDesign: state.integrationDesign,
       dataDesign: state.dataDesign,
       securityDesign: state.securityDesign,
       aiDesign: state.aiDesign,
@@ -185,7 +219,7 @@ export const architectWorkflow = createWorkflow({
 })
   .then(requirementsAnalysisStep)
   .then(systemDecompositionStep)
-  .parallel([apiDesignStep, dataDesignStep, securityDesignStep, aiDesignStep])
+  .parallel([frontendDesignStep, apiDesignStep, integrationDesignStep, dataDesignStep, securityDesignStep, aiDesignStep])
   .then(deploymentTestingStep)
   .then(assembleStep)
   .commit();

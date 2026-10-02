@@ -89,9 +89,9 @@ export const AGENT_MANIFEST: Record<AgentId, AgentManifestEntry> = {
     label: 'Architect Agent',
     modelId: ARCHITECT_MODEL_ID,
     delegatesTo: [],
-    note: 'Drafts/revises a decomposition, API/data/security/AI design, ADRs, and architecture tasks as structured JSON, invoked through delegate_to_architect. Holds no tools: cannot read or write Jira itself.',
-    agentVersion: '1.0.0',
-    promptVersion: '1.1.0', // untrusted Jira/requester text fenced (gateway/untrusted.ts)
+    note: 'Drafts/revises a decomposition, frontend/API/integration/data/security/AI design, ADRs, and architecture tasks as structured JSON, invoked through delegate_to_architect. Holds no tools: cannot read or write Jira itself. Filed documents are saved to Postgres (design_documents), not to disk.',
+    agentVersion: '1.1.0',
+    promptVersion: '1.2.0', // frontend and integration specialists added to architect-workflow
   },
   'dev-agent': {
     label: 'Dev Agent',
@@ -121,7 +121,7 @@ export const AGENT_MANIFEST: Record<AgentId, AgentManifestEntry> = {
     label: 'QA Agent',
     modelId: QA_MODEL_ID,
     delegatesTo: [],
-    note: 'Drafts a test plan and real Playwright source per Story, invoked through delegate_to_qa (Gate 6). Holds no tools: reads Stories via delegate-tools.ts, writes nothing itself - file mode writes the QA workspace and comments Jira. Now reads whatever of the actual scaffolded/implemented code exists first (workspace/read-scaffold-context.ts), and can revise a single failing scenario in isolation (revise-scenario) rather than only the whole plan (agentVersion 2.0.0) - see the Tester Agent loop below.',
+    note: 'Drafts a test plan and real Playwright source per Story, invoked through delegate_to_qa (Gate 6). Holds no tools: reads Stories via delegate-tools.ts, writes nothing itself - file mode saves the plan and scenarios as design documents (Postgres), writes the specs to the QA workspace and comments Jira. Now reads whatever of the actual scaffolded/implemented code exists first (workspace/read-scaffold-context.ts), and can revise a single failing scenario in isolation (revise-scenario) rather than only the whole plan (agentVersion 2.0.0) - see the Tester Agent loop below.',
     agentVersion: '2.0.0',
     promptVersion: '2.1.0', // untrusted Jira text fenced (gateway/untrusted.ts)
   },
@@ -153,9 +153,9 @@ export const AGENT_MANIFEST: Record<AgentId, AgentManifestEntry> = {
     label: 'VS Code Agent',
     modelId: VSCODE_AGENT_MODEL_ID,
     delegatesTo: [],
-    note: "The VS Code developer workspace (ADR-4): a Mastra Workspace whose filesystem and sandbox are the folder open in the developer's VS Code, reached through apps/api and the AURA extension (bridge/). The extension applies the developer's permission mode and the project's rules and hooks before every write and command. V2 adds native grep, background processes, project memory (.aura/AURA.md) and skills (load_skill). Developers run it directly; it has no gates of its own.",
-    agentVersion: '0.2.0', // V2: grep, background processes, load_skill
-    promptVersion: '2.0.0', // project memory and skills in the instructions; modes, hooks, background runs
+    note: "The VS Code developer workspace (ADR-4): a Mastra Workspace whose filesystem and sandbox are the folder open in the developer's VS Code, reached through apps/api and the AURA extension (bridge/). The extension applies the developer's permission mode and the project's rules and hooks before every write and command. V2 adds native grep, background processes, project memory (.aura/AURA.md) and skills (load_skill). V3 adds design_docs (read an Epic's design documents from Postgres). Developers run it directly; it has no gates of its own.",
+    agentVersion: '0.3.0', // V3: design_docs
+    promptVersion: '2.1.0', // read the Epic's design documents before building
   },
   'ci-tool': {
     label: 'CI (delegate_to_ci, local run)',

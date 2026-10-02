@@ -1,6 +1,8 @@
 import { createTool } from '@mastra/core/tools';
 import { z } from 'zod';
-import { qaDraftSchema, qaFiledComment, renderTestPlan, type QaDraft, type TestScenario } from '../../contracts/qa-drafts';
+import { qaDocuments, qaDraftSchema, qaFiledComment, renderTestPlan, type QaDraft, type TestScenario } from '../../contracts/qa-drafts';
+import type { DesignDocLink } from '../../contracts/drafts';
+import { designDocs } from '../../lib/design-docs-client';
 import { draftStore, type DraftRecord } from '../../store/draft-store';
 import { jira } from '../../mcp/jira-client';
 import { QA_MODEL_ID } from '../../agents/registry';
@@ -125,6 +127,15 @@ export async function reviseQaScenario(mastra: MastraLike, previous: DraftRecord
     } catch {
       // Best-effort; the draft record keeps the revised source either way.
     }
+    // A filed plan's documents get a new version showing the revision; a plan never filed has none.
+    if (previous.filed.workspaceWritten) {
+      try {
+        const docs = qaDocuments(content).filter((d) => d.kind === 'qa-plan' || d.title === revisedScenario.title);
+        for (const doc of docs) await designDocs.save(previous.epicKey, doc, { agent: 'qa-agent', draftId: record.id });
+      } catch {
+        // Best-effort, like the spec file above.
+      }
+    }
   }
 
   return { record, scenario: revisedScenario };
@@ -133,7 +144,7 @@ export async function reviseQaScenario(mastra: MastraLike, previous: DraftRecord
 export const delegateToQaTool = createTool({
   id: 'delegate_to_qa',
   description:
-    "QA Agent (Gate 6). draft: epicKey -> test plan + real Playwright specs from the approved Stories (and the real code if it exists). revise: draftId + feedback -> regenerates the plan. revise-scenario: draftId + fileName + feedback -> regenerates only that scenario (used by the Tester loop). file: draftId + approved -> writes the specs to the QA workspace and comments the Epic (returns scenarioCount). Needs filed Stories.",
+    "QA Agent (Gate 6). draft: epicKey -> test plan + real Playwright specs from the approved Stories (and the real code if it exists). revise: draftId + feedback -> regenerates the plan. revise-scenario: draftId + fileName + feedback -> regenerates only that scenario (used by the Tester loop). file: draftId + approved -> saves the plan and scenarios as QA documents, writes the specs to the QA workspace and comments the Epic (returns scenarioCount). Needs filed Stories.",
   inputSchema: qaInputSchema,
   outputSchema: qaOutputSchema,
   execute: async (input, { mastra, agent, writer }) => {
@@ -186,12 +197,20 @@ export const delegateToQaTool = createTool({
           const epicKey = record.content.epicKey;
           const filed = { ...record.filed };
 
+          // The plan and scenarios go to apps/api as documents QA reads and edits. The Playwright
+          // files stay in the QA workspace until specs move into the developer's repo (V6), because
+          // the Tester loop (test.ts) runs them from there.
+          const docLinks: DesignDocLink[] = [];
+          if (!filed.workspaceWritten || !filed.comment) {
+            for (const doc of qaDocuments(record.content)) {
+              docLinks.push(await designDocs.save(epicKey, doc, { agent: 'qa-agent', draftId: record.id }));
+            }
+          }
           if (!filed.workspaceWritten) {
             const workspaceRegistry = mastra as QaMastra;
             if (!workspaceRegistry?.listWorkspaces || !workspaceRegistry.addWorkspace) throw new Error('Mastra workspace registry is not available');
             const fs = qaWorkspace(workspaceRegistry as WorkspaceRegistry, epicKey).filesystem;
             if (!fs) throw new Error('QA workspace filesystem is not available');
-            await fs.writeFile('test-plan.md', renderTestPlan(record.content), { recursive: true, overwrite: true });
             for (const scenario of record.content.scenarios) {
               await fs.writeFile(`tests/${scenario.fileName}.spec.ts`, scenario.playwrightSource, { recursive: true, overwrite: true });
             }
@@ -202,12 +221,11 @@ export const delegateToQaTool = createTool({
           if (!filed.comment) {
             try {
               const stamp = provenance('qa-agent', QA_MODEL_ID, record, `${epicKey} (Epic)`);
-              const scenarioPaths = record.content.scenarios.map((s) => `tests/${s.fileName}.spec.ts`);
-              await jira.addComment(epicKey, qaFiledComment(record.content, 'test-plan.md', scenarioPaths, stamp));
+              await jira.addComment(epicKey, qaFiledComment(record.content, docLinks, stamp));
               filed.comment = 'done';
               await draftStore.markFiled(record.id, filed);
             } catch {
-              // The comment is informational; the workspace files are what matters.
+              // The comment is informational; the documents and spec files are what matters.
             }
           }
           return {
@@ -215,7 +233,7 @@ export const delegateToQaTool = createTool({
             draftId: record.id,
             epicKey,
             scenarioCount: record.content.scenarios.length,
-            markdown: `Test plan and ${record.content.scenarios.length} Playwright spec(s) filed to the QA workspace (qa/test-plan.md, qa/tests/). Gate 7 runs them from there.`,
+            markdown: `Test plan and ${record.content.scenarios.length} scenario(s) saved to the QA page; the Playwright specs are in the QA workspace (qa/tests/), where Gate 7 runs them.`,
             provenance: buildProvenance('qa-agent', QA_MODEL_ID, record, `${epicKey} (Epic)`),
           };
         }

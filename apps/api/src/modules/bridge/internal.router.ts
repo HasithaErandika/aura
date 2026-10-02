@@ -10,6 +10,7 @@ import { logger } from "../../lib/logger.js";
 import { writeAudit } from "../audit/audit.service.js";
 import { runsRepository } from "../runs/runs.repository.js";
 import { bridgeHub } from "./hub.js";
+import { designDocsInternalRouter } from "../design-docs/design-docs.internal.js";
 
 // Called by apps/agent-runtime only: an agent's workspace tool (read a file, run a command) is
 // forwarded to the VS Code extension of the developer who owns the run, and answered here once
@@ -33,6 +34,8 @@ export function requireRuntime(req: Request, _res: Response, next: NextFunction)
 
 export const internalRouter = Router();
 internalRouter.use(requireRuntime);
+// Design documents written by agents after an approved gate (modules/design-docs).
+internalRouter.use("/design-docs", designDocsInternalRouter);
 
 const callSchema = z
   .object({

@@ -2,7 +2,7 @@ import type { ComponentType, SVGProps } from "react";
 import type { Role } from "../lib/roles.ts";
 import type { Me } from "../../types/api.ts";
 import { paths } from "../../app/paths.ts";
-import { AuditIcon, BoltIcon, ChatIcon, ClipboardCheckIcon, CodeIcon, DashboardIcon, GitIcon, ListIcon, RegistryIcon, SettingsIcon, TicketIcon, UsersIcon } from "../icons/index.tsx";
+import { AuditIcon, BoltIcon, ChatIcon, ClipboardCheckIcon, DashboardIcon, DocumentIcon, GitIcon, ListIcon, RegistryIcon, SettingsIcon, TicketIcon, UsersIcon } from "../icons/index.tsx";
 
 export interface NavItem {
   label: string;
@@ -36,9 +36,10 @@ export const navigation: NavGroup[] = [
       { label: "Agent Workspace", to: paths.workspace, icon: ChatIcon, visible: hasRunGrant },
       { label: "Approval Inbox", to: paths.approvals, icon: ClipboardCheckIcon, visible: (me) => decides(me) || isAdmin(me) },
       { label: "Runs", to: paths.runs, icon: ListIcon, visible: (me) => decides(me) || isAdmin(me) },
-      // Project Files: the Epic's design docs, tests and code in one workspace. Every pipeline role
-      // opens it; what each sees and edits inside follows its grants (project-files/access.ts).
-      { label: "Project Files", to: paths.projectFiles, icon: CodeIcon, visible: hasAnyGrant },
+      // Read by every pipeline role (the API's canViewDesignDocs); editing follows the run grant
+      // for the Architect or QA agent, which the page reads from the API.
+      { label: "Design documents", to: paths.designDocs, icon: DocumentIcon, visible: hasAnyGrant },
+      { label: "QA", to: paths.qa, icon: ClipboardCheckIcon, visible: hasAnyGrant },
       { label: "Jira", to: paths.jira, icon: TicketIcon, visible: hasAnyGrant },
     ],
   },

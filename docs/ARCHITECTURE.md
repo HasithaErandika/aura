@@ -54,7 +54,7 @@ flowchart LR
 
 | Part | Stack | Responsibility | Port |
 |---|---|---|---|
-| `apps/web` | React, Vite, Tailwind | Approval inbox, agent chat, runs, Jira view, Project Files, admin | 5173 |
+| `apps/web` | React, Vite, Tailwind | Approval inbox, agent chat, runs, Jira view, Design documents, QA, admin | 5173 |
 | `apps/api` | Express | Auth, policy, approvals, audit, settings, Jira reads, terminal tickets | 4000 |
 | `apps/agent-runtime` | Mastra | Orchestrator, agents, workflows, tool gateway, drafts, terminal | 4111 / 4112 |
 | `apps/vscode` | VS Code extension | The developer's client (V2): Tasks, chat with the agent, Stop / Resume, permission modes, project rules and hooks; agents' file and command calls run here | — |
@@ -85,16 +85,16 @@ flowchart LR
 |---|---|---|---|
 | 1 | PO | Epic | Project Owner |
 | 2 | BA | Stories, acceptance criteria, definition of done | Business Analyst |
-| 3 | Architect (workflow) | Design docs, ADRs, Tasks | Architect |
+| 3 | Architect (workflow) | Design docs, ADRs, SRS (Postgres), Tasks linked to their Stories | Architect |
 | 4 | Dev | Scaffold, git repo, Task worktree | Developer |
 | 5 | Coding Council or single coding agent | Code and unit/integration tests | Developer |
-| 6 | QA | Test plan and Playwright specs | QA Engineer |
+| 6 | QA | Test plan and scenarios (Postgres), Playwright specs | QA Engineer |
 | 7 | Tester (bounded loop) | Real test results and fixes | QA Engineer |
 | 8 | Deployer | Release, change and rollback plan (plan only) | Deployer |
 
 Rules:
 - A gate runs only when a person asks for that stage. Nothing moves forward on its own.
-- Only approved content is written to Jira, disk or git.
+- Only approved content is written to Jira, design documents, disk or git.
 
 ### 3.1 Tester loop (Gate 7)
 
@@ -122,11 +122,11 @@ One approval starts the loop. Pass/fail counts come from Playwright's JSON outpu
 |---|---|---|
 | **Orchestrator** | Chats with the user and picks the next agent | `ask_user`, 8 × `delegate_to_*`, `git` |
 | **PO, BA** | One structured-output call (Zod schema) | None |
-| **Architect** | Multi-step workflow: requirements → decomposition → API/data/security/AI design → ADRs + Tasks | None |
+| **Architect** | Multi-step workflow: requirements → decomposition → frontend, API, integration, data, security and AI specialists in parallel → ADRs + Tasks; documents saved to Postgres | None |
 | **Dev** | Runs a fixed scaffold command in Docker, then creates the Task worktree | None (code runs the command) |
 | **Coding Council** | Planner, Implementer and Reviewer agents ([details](plans/aura-code-cli-council.md)) | File tools + allowlisted checks |
 | **Single coding agent** | One agent with `list_files` / `read_file` / `write_file` | File tools |
-| **QA** | Test plan and Playwright specs from Stories and the real code | None |
+| **QA** | Test plan and scenarios (Postgres) and Playwright specs (QA workspace) from Stories and the real code | None |
 | **Tester** | Workflow: run → diagnose → route → retest | None |
 | **Deployer** | Release, change and rollback plan | None |
 
@@ -240,13 +240,14 @@ flowchart LR
         D["audit_logs (append-only)"]
         E["projects · repositories<br/>task_branches · task_dependencies"]
         S["settings"]
+        DD["design_documents · design_document_versions<br/>(append-only versions)"]
     end
     subgraph RTDB["agent-runtime: Postgres (DATABASE_URL) or local libSQL"]
         F["schema mastra<br/>memory · threads · suspended runs"]
         G["schema aura_runtime<br/>drafts · token usage · model usage · approval use"]
     end
     subgraph FS["Disk: AURA_WORKSPACE_ROOT"]
-        H["&lt;EPIC&gt;/architecture · qa · dev"]
+        H["&lt;EPIC&gt;/qa/tests · dev"]
     end
 ```
 
@@ -254,6 +255,13 @@ With `DATABASE_URL` set, the runtime keeps agent memory and its own tables in Po
 restart or a second replica sees the same gates, drafts and ledgers. Without it, it uses local
 libSQL files (one developer, one process). `pnpm --filter agent-runtime migrate-state` copies an
 existing local `aura-drafts.db` into Postgres once.
+
+**Design documents** (migration `0010`): the Architect's architecture plan, SRS, delivery plan
+and ADRs, and QA's test plan and scenarios, per Epic. Gate 3 and Gate 6 save them through
+`POST /internal/design-docs` after approval; the Architect and QA edit them on the web
+(`/design-docs`, every save a new version, a stale save refused with 409); the VS Code agent reads
+them with `design_docs`. Every write is audited (`design_doc.created`, `design_doc.updated`).
+`pnpm --filter api import-design-docs` loads documents written to disk before this change.
 
 ### 6.1 Settings
 
@@ -281,7 +289,7 @@ draft id and thread id. `GET /audit/export` (admin) exports the audit log as JSO
 
 | Tool | What it does |
 |---|---|
-| Project Files | One workspace per Epic: design docs, QA specs, code, terminal, test runs, runners |
+| Design documents, QA (web) | Per Epic: architecture plan, SRS, plan, ADRs; test plan and scenarios. Markdown editor with preview and version history; no source code on the web |
 | Web terminal | Shell in the Task worktree (`full` on loopback, otherwise `restricted`) |
 | Runners tab | Live Docker containers, council runs, checks and terminal sessions |
 
@@ -310,7 +318,8 @@ single-use ticket (`POST /bridge/tickets`, developers only). Every change it mak
 (`bridge.tool.call`).
 
 The agent gets Mastra's workspace tools on this bridge (files, `grep` run on the developer's
-machine, commands, background processes) and `load_skill`. Each turn starts with the project's
+machine, commands, background processes), `load_skill`, and `design_docs` (reads the Epic's
+design documents, fenced as untrusted). Each turn starts with the project's
 `.aura/AURA.md` and the list of skills (AURA's library and `.aura/skills/`). The extension applies
 the developer's permission mode, the project's rules and hooks (`.aura/settings.json`) and the
 built-in refusals before anything runs.

@@ -22,7 +22,9 @@ const AGENT_NAMES: Record<string, string> = {
 const ARCHITECT_STEP_NAMES: Record<string, string> = {
   "requirements-analysis": "Requirements analysis",
   "system-decomposition": "System decomposition",
+  "frontend-design": "Frontend design",
   "api-design": "API design",
+  "integration-design": "Integration design",
   "data-design": "Data design",
   "security-design": "Security design",
   "ai-design": "AI design",

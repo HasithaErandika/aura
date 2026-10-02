@@ -16,7 +16,7 @@ src/
     ui/           neutral component kit (Button, Card, Table, Badge, Field, Menu, Markdown, ...)
     icons/ brand/ hooks/ lib/
   features/
-    landing/ auth/ dashboard/ workspace/ approvals/ runs/ registry/ project-files/ jira/ profile/ audit/ admin/
+    landing/ auth/ dashboard/ workspace/ approvals/ runs/ registry/ design-docs/ jira/ profile/ audit/ admin/
 ```
 
 Each feature owns its API calls (`api.ts`), hooks, and components. Nothing renders placeholder data; every list, count, and status comes from `apps/api`.
@@ -44,7 +44,8 @@ Each feature owns its API calls (`api.ts`), hooks, and components. Nothing rende
 | `/app/approvals`, `/app/approvals/:id` | approver roles, requesters, admin | Approval Inbox |
 | `/app/runs`, `/app/runs/:id` | requesters, approver roles, admin | Runs and step timeline |
 | `/app/agents` | roles with a read grant | Agent Registry |
-| `/app/project-files` | every pipeline role, admin | Project Files: design docs, QA specs, code, terminal, test runs, runners (access: `features/project-files/access.ts`) |
+| `/app/design-docs` | every pipeline role, admin | Design documents per Epic: architecture plan, SRS, plan, ADRs (Architect edits) |
+| `/app/qa` | every pipeline role, admin | Test plan and scenarios per Epic (QA edits) |
 | `/app/jira` | signed in | Jira browser |
 | `/app/profile` | developer | Profile, preferences and access tokens |
 | `/app/audit` | admin | Audit Explorer |

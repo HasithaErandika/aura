@@ -40,7 +40,7 @@ export function RequireRole({ roles, children }: { roles: Role[]; children: Reac
 }
 
 // Sends a retired route to its replacement with the query string intact, so an old link like
-// /app/qa-files?epic=KAN-36 still lands on the same Epic (the pages merged into Project Files).
+// /app/qa-files?epic=KAN-36 still lands on the same Epic.
 export function RedirectKeepingSearch({ to }: { to: string }) {
   const { search } = useLocation();
   return <Navigate to={`${to}${search}`} replace />;

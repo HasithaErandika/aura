@@ -56,7 +56,7 @@ flowchart LR
 
 | Part | Role |
 |---|---|
-| **Web app** | Chat, approval inbox, project files, admin pages |
+| **Web app** | Chat, approval inbox, design documents, QA, admin pages |
 | **VS Code extension** | For developers: work on Tasks with the agents inside VS Code (being built) |
 | **API** | Checks who you are and what you may do. Records every decision |
 | **Agent runtime** | Runs the AI helpers |

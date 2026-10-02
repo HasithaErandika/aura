@@ -230,6 +230,13 @@ export const jira = {
     await execute({ issue_key: key, fields: JSON.stringify(body), return_fields: 'key' }, {});
   },
 
+  // Links two issues (mcp-atlassian's create_issue_link), e.g. an architecture Task to the Story
+  // it implements, so the Task shows its Story in Jira and in the VS Code Tasks view.
+  async linkIssues(inwardKey: string, outwardKey: string, linkType = 'Relates'): Promise<void> {
+    const execute = findTool('_create_issue_link');
+    await execute({ link_type: linkType, inward_issue_key: inwardKey, outward_issue_key: outwardKey }, {});
+  },
+
   // Adds a comment to a Jira issue.
   async addComment(key: string, body: string): Promise<void> {
     const execute = findTool('_add_comment');

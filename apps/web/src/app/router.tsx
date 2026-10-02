@@ -13,7 +13,8 @@ import {
   JiraPage,
   LandingPage,
   LoginPage,
-  ProjectFilesPage,
+  DesignDocsPage,
+  QaPage,
   ProfilePage,
   RegistryPage,
   RunDetailPage,
@@ -61,12 +62,13 @@ export const router = createBrowserRouter([
       { path: "runs", element: page(<RunsPage />), handle: { title: "Runs" } },
       { path: "runs/:id", element: page(<RunDetailPage />), handle: { title: "Runs" } },
       { path: "agents", element: page(<RegistryPage />), handle: { title: "Agent Registry" } },
-      { path: "project-files", element: page(<ProjectFilesPage />), handle: { title: "Project Files" } },
-      // Design Documents, Scaffolded Files and QA Files & Test Runs were merged into Project Files;
-      // old links (?epic= included) land there.
-      { path: "dev-files", element: <RedirectKeepingSearch to={paths.projectFiles} /> },
-      { path: "design-docs", element: <RedirectKeepingSearch to={paths.projectFiles} /> },
-      { path: "qa-files", element: <RedirectKeepingSearch to={paths.projectFiles} /> },
+      { path: "design-docs", element: page(<DesignDocsPage />), handle: { title: "Design documents" } },
+      { path: "qa", element: page(<QaPage />), handle: { title: "QA" } },
+      // Project Files was removed (code is read in VS Code and in the pull request); old links,
+      // ?epic= included, land on the documents that replaced it.
+      { path: "project-files", element: <RedirectKeepingSearch to={paths.designDocs} /> },
+      { path: "dev-files", element: <RedirectKeepingSearch to={paths.designDocs} /> },
+      { path: "qa-files", element: <RedirectKeepingSearch to={paths.qa} /> },
       { path: "jira", element: page(<JiraPage />), handle: { title: "Jira" } },
       {
         path: "profile",
