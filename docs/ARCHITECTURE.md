@@ -171,6 +171,7 @@ sequenceDiagram
 | Notes | Text typed while a Task runs goes to `POST /runs/:id/notes`; coders read it at their next step |
 | Gate 5 revise | Another pass of the same approved plan with the developer's feedback |
 | Gate 6 | Commit, push and PR use the developer's own git and `gh`; without `gh`, the branch is pushed and a compare link is given |
+| Branch protection | **AURA: Protect Branches** (offered after Initialize Project's push) protects `main` and `development` with the developer's `gh`: reviewed PRs only (code owners, stale reviews dismissed), required checks = each app's CI job, `contract`, and optionally **AURA QA**; no force-push or delete. Writes `.github/CODEOWNERS` if missing |
 | Merge | A person merges on GitHub; the GitHub webhook records it (`merged_at`, `merge_sha`) and notifies QA and the developer. The extension then removes the parts' leftover worktrees and `_sN` branches (`git worktree remove`, `git branch -d`; never forced) |
 
 **Jira status follows the work** (`task-prs/task-status.ts`). Each move is best-effort and audited

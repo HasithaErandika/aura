@@ -154,6 +154,11 @@
         "category": "AURA"
       },
       {
+        "command": "aura.protectBranches",
+        "title": "Protect Branches",
+        "category": "AURA"
+      },
+      {
         "command": "aura.openDiff",
         "title": "Open Diff",
         "category": "AURA"

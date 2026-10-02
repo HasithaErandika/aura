@@ -200,6 +200,33 @@ ${indent(QA_RESULTS_PY, 10)}
 `;
 }
 
+// Repository defaults (roadmap step 3.9): main and development take changes only through a
+// reviewed pull request whose checks passed. The checks are the CI jobs by name, the contract job,
+// and, once AURA reports to the repository, the AURA QA status.
+export function requiredChecks(stacks: Stack[], auraQa: boolean): string[] {
+  return [...stacks.map((s) => STACKS[s].folder), "contract", ...(auraQa ? ["AURA QA"] : [])];
+}
+
+export function branchProtection(checks: string[]): Record<string, unknown> {
+  return {
+    required_status_checks: { strict: true, contexts: checks },
+    enforce_admins: false,
+    required_pull_request_reviews: { required_approving_review_count: 1, require_code_owner_reviews: true, dismiss_stale_reviews: true },
+    restrictions: null,
+    allow_force_pushes: false,
+    allow_deletions: false,
+  };
+}
+
+const GITHUB_HANDLE = /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})(?:\/[A-Za-z0-9_.-]+)?$/;
+
+// Who must review: the owners given, else a template the team fills in.
+export function codeowners(owners: string[]): string {
+  const valid = owners.filter((o) => GITHUB_HANDLE.test(o));
+  const header = "# Code owners review every pull request into main and development (AURA, branch protection).\n# One line per path: <pattern> @user or @org/team. The last matching line wins.\n";
+  return valid.length ? `${header}* ${valid.map((o) => `@${o}`).join(" ")}\n` : `${header}# * @your-github-user\n`;
+}
+
 // The project memory every agent reads first (like CLAUDE.md), filled in by the team over time.
 export function auraMemory(project: ProjectConfig, stacks: Stack[]): string {
   return `# ${project.projectKey}

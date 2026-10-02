@@ -194,7 +194,8 @@ Token** with a token from Profile → Access tokens.
 | Folder | Command | Does |
 |---|---|---|
 | Existing clone | **AURA: Connect Repository** | Links it to the project |
-| Empty folder | **AURA: Initialize Project** | Scaffolds, creates `main` and `development`, adds `aura-ci.yml` and `.aura/` |
+| Empty folder | **AURA: Initialize Project** | Scaffolds, creates `main` and `development`, adds `aura-ci.yml` and `.aura/`; after the push it offers to protect the branches |
+| Either, on GitHub | **AURA: Protect Branches** | Protects `main` and `development`: reviewed PRs and passing checks only; adds `.github/CODEOWNERS`. Needs admin rights and `gh auth login` |
 
 **5. Work on a Task.** In the **AURA** sidebar, open **Tasks**, pick a Task → **Start Work**, or
 type in **Chat**.

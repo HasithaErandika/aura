@@ -11,6 +11,7 @@ import { Session } from "./session.js";
 import { TasksProvider, type TaskNode } from "./tasks-tree.js";
 import { cleanupMergedTask } from "./merge-cleanup.js";
 import { readyOffers } from "./ready-tasks.js";
+import { protectBranches } from "./protect.js";
 
 // AURA for VS Code (ADR-4, docs/ARCHITECTURE.md §4-§5): agents run in the AURA cloud; their file
 // changes and commands run here, in the open folder, under the developer's permission rules.
@@ -258,6 +259,7 @@ export function activate(context: vscode.ExtensionContext) {
     }),
     vscode.commands.registerCommand("aura.connectRepository", () => connectRepository(session).catch(report)),
     vscode.commands.registerCommand("aura.initializeProject", () => initializeProject(session).catch(report)),
+    vscode.commands.registerCommand("aura.protectBranches", () => protectBranches(log).catch(report)),
   );
 
   showStatus();

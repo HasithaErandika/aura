@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | **Goal** | A company AI harness: agents across the delivery lifecycle, governed in the cloud, coding in the developer's VS Code |
-| **Current phase** | Phase 3: **delivery loop** (§5) |
+| **Current phase** | Phase 4: **company pilot** (§6.2); Phase 3 built, live checks pending |
 | **Decisions** | [ADR-4](../adr/0004-vscode-developer-workspace.md) · [ADR-3](../adr/0003-git-workflow.md) |
 | **Detailed plans** | [Automation and durability](aura-automation-durability.md) (Parts D–G) |
 | **Completed plans** | [VS Code agents](aura-vscode-agents.md) · [Runtime refactor](aura-runtime-refactor.md) · [CLI and Council](aura-code-cli-council.md) |
@@ -21,7 +21,7 @@ Project → Repository → Epic → Story → Task → Branch → AI run → Com
 
 ```mermaid
 flowchart LR
-    P0["0 · Foundation"]:::done --> P1["1 · Developer workspace<br/>V0–V6"]:::done --> P2["2 · One lane<br/>V7"]:::done --> P3["3 · Delivery loop<br/>status · contract · API tests · webhooks"]:::wip --> P4["4 · Company pilot<br/>access · models · cost · ops"] --> P5["5 · Company rollout<br/>scale · compliance"] --> P6["6 · Automation and more agents"]
+    P0["0 · Foundation"]:::done --> P1["1 · Developer workspace<br/>V0–V6"]:::done --> P2["2 · One lane<br/>V7"]:::done --> P3["3 · Delivery loop<br/>status · contract · API tests · webhooks"]:::done --> P4["4 · Company pilot<br/>access · models · cost · ops"]:::wip --> P5["5 · Company rollout<br/>scale · compliance"] --> P6["6 · Automation and more agents"]
     classDef done fill:#d4f4dd,stroke:#2e7d32,color:#000
     classDef wip fill:#fff4cc,stroke:#b8860b,color:#000
 ```
@@ -31,8 +31,8 @@ flowchart LR
 | 0 | ADR-3, AURA-only coding models, Vitest everywhere, CI for AURA, projects and repositories, settings, Postgres state, queued turns | 🟢 Done |
 | 1 | VS Code extension and bridge, Gates 4–6, coders and Evaluator, parallel parts and merge step, PR and CI lane, QA notifications (V0–V6) | 🟢 Built · live checks pending (§3) |
 | 2 | V7: one lane. Every Task runs through VS Code; web and API are modular monoliths | 🟢 Done |
-| 3 | Delivery loop: webhooks, Task status from Git events, merge tracking, dependencies, one OpenAPI contract for coders and QA, API test suites, AURA QA check, Jira events start runs (§5) | 🔴 **Next** |
-| 4 | Company pilot without SSO: project access, approved model providers, budgets, deployment, observability (§6.2) | 🔴 |
+| 3 | Delivery loop: webhooks, Task status from Git events, merge tracking, dependencies, one OpenAPI contract for coders and QA, API test suites, AURA QA check, Jira events start runs (§5) | 🟢 Built · live checks pending |
+| 4 | Company pilot without SSO: project access, approved model providers, budgets, deployment, observability (§6.2) | 🔴 **Next** |
 | 5 | Company rollout: replicas, secret manager, compliance evidence, agent catalog (§6.3) | 🔴 |
 | 6 | CI-failure fix offers, risk-tiered auto-approval, direct gate actions, new agents (§6.4) | 🔴 |
 
@@ -131,7 +131,7 @@ Follow-ups:
 
 ---
 
-## 5. Phase 3 · Delivery loop (next)
+## 5. Phase 3 · Delivery loop (built)
 
 **Done when** a Task moves through Jira by itself from Start Work to Done, its API is built and
 tested against one contract, and a Jira event can start its plan. Every gate stays human.
@@ -158,7 +158,7 @@ flowchart LR
 | 3.6 ✅ | **API test suites**: QA scenarios reference `operationId`s; the `test-writer` coder writes API tests from the contract and the scenarios; `aura-ci.yml` adds a contract job (lint, plus a breaking-change check against `development`) | The API is tested against its contract |
 | 3.7 ✅ | **AURA QA check**: `aura-ci.yml` reports scenario results; AURA passes the PR check only when every scenario linked to the Task has a passing test | QA evidence on every PR |
 | 3.8 ✅ | **Jira events start runs**: a Task moved to the configured "ready" status, or labelled `aura`, queues a Gate 4 plan draft for its assignee (matched by email) and notifies them; it runs when their VS Code connects. Nothing is auto-approved | Event-driven start (A1) |
-| 3.9 | **Repository defaults** from Initialize Project: protected `main` and `development`, required checks (CI, contract, AURA QA), CODEOWNERS | Merges follow the rules |
+| 3.9 ✅ | **Repository defaults** from Initialize Project: protected `main` and `development`, required checks (CI, contract, AURA QA), CODEOWNERS | Merges follow the rules |
 
 Order: 3.1 → 3.2 → 3.3; 3.4 alongside 3.5 → 3.6 → 3.7; 3.8 after 3.1; 3.9 last.
 
