@@ -1,5 +1,5 @@
 import { readSse } from "./sse.js";
-import type { Approval, AuraNotification, ApprovalStatus, BridgeStatus, Decision, DeviceSignIn, GitIdentity, JiraEpicDetail, JiraIssueDetail, JiraIssueSummary, Me, Project, TaskPr, Thread, ThreadHistory, TurnEvent } from "./types.js";
+import type { Approval, AuraNotification, ApprovalStatus, BridgeStatus, Decision, DeviceSignIn, JiraEpicDetail, JiraIssueDetail, JiraIssueSummary, Me, Project, TaskPr, Thread, ThreadHistory, TurnEvent } from "./types.js";
 
 export interface AuraClientOptions {
   // apps/api base URL, e.g. http://localhost:4000
@@ -104,7 +104,6 @@ export function createAuraClient(options: AuraClientOptions) {
     baseUrl,
 
     me: () => request<Me>("GET", "/me"),
-    setGitIdentity: (identity: { name: string; email: string }) => request<{ gitIdentity: GitIdentity }>("PUT", "/me/git-identity", identity),
 
     jira: {
       epics: (q?: string) => request<{ epics: JiraIssueSummary[] }>("GET", `/jira/epics${q ? `?q=${encodeURIComponent(q)}` : ""}`).then((r) => r.epics),

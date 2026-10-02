@@ -111,9 +111,7 @@ Rules:
 - A gate runs only when a person asks for that stage. Nothing moves forward on its own.
 - Only approved content is written to Jira, design documents or git.
 - Merging a PR is a human action on GitHub; AURA never merges.
-
-The web pipeline still offers the legacy Gates 4, 5 and 7 that work on server worktrees
-(§4.3). They are removed in V7 of the roadmap.
+- Code is written only in VS Code. The Orchestrator answers coding requests by pointing there.
 
 ---
 
@@ -124,7 +122,7 @@ The web pipeline still offers the legacy Gates 4, 5 and 7 that work on server wo
 | **Orchestrator** | Web | Chats with the user and calls the next delegate tool | `ask_user`, `delegate_to_*` |
 | **PO, BA, Deployer** | Web | One structured-output call (Zod schema) | None |
 | **Architect** | Web | Workflow: requirements → decomposition → frontend, API, integration, data, security and AI specialists in parallel → ADRs + Tasks | None |
-| **QA** | Web | Test plan and scenarios from Stories (and code when present) | None |
+| **QA** | Web | Test plan and scenarios from the Stories; the `test-writer` coder turns them into tests on the Task branch | None |
 | **vscode-agent** | VS Code | The developer's agent; its workspace is the open folder, through the bridge | Workspace tools, `load_skill`, `design_docs`, Task tools |
 | **Task Planner** | VS Code | The vscode-agent's plan, checked and routed by code (`delegate_to_planner`) | — |
 | **Coders** | VS Code | `frontend-react`, `backend-nestjs`, `backend-spring`, `issue-solver`, `test-writer`; chosen by code (`task/router.ts`) | Workspace tools, `design_docs` |
@@ -195,18 +193,6 @@ flowchart LR
 - On a conflict the Evaluator proposes each conflicting file whole; code refuses a proposal with
   conflict markers or missing or extra files. An unresolved conflict aborts the merge and keeps
   that part's branch. Merged parts' worktrees and sub-branches are removed.
-
-### 4.3 Legacy web lane (removed in V7)
-
-| Gate | Agent | What it does |
-|---|---|---|
-| 4 | Dev | Fixed scaffold command in Docker, then a server worktree `feature/<TASK>` under `AURA_WORKSPACE_ROOT` |
-| 5 | Coding Council or single coding agent | Planner, Implementer and Reviewer on the server worktree, with fixed check ids; or one agent with three file tools |
-| 7 | Tester | Playwright in Docker: run → diagnose → route to Coding or QA → retest, at most 3 attempts, then `HALTED_LOOP_GUARD` |
-| — | `delegate_to_git`, `delegate_to_ci` | Git and CI preview on the server worktree |
-
-These still work for Epics that started on the server, together with the web terminal and the
-server workspace routes. ADR-4 replaces them with the VS Code lane.
 
 ---
 
@@ -294,7 +280,7 @@ flowchart LR
 | Audit | `audit_logs` is append-only (database trigger) |
 
 **Modes:** `AURA_MODE=local` (one developer on loopback) or `AURA_MODE=server` (shared). Server mode
-refuses to start without the runtime token, with `SANDBOX_MODE=host`, or with `TERMINAL_MODE=full`.
+refuses to start without the runtime token or `DATABASE_URL`.
 
 Full threat model: [security/threat-model.md](security/threat-model.md).
 
@@ -325,7 +311,7 @@ flowchart LR
 | Design documents | Migration `0010`. Architecture plan, SRS, delivery plan, ADRs, QA test plan and scenarios per Epic. Saved after approval through `/internal/design-docs`; edited on the web with `baseVersion` (stale save → 409); every version kept |
 | Task PRs and CI | Migration `0012`. `task_branches` holds each Task's PR, reviewers and CI state; `aura-ci.yml` reports to `POST /ci/report` |
 | Notifications | Migration `0012`. In-app: QA hears when a PR opens; QA and the developer hear when CI passes or fails |
-| Source code | Not stored. Legacy server worktrees under `AURA_WORKSPACE_ROOT` remain until V7 |
+| Source code | Not stored. Code lives in the developer's clone and on GitHub |
 
 ### 7.1 Settings
 
@@ -338,7 +324,7 @@ flowchart LR
     U["User"] --> P["Project"] --> G["Global"] --> E[".env"] --> C["Code default"]
 ```
 
-The first value found wins; a user's token budget can't exceed the project's. The API sends the
+The first value found wins; a user's Evaluator rounds can't exceed the project's. The API sends the
 values with each turn (`auraSettings` request context). Every change is audited.
 
 ### 7.2 Provenance
@@ -381,11 +367,10 @@ injection resistance and token cost. Agents run on Groq first and fall back to G
 
 | Area | Status | Notes |
 |---|---|---|
-| Gates 1–3, QA plan, Gate 8 | Built | Gate 8 is a plan only |
+| Gates 1–3, test plan, Gate 8 | Built | Gate 8 is a plan only |
 | VS Code Gates 4–6, parallel parts, PR, CI lane, notifications | Built | Unit-tested; live run with a model pending |
 | Tool gateway, evals, token ledger | Built | |
 | Runtime state in Postgres, turn queue, resumable streams | Built | A restart marks a running turn `INTERRUPTED`; never re-run automatically |
-| Legacy server lane (Docker, worktrees, Council, terminal) | Built, scheduled for removal | V7 |
 | Jira status from Git events, merge tracking | Not built | |
 | SSO, row-level security per project, team budgets | Not built | Scope is enforced in `policy.ts` |
 

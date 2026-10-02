@@ -8,7 +8,7 @@ flowchart LR
     H{{"Human approval at every step"}} -.-> E & S & D & C & T & R
 ```
 
-- Agents for **PO, BA, Architect, Developer, QA, Tester and Deployer** draft the work.
+- Agents for **PO, BA, Architect, QA and Deployer** draft the work in the web app; in VS Code, a **Task Planner, coders, an Evaluator and a Git agent** build each Task.
 - **Jira** holds the work items.
 - **Permissions, approvals and audit** are plain code, outside the model.
 

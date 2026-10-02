@@ -51,8 +51,8 @@ flowchart LR
 
 Local mode keeps working throughout (`AURA_MODE=local`).
 
-**Built so far toward this ADR:** `AURA_MODE=server` refuses host checks, a full terminal and a
-missing runtime token.
+**Built so far toward this ADR:** `AURA_MODE=server` refuses to start without the runtime token
+or `DATABASE_URL`.
 
 ## Consequences
 

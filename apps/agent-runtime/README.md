@@ -31,21 +31,20 @@ workspace, through the bridge and the developer's permission rules.
 
 | Folder | Contents |
 |---|---|
-| `agents/` | Orchestrator, PO, BA, Architect, QA, Deployer, vscode-agent, coders, Evaluator; legacy Dev, Tester and council agents; `registry.ts` (versions, models) |
+| `agents/` | Orchestrator, PO, BA, Architect, QA, Deployer, vscode-agent, coders, Evaluator; `registry.ts` (versions, models) |
 | `task/` | VS Code Task loop: router, plan split, coder ↔ Evaluator rounds, git operations, merge step, pull request |
 | `bridge/` | Bridge client, filesystem and sandbox: a Mastra `Workspace` on the developer's VS Code |
-| `workflows/` | `architect-workflow`, `qa-workflow`; legacy `coding-council`, `tester-workflow` |
-| `tools/` | `delegate-tools/` (web gates), `task-tools.ts` (VS Code Gates 4–6); legacy `file-tools.ts`, `council-tools.ts` |
+| `workflows/` | `architect-workflow`, `qa-workflow` |
+| `tools/` | `delegate-tools/` (web gates), `task-tools.ts` (VS Code Gates 4–6) |
 | `skills/` | AURA's skill library for the vscode-agent and coders |
 | `gateway/` | Risk tiers, single-use approvals, loop guards, injection defense |
 | `contracts/` | Zod schemas, prompts, Markdown and Jira renderers |
-| `store/` | Runtime database, draft store, token ledger, usage |
+| `store/` | Runtime database, draft store, token ledger |
 | `config/` | `AURA_MODE`, models, dashboard settings from the request context |
 | `mcp/` | Jira MCP client used by the delegate tools |
-| `lib/` | API client helpers, metrics, structured-output helper; legacy Docker exec and sandbox checks |
+| `lib/` | API client helpers, metrics, structured-output helper |
 | `server/` | Custom HTTP routes, runtime auth, metrics |
 | `evals/` | Eval suites, scoring, baseline test |
-| Legacy, removed in V7 | `workspace/` (server worktrees), `terminal/` (web terminal), `git/` (unused `GitProvider`) |
 
 ## Commands
 

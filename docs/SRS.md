@@ -111,7 +111,7 @@ Replacing Jira · autonomous production changes · non-TypeScript services.
 | FR-CODE-5 | Gate 6 opens one pull request per Task to `development`, with provenance and reviewers | 🟢 |
 | FR-CODE-6 | Coding and QA share one OpenAPI contract | 🔴 |
 | FR-CODE-7 | A plan may split into 2–4 parts with disjoint file scopes, run in parallel and merged by code | 🟢 |
-| FR-CODE-8 | The cloud stores no source code | 🟡 Legacy server worktrees until V7 |
+| FR-CODE-8 | The cloud stores no source code | 🟢 Code stays in the developer's clone and on GitHub |
 
 ### FR-TEST · Testing
 
@@ -158,7 +158,7 @@ Replacing Jira · autonomous production changes · non-TypeScript services.
 | NFR-REL-1 | Reliability | Runs survive a runtime restart | 🟡 Gates, drafts, memory and client streams survive; a running turn is marked INTERRUPTED, not resumed |
 | NFR-REL-2 | Reliability | Durable queue between API and runtime | 🟢 pg-boss |
 | NFR-REL-3 | Reliability | Model fallback on provider failure | 🟢 Groq → Gemini chains |
-| NFR-COST-1 | Cost | Token budget per run | 🟡 Legacy Coding Council only |
+| NFR-COST-1 | Cost | Token budget per run | 🔴 Evaluator rounds are capped; no token budget |
 | NFR-COST-2 | Cost | Budgets per developer and team | 🔴 |
 | NFR-COST-3 | Cost | Token usage visible per agent and model | 🟢 |
 | NFR-SCALE-1 | Scale | API and runtime scale independently | 🔴 Local state |
@@ -188,7 +188,6 @@ flowchart LR
 | LLM providers | Groq and Gemini; Claude ready via registry | 🟢 |
 | VS Code | The developer's client; runs the agents' tool calls | 🟢 |
 | GitHub | Branches and PRs through the developer's `gh`; CI reports through Actions OIDC | 🟢 Webhooks and check runs not built |
-| Docker | Legacy scaffolds and test runs | 🟡 Removed in V7 |
 | SSO provider | SAML / OIDC | 🔴 |
 
 ---

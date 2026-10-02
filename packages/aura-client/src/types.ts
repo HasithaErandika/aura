@@ -1,13 +1,6 @@
-// Response shapes of the apps/api endpoints this client wraps. Kept deliberately narrow - only
-// the fields the CLI, web and VS Code extension actually read - and mirrored by hand from
-// apps/api (there is no generated schema yet).
+// Response shapes of the apps/api endpoints this client wraps, mirrored by hand.
 
 export type Role = "admin" | "project_owner" | "business_analyst" | "architect" | "developer" | "qa_engineer" | "deployer";
-
-export interface GitIdentity {
-  name: string | null;
-  email: string | null;
-}
 
 export interface Me {
   id: string;
@@ -16,7 +9,6 @@ export interface Me {
   role: Role;
   roleLabel: string;
   grants: { agents: unknown; approves: string[] };
-  gitIdentity: GitIdentity;
 }
 
 export type JiraStatusCategory = "new" | "indeterminate" | "done";

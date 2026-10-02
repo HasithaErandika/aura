@@ -5,13 +5,13 @@
 | **Status** | Approved 2026-10-02 · Parts A–C **completed** · Parts D–G planned (Roadmap Phases 3–4) |
 | **Date** | 2026-10-02 |
 | **Moves** | Automation L2 → L3 (part L4) · company reliability ~30 → ~60 |
-| **Covers** | Roadmap Phase 2 (durable execution), part of Phase 3 (RLS, budgets), stages A1–A3, dashboard settings |
+| **Covers** | Durable execution (done), RLS and budgets (roadmap Phase 3), stages A1–A3, dashboard settings |
 
 **Today:**
 - A person starts every step.
 - Turns run as queued jobs and runtime state is in Postgres (Parts A–C, completed).
 - The API reads every table with the service role, so RLS never applies to it.
-- Spending is only limited per legacy Coding Council run.
+- Spending is limited only by capped Evaluator rounds and rate limits.
 
 **After this plan:**
 - Turns run as queued jobs on Postgres and survive restarts.
@@ -64,7 +64,7 @@ Built and unit-tested on 2026-10-02. How they work now is in [ARCHITECTURE.md](.
 | Still open from A–C | Where it is tracked |
 |---|---|
 | Restart test of `PostgresStore` and `migrate-state` against the real Supabase | Roadmap, live checks |
-| Turn concurrency per project and per model provider (C7) | Roadmap, Phase 2 |
+| Turn concurrency per project and per model provider (C7) | Roadmap, Phase 5 |
 
 ---
 
@@ -232,7 +232,7 @@ Everything else in this plan is a dashboard setting.
 | Automation level | L2 | L3 (L4 for eligible gates) |
 | Run survives a restart or closed browser | No | Yes |
 | Database enforces project scope | No | Yes |
-| Hard spending limits | Council run only | Run, user, project, automation |
+| Hard spending limits | Evaluator rounds only | Run, user, project, automation |
 | Settings changed without a restart | No | Yes |
 
 **Still needed for a company after this plan:** SSO, a secret manager and paid models.

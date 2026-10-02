@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | Accepted · 2026-10-02 · built (V0–V6); removal of the server lane is V7 of the [Roadmap](../plans/aura-git-control-plane.md) |
+| **Status** | Accepted · 2026-10-02 · built (V0–V7); the server lane is removed |
 | **Plan** | [plans/aura-vscode-agents.md](../plans/aura-vscode-agents.md) (completed) · as built: [ARCHITECTURE.md](../ARCHITECTURE.md) §4–§5 |
 | **Supersedes** | ADR-1 (Docker scaffolds), ADR-2 D1–D2 and D5 (runner pool, web terminal), ADR-3 D2 (GitHub App) and D8 (design docs in the repo) |
 | **Keeps** | ADR-3 D1, D3–D5, D7 (one repo per project, merged ≠ done, dependencies, contract-first, CI on the PR) |

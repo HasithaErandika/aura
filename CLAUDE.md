@@ -26,7 +26,7 @@ Use **pnpm only** (one workspace, one lockfile). Package names: `web`, `api`, `a
 
 | Path | Contents |
 |---|---|
-| `apps/agent-runtime/src/mastra/` | `agents/` · `workflows/` · `tools/delegate-tools/` · `gateway/` · `contracts/` · `store/` · `workspace/` · `git/` · `terminal/` · `evals/` |
+| `apps/agent-runtime/src/mastra/` | `agents/` · `workflows/` · `tools/delegate-tools/` · `gateway/` · `contracts/` · `store/` · `task/` · `bridge/` · `evals/` |
 | `apps/api/src/modules/` | One folder per domain: `policy`, `approvals`, `audit`, `orchestration`, `projects`, … |
 | `apps/api/supabase/migrations/` | SQL migrations `NNNN_name.sql` |
 | `apps/web/src/features/` | One folder per screen |

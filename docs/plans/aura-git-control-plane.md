@@ -2,8 +2,8 @@
 
 | | |
 |---|---|
-| **Goal** | A control plane for AI work on real Git repositories: agents in the developer's VS Code, governance in the cloud |
-| **Current phase** | Phase 2: **V7**, one lane (remove the server lane) |
+| **Goal** | A company AI harness: agents across the delivery lifecycle, governed in the cloud, coding in the developer's VS Code |
+| **Current phase** | Phase 3: **company pilot readiness** (§5) |
 | **Decisions** | [ADR-4](../adr/0004-vscode-developer-workspace.md) · [ADR-3](../adr/0003-git-workflow.md) |
 | **Detailed plans** | [Automation and durability](aura-automation-durability.md) (Parts D–G) |
 | **Completed plans** | [VS Code agents](aura-vscode-agents.md) · [Runtime refactor](aura-runtime-refactor.md) · [CLI and Council](aura-code-cli-council.md) |
@@ -21,7 +21,7 @@ Project → Repository → Epic → Story → Task → Branch → AI run → Com
 
 ```mermaid
 flowchart LR
-    P0["0 · Foundation"]:::done --> P1["1 · Developer workspace<br/>V0–V6"]:::done --> P2["2 · One lane<br/>V7"]:::wip --> P3["3 · Delivery loop<br/>Jira · merge · QA check"] --> P4["4 · Identity, scale, budgets"] --> P5["5 · Automation"] --> P6["6 · More agents"]
+    P0["0 · Foundation"]:::done --> P1["1 · Developer workspace<br/>V0–V6"]:::done --> P2["2 · One lane<br/>V7"]:::done --> P3["3 · Company pilot<br/>identity · models · cost · ops"]:::wip --> P4["4 · Delivery loop<br/>Jira · merge · QA check"] --> P5["5 · Company rollout<br/>scale · compliance"] --> P6["6 · Automation and more agents"]
     classDef done fill:#d4f4dd,stroke:#2e7d32,color:#000
     classDef wip fill:#fff4cc,stroke:#b8860b,color:#000
 ```
@@ -30,11 +30,11 @@ flowchart LR
 |---|---|---|
 | 0 | ADR-3, AURA-only coding models, Vitest everywhere, CI for AURA, projects and repositories, settings, Postgres state, queued turns | 🟢 Done |
 | 1 | VS Code extension and bridge, Gates 4–6, coders and Evaluator, parallel parts and merge step, PR and CI lane, QA notifications (V0–V6) | 🟢 Built · live checks pending (§3) |
-| 2 | V7: remove the server lane so every Task runs through VS Code | 🔴 **Next** |
-| 3 | Jira status from Git events, merge tracking, AURA QA check, dependencies, contract-first APIs | 🔴 |
-| 4 | SSO, project RLS, secret manager, budgets, several API replicas | 🔴 |
-| 5 | Event triggers, risk-tiered auto-approval, direct gate actions | 🔴 |
-| 6 | New agents | 🔴 |
+| 2 | V7: one lane. Every Task runs through VS Code; web and API are modular monoliths | 🟢 Done |
+| 3 | Company pilot: SSO, project access, approved model providers, budgets, deployment, observability (§5.2) | 🔴 **Next** |
+| 4 | Jira status from Git events, merge tracking, AURA QA check, dependencies, contract-first APIs (§6) | 🔴 |
+| 5 | Company rollout: replicas, secret manager, compliance evidence, agent catalog (§5.3) | 🔴 |
+| 6 | Event triggers, risk-tiered auto-approval, direct gate actions, new agents (§6) | 🔴 |
 
 ---
 
@@ -77,10 +77,10 @@ flowchart TD
 | Merge step | `git merge --no-ff` part by part; refuses conflict proposals with markers | Code |
 | Git agent | PR draft with provenance, commit, push, `gh pr create` | Developer at Gate 6 |
 | CI | `aura-ci.yml` jobs on GitHub Actions | Authoritative result |
-| QA | Designs the test plan and scenarios; follows PRs and CI | QA Engineer |
+| QA | Designs the test plan and scenarios; the `test-writer` coder turns them into tests on the Task branch | QA Engineer |
 | Merge | On GitHub | A human, never AURA |
 
-| Event | Jira today | Planned (Phase 3) |
+| Event | Jira today | Planned (Phase 4) |
 |---|---|---|
 | Gate 5 accepted | Comment on the Task | — |
 | PR opened | Comment with the PR link | Status → In Review |
@@ -102,51 +102,135 @@ flowchart TD
 
 ---
 
-## 4. Phase 2 · V7, one lane
+## 4. Phase 2 · V7, one lane (done)
 
-Every Task runs through VS Code. **Done when** no code path touches `.workspaces`, Docker or a
-server shell.
+Every Task runs through VS Code. No code path touches `.workspaces`, Docker or a server shell.
 
-| Step | Remove or change | Files |
-|---|---|---|
-| 7.1 | Legacy web Gates 4, 5 and 7 and the server git/CI tools | `delegate_to_dev`, `_code`, `_test`, `_git`, `_ci`; Dev and Tester agents; `tester-workflow.ts`; their risk tiers, grants, registry entries and Orchestrator instructions |
-| 7.2 | Coding Council and single coding agent | `coding-council.ts`, `council-agents.ts`, `mastra-coding-agent.ts`, `tools/file-tools.ts`, `tools/council-tools.ts`, `contracts/council.ts`, council routes and usage store |
-| 7.3 | Server workspaces | `workspace/*`, `AURA_WORKSPACE_ROOT`, workspace routes in runtime and API (`workspace`, `dev-workspace`, `qa-workspace`, `test-runs`, `docker`, `runners`); `.workspaces/` after `import-design-docs` |
-| 7.4 | Docker and host checks | `lib/docker-exec.ts`, `lib/sandbox.ts`, `SANDBOX_MODE` |
-| 7.5 | Web terminal | `terminal/*`, `TERMINAL_*`, the API terminal module (ticket signing stays for the bridge) |
-| 7.6 | Unused `GitProvider` module | `agent-runtime/src/mastra/git/` (superseded by ADR-4 D8; used only by its own tests) |
-| 7.7 | Playwright specs | The `test-writer` coder writes QA's scenarios as spec files on the Task branch; CI runs them (replaces Gate 7) |
-| 7.8 | Gate names | The QA plan stops sharing the number 6 with the PR gate; the web pipeline shows Gates 1–3, QA plan, Gate 8 |
-| 7.9 | Web leftovers | Docker runs panel, pipeline tracker steps for removed gates |
-| 7.10 | Docs | ARCHITECTURE §4.3 and the legacy rows in SRS and ADR-1 |
+| Step | Result |
+|---|---|
+| 7.1 | Dev and Tester agents, `delegate_to_dev`, `_code`, `_test`, `_git`, `_ci` and `tester-workflow.ts` removed with their tiers, grants and registry entries |
+| 7.2 | Coding Council, single coding agent, file and council tools, council routes and usage store removed |
+| 7.3 | Server workspaces and the API modules `workspace`, `dev-workspace`, `qa-workspace`, `test-runs`, `docker`, `runners` removed |
+| 7.4 | Docker exec and host checks removed; server mode checks only the runtime token and `DATABASE_URL` |
+| 7.5 | Web terminal, `TERMINAL_*` and the API terminal module removed |
+| 7.6 | Unused `git/` `GitProvider` module removed |
+| 7.7 | The `test-writer` coder writes QA's scenarios as tests on the Task branch; CI runs them |
+| 7.8 | The test plan has no gate number; the web pipeline shows Gates 1–3, test plan, Gates 4–6 in VS Code, Gate 8 |
+| 7.9 | Docker runs panel, Council views and removed gates gone from the web app, `@aura/client` and the extension |
+| 7.10 | ARCHITECTURE, SRS, ADRs, threat model, runbook, SETUP and story updated |
+| 7.11 | Web and API refactored into modules with a public `index.ts` each; deep cross-module imports fail the build |
+
+Follow-ups:
+
+| Item | Where |
+|---|---|
+| Stop generating `playwrightSource` in the QA workflow; scenarios carry steps only | `qa-agent.ts`, `qa-workflow.ts`, `contracts/qa-drafts.ts` (prompt version bump) |
+| Remove the always-empty `codeContext` input of the QA workflow | `qa-workflow.ts` |
+| Drop `profiles.git_name` and `git_email` (no longer read) | New migration |
+| Update `docs/clarify.md` Q6, Q8 and Q9 to the one-lane answers | Docs |
 
 ---
 
-## 5. Later phases
+## 5. Company AI harness: what to build
+
+AURA works for one team on one machine today. A company harness adds the controls a security,
+legal and finance review asks for, and the operations to run it for every team.
+
+```mermaid
+flowchart TD
+    subgraph TODAY["Built"]
+        T1["Gates and approvals"]
+        T2["Tool gateway, risk tiers"]
+        T3["Append-only audit, export"]
+        T4["VS Code lane, CI evidence"]
+        T5["Evals, token ledger"]
+    end
+    subgraph PILOT["Phase 3 · company pilot"]
+        P1["SSO + project access"]
+        P2["Approved model providers"]
+        P3["Budgets"]
+        P4["Deploy + observe"]
+        P5["Data rules"]
+    end
+    subgraph ROLLOUT["Phase 5 · company rollout"]
+        R1["Scale + DR"]
+        R2["Secret manager"]
+        R3["Compliance evidence"]
+        R4["Agent catalog"]
+        R5["Integrations"]
+    end
+    TODAY --> PILOT --> ROLLOUT
+```
+
+### 5.1 Gaps by area
+
+| Area | Today | A company needs | Phase |
+|---|---|---|---|
+| Identity | Email sign-in; one role per user | SSO (Entra ID or Google Workspace), SCIM provisioning, role per project | 3 |
+| Access | Roles checked in `policy.ts`; every project visible | Project membership, row-level security, least-privilege admin roles | 3 |
+| Models | Free-tier Groq and Gemini | Paid providers under a data-processing agreement with zero retention; model allow-list per data class | 3 |
+| Data protection | Untrusted text fenced and scanned | Data class per project, secret and PII redaction before prompts, retention and erasure jobs, hosting region (Sri Lanka PDPA No. 9 of 2022) | 3 |
+| Cost | Token ledger per agent | Budgets per run, user, project and department; alerts; monthly chargeback report | 3 |
+| Deployment | `make dev` on one machine | Container images, infrastructure as code, staging and production, migration pipeline, backups | 3 |
+| Observability | `/metrics`, audit log | OpenTelemetry traces API → runtime → bridge, central logs, alerts, SLOs, status page | 3 |
+| Reliability | One API process holds the bridge | Several API replicas with bridge routing, runtime replicas, restore drills | 5 |
+| Secrets | `.env` files | Secret manager, rotation, no secrets on disk | 5 |
+| Compliance | Audit export | SOC 2 / ISO 27001 evidence pack, access reviews, change log for prompts and policy | 5 |
+| Supply chain | CI for AURA | Signed extension builds, private extension registry, SBOM, dependency and code scanning | 5 |
+| Agents | Fixed set in `registry.ts` | Agent catalog: owner, version, eval score, risk tiers; prompt changes reviewed and promoted like code | 5 |
+| Integrations | Jira, GitHub through `gh`, in-app notifications | Jira and GitHub webhooks, Slack or Teams, email, Confluence for design documents, several repositories per project | 4–5 |
+| Product | Admin pages per screen | Organisation settings, onboarding, usage and quality dashboards per department | 5 |
+
+### 5.2 Phase 3 · company pilot
+
+**Done when** one real team uses AURA for a month on paid, contracted models, signed in with
+company accounts, inside a budget, on a deployed environment with alerts.
+
+| Step | Build | Proves |
+|---|---|---|
+| 3.1 | SSO through Supabase (OIDC/SAML) with group → role mapping; disable password sign-in in server mode | Company identity |
+| 3.2 | `project_members` table, project-scoped grants in `policy.ts`, RLS on runs, approvals, design documents and task PRs | People see only their projects |
+| 3.3 | Model policy: provider allow-list per project data class, contracted providers first, free tier only for `public` projects; provider and model on every audit row | Data stays with approved processors |
+| 3.4 | Redaction before every prompt: secrets, keys and configured PII patterns, with findings on the draft | No secret leaves the company |
+| 3.5 | Budgets per run, user and project, enforced in the gateway; warnings at 80 %; Admin → Usage by department | Predictable cost |
+| 3.6 | Dockerfiles for api, runtime and web; Terraform for one cloud; staging and production; migrations applied by CI | Repeatable deployment |
+| 3.7 | OpenTelemetry tracing across api, runtime and the bridge; log shipping; alerts on failed turns, stuck gates and CI report errors | Problems are seen before users report them |
+| 3.8 | Retention settings for runs, drafts and audit exports; an erasure job per user | Data rules can be met |
+| 3.9 | Evals for Architect, QA, Evaluator and the vscode-agent; evals run in CI on prompt changes | Quality does not drop silently |
+
+### 5.3 Phase 5 · company rollout
+
+| Step | Build |
+|---|---|
+| 5.1 | Bridge call routing across API replicas (Redis or Postgres `LISTEN/NOTIFY`); runtime replicas on shared Postgres |
+| 5.2 | Secret manager for every service secret; scheduled rotation; admin token management |
+| 5.3 | Compliance pack: audit export by period, access review report, prompt and policy change history |
+| 5.4 | Agent catalog page: owner, version, models, eval scores, risk tiers; promotion needs an approval |
+| 5.5 | Signed VS Code extension in a private registry; SBOM and dependency scanning in CI |
+| 5.6 | Slack or Teams notifications and gate links; email digests |
+| 5.7 | Backup and restore drill; documented recovery time and recovery point |
+
+---
+
+## 6. Later phases
 
 | Phase | Step | Source |
 |---|---|---|
-| 3 · Delivery loop | 3.1 Jira status from Git events (§2 table), via CI reports and a GitHub webhook | ADR-3 D3 |
-| | 3.2 Merge tracking in `task_branches`; worktree and branch cleanup after merge | ADR-3 D3 |
-| | 3.3 "AURA QA" check run on the PR from the QA scenarios' CI results | ADR-3 D7 |
-| | 3.4 `dependsOn` → Jira links → `task_dependencies`; Start Work waits for merged dependencies | ADR-3 D4 |
-| | 3.5 Architect emits OpenAPI 3.1; coders and QA use it; a contract check in CI | ADR-3 D5 |
-| | 3.6 Repo defaults from Initialize Project: protected `main` and `development`, required checks, CODEOWNERS | ADR-3 D7 |
-| 4 · Identity, scale, budgets | 4.1 SSO with role mapping | SRS FR-AUTH-1 |
-| | 4.2 Project membership and RLS | Automation plan Part D |
-| | 4.3 Budgets per run, user and project | Automation plan Part E |
-| | 4.4 Bridge call routing across API replicas; turn concurrency per project and provider | ARCHITECTURE §5 limits |
-| | 4.5 Secret manager; admin token management | — |
-| 5 · Automation | 5.1 Event triggers (Jira webhook, CI failure → bounded fix offer) | Automation plan Part F |
-| | 5.2 Risk-tiered auto-approval, off by default | Automation plan Part G |
-| | 5.3 **R3** direct gate actions: extension and web buttons run a delegate tool mode through the gateway with no Orchestrator call | Runtime refactor F5 |
-| | 5.4 **R5** spike: Mastra `requireApproval` on one gate, mapped to AURA approvals | Runtime refactor F2 |
-| | 5.5 Evals for Architect, QA, Evaluator and the vscode-agent | ARCHITECTURE §8 |
-| 6 · More agents | Only after Phases 2–5 run reliably | — |
+| 4 · Delivery loop | 4.1 Jira status from Git events (§2 table), via CI reports and a GitHub webhook | ADR-3 D3 |
+| | 4.2 Merge tracking in `task_branches`; worktree and branch cleanup after merge | ADR-3 D3 |
+| | 4.3 "AURA QA" check run on the PR from the QA scenarios' CI results | ADR-3 D7 |
+| | 4.4 `dependsOn` → Jira links → `task_dependencies`; Start Work waits for merged dependencies | ADR-3 D4 |
+| | 4.5 Architect emits OpenAPI 3.1; coders and QA use it; a contract check in CI | ADR-3 D5 |
+| | 4.6 Repo defaults from Initialize Project: protected `main` and `development`, required checks, CODEOWNERS | ADR-3 D7 |
+| 6 · Automation | 6.1 Event triggers (Jira webhook, CI failure → bounded fix offer) | Automation plan Part F |
+| | 6.2 Risk-tiered auto-approval, off by default | Automation plan Part G |
+| | 6.3 **R3** direct gate actions: extension and web buttons run a delegate tool mode through the gateway with no Orchestrator call | Runtime refactor F5 |
+| | 6.4 **R5** spike: Mastra `requireApproval` on one gate, mapped to AURA approvals | Runtime refactor F2 |
+| | 6.5 New agents, only after Phases 3–5 run reliably | — |
 
 ---
 
-## 6. Automation levels
+## 7. Automation levels
 
 ```mermaid
 flowchart LR
@@ -168,7 +252,7 @@ code, secrets, permission changes, and anything the policy cannot classify.
 
 ---
 
-## 7. Future
+## 8. Future
 
 | Horizon | Item |
 |---|---|
@@ -178,12 +262,12 @@ code, secrets, permission changes, and anything the policy cannot classify.
 | Later | Email and Slack notifications |
 | Later | Codebase knowledge (code, ADRs, OpenAPI, past PRs) for all agents |
 | Later | A cloud sandbox for unattended work |
-| Later | Multi-tenant SaaS, data residency (Sri Lanka PDPA No. 9 of 2022) |
+| Later | Multi-tenant SaaS |
 | Later | Delivery analytics: lead time, first-pass merge rate, cost per merged Task |
 
 ---
 
-## 8. Risks
+## 9. Risks
 
 | Risk | Severity | Mitigation |
 |---|---|---|
@@ -192,6 +276,8 @@ code, secrets, permission changes, and anything the policy cannot classify.
 | Prompt fatigue → "allow everything" | Medium | Good default allow-list in Initialize Project |
 | Nothing runs while VS Code is closed | Medium | Accepted; runs pause and resume |
 | Local results can be flaky or edited | Medium | CI on the PR is authoritative |
-| One API process holds the bridge WebSocket | Medium | Call routing across replicas (4.4) |
+| One API process holds the bridge WebSocket | Medium | Call routing across replicas (5.1) |
 | Design documents are not in the PR diff | Low | Linked from the PR description |
 | KAN-36 was built on the server lane | Low | Import its design documents; continue its Tasks in VS Code |
+| Free-tier models keep prompts under consumer terms | High | Contracted providers and a model policy before any company data (3.3) |
+| One person per role holds every gate | Medium | Project membership with several approvers per role (3.2) |
