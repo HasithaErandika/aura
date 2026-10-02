@@ -1,35 +1,31 @@
 import { env } from "../../config/env.js";
 import { jiraUnavailable, notFound, upstreamError } from "../../lib/http/errors.js";
+import { safeJson } from "../../lib/json.js";
 import { errorMessage } from "../../lib/logger.js";
-import type { JiraComment, JiraIssueDetail, JiraIssueSummary, JiraStatusCategory, JiraTransition } from "./jira.types.js";
+import { jqlString, textToAdf, toComment, toDetail, toSummary, type RawJiraComment, type RawJiraIssue } from "./jira.mapper.js";
+import type { JiraComment, JiraEpicDetail, JiraIssueDetail, JiraIssueSummary, JiraTransition } from "./jira.types.js";
 
-// Direct, read-only client for Jira Cloud's REST API (v3). This is deliberately separate from
-// apps/agent-runtime's Jira MCP client: that one is for writes, gated behind human approval and
-// invoked only by an agent's delegate tool. Browsing Epics/Stories/Tasks in the UI is a plain
-// read with no agent involved, so it talks to Jira straight from the API instead of asking the
-// runtime to do it - viewing Jira data can never start, or need, an agent run (PO, BA, or
-// otherwise).
+const SUMMARY_FIELDS = "summary,issuetype,status,priority,assignee,updated";
+const DETAIL_FIELDS = `${SUMMARY_FIELDS},created,reporter,description`;
+const SEARCH_PAGE_SIZE = 100;
+const MAX_SEARCH_PAGES = 100;
 
 export const jiraConfigured = Boolean(env.jiraUrl && env.jiraUsername && env.jiraApiToken && env.jiraProjectKey);
 
-function authHeader(): string {
-  return `Basic ${Buffer.from(`${env.jiraUsername}:${env.jiraApiToken}`).toString("base64")}`;
-}
-
-async function jiraFetch<T>(path: string, init?: { method?: string; body?: unknown }): Promise<T> {
+async function jiraFetch<T>(path: string, init: { method?: string; body?: unknown } = {}): Promise<T> {
   if (!jiraConfigured) throw jiraUnavailable("Jira is not configured - set JIRA_URL, JIRA_USERNAME, JIRA_API_TOKEN, JIRA_PROJECT_KEY.");
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), env.jiraTimeoutMs);
   let res: Response;
   try {
     res = await fetch(`${env.jiraUrl}${path}`, {
-      method: init?.method ?? "GET",
+      method: init.method ?? "GET",
       headers: {
-        Authorization: authHeader(),
+        Authorization: `Basic ${Buffer.from(`${env.jiraUsername}:${env.jiraApiToken}`).toString("base64")}`,
         Accept: "application/json",
-        ...(init?.body !== undefined ? { "Content-Type": "application/json" } : {}),
+        ...(init.body !== undefined ? { "Content-Type": "application/json" } : {}),
       },
-      body: init?.body !== undefined ? JSON.stringify(init.body) : undefined,
+      body: init.body !== undefined ? JSON.stringify(init.body) : undefined,
       signal: controller.signal,
     });
   } catch (error) {
@@ -37,233 +33,64 @@ async function jiraFetch<T>(path: string, init?: { method?: string; body?: unkno
   } finally {
     clearTimeout(timeout);
   }
-  if (!res.ok) {
-    if (res.status === 404) throw notFound("Jira issue");
-    const body = await res.text().catch(() => "");
-    throw upstreamError(`Jira responded ${res.status} for ${path}`, safeJson(body));
-  }
-  if (res.status === 204) return undefined as T;
+  if (res.status === 404) throw notFound("Jira issue");
+  if (!res.ok) throw upstreamError(`Jira responded ${res.status} for ${path}`, safeJson(await res.text().catch(() => "")));
   const text = await res.text();
   return (text ? JSON.parse(text) : undefined) as T;
 }
 
-function safeJson(text: string): unknown {
-  try {
-    return JSON.parse(text);
-  } catch {
-    return text.slice(0, 500);
-  }
-}
-
-// Minimal Atlassian Document Format -> plain text. Good enough for a read-only preview; not a
-// full renderer (no marks, tables, media).
-interface AdfNode {
-  type?: string;
-  text?: string;
-  content?: AdfNode[];
-}
-
-const ADF_BLOCK_TYPES = new Set(["paragraph", "heading", "listItem", "codeBlock", "blockquote"]);
-
-function adfToText(node: AdfNode | null | undefined): string {
-  if (!node) return "";
-  let out = "";
-  const walk = (n: AdfNode) => {
-    if (n.type === "text" && n.text) out += n.text;
-    if (n.type === "hardBreak") out += "\n";
-    for (const child of n.content ?? []) walk(child);
-    if (n.type && ADF_BLOCK_TYPES.has(n.type)) out += "\n";
-  };
-  walk(node);
-  return out.trim();
-}
-
-// The reverse of adfToText, minimal: plain text -> one ADF paragraph per line, joined by
-// hardBreak - Jira Cloud v3's comment endpoint requires ADF, it does not accept plain text.
-function textToAdf(text: string): { type: "doc"; version: 1; content: AdfNode[] } {
-  const lines = text.split("\n");
-  const content: AdfNode[] = [];
-  lines.forEach((line, i) => {
-    if (i > 0) content.push({ type: "hardBreak" });
-    if (line) content.push({ type: "text", text: line });
-  });
-  return { type: "doc", version: 1, content: [{ type: "paragraph", content }] };
-}
-
-interface RawJiraIssue {
-  key: string;
-  fields: {
-    summary?: string;
-    issuetype?: { name?: string };
-    status?: { name?: string; statusCategory?: { key?: string } };
-    priority?: { name?: string } | null;
-    assignee?: { displayName?: string } | null;
-    reporter?: { displayName?: string } | null;
-    updated?: string;
-    created?: string;
-    description?: AdfNode | null;
-  };
-}
-
-interface RawJiraComment {
-  id: string;
-  author?: { displayName?: string } | null;
-  body?: AdfNode | null;
-  created: string;
-  updated?: string;
-}
-
-function toComment(raw: RawJiraComment): JiraComment {
-  return {
-    id: raw.id,
-    author: raw.author?.displayName ?? null,
-    body: adfToText(raw.body),
-    created: raw.created,
-    updated: raw.updated ?? null,
-  };
-}
-
-function issueUrl(key: string): string | null {
-  return env.jiraUrl ? `${env.jiraUrl}/browse/${key}` : null;
-}
-
-function toStatusCategory(raw: string | undefined): JiraStatusCategory {
-  return raw === "done" || raw === "indeterminate" ? raw : "new";
-}
-
-function toSummary(raw: RawJiraIssue): JiraIssueSummary {
-  return {
-    key: raw.key,
-    summary: raw.fields.summary ?? "",
-    issueType: raw.fields.issuetype?.name ?? "",
-    status: raw.fields.status?.name ?? "",
-    statusCategory: toStatusCategory(raw.fields.status?.statusCategory?.key),
-    priority: raw.fields.priority?.name ?? null,
-    assignee: raw.fields.assignee?.displayName ?? null,
-    updated: raw.fields.updated ?? null,
-    url: issueUrl(raw.key),
-  };
-}
-
-function toDetail(raw: RawJiraIssue): JiraIssueDetail {
-  return {
-    ...toSummary(raw),
-    description: adfToText(raw.fields.description),
-    created: raw.fields.created ?? null,
-    reporter: raw.fields.reporter?.displayName ?? null,
-  };
-}
-
-const SUMMARY_FIELDS = "summary,issuetype,status,priority,assignee,updated";
-const DETAIL_FIELDS = `${SUMMARY_FIELDS},created,reporter,description`;
-
-// /rest/api/3/search was removed by Atlassian in favor of /rest/api/3/search/jql.
-// The newer endpoint uses nextPageToken/isLast pagination and accepts a JSON body for
-// POST requests. Keep this in one helper so listEpics and child lookups behave consistently.
-async function search(jql: string, fields: string, maxResults: number): Promise<RawJiraIssue[]> {
-  const requestedFields = fields.split(",").map((field) => field.trim()).filter(Boolean);
+// isLast, not the page length, ends the search: Jira may return short pages mid-way.
+async function search(jql: string, maxResults: number): Promise<RawJiraIssue[]> {
   const issues: RawJiraIssue[] = [];
   let nextPageToken: string | undefined;
-
-  // Jira may return fewer results than requested while still providing a next page token,
-  // so isLast (rather than the page length) is the termination condition. The page cap is a
-  // defensive guard against a broken upstream token response.
-  for (let page = 0; page < 100; page += 1) {
-    const response = await jiraFetch<{ issues?: RawJiraIssue[]; nextPageToken?: string; isLast?: boolean }>(
-      "/rest/api/3/search/jql",
-      {
-        method: "POST",
-        body: {
-          jql,
-          fields: requestedFields,
-          maxResults: Math.min(maxResults - issues.length, 100),
-          ...(nextPageToken ? { nextPageToken } : {}),
-        },
-      },
-    );
+  for (let page = 0; page < MAX_SEARCH_PAGES; page += 1) {
+    const response = await jiraFetch<{ issues?: RawJiraIssue[]; nextPageToken?: string; isLast?: boolean }>("/rest/api/3/search/jql", {
+      method: "POST",
+      body: { jql, fields: SUMMARY_FIELDS.split(","), maxResults: Math.min(maxResults - issues.length, SEARCH_PAGE_SIZE), ...(nextPageToken ? { nextPageToken } : {}) },
+    });
     issues.push(...(response.issues ?? []));
     if (response.isLast !== false || !response.nextPageToken || issues.length >= maxResults) break;
     nextPageToken = response.nextPageToken;
   }
-
   return issues.slice(0, maxResults);
 }
 
-// Jira JQL string literal quoting (backslash and double-quote are the only characters that
-// need escaping inside a quoted JQL string).
-function jqlString(value: string): string {
-  return `"${value.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
-}
+const issuePath = (key: string, suffix = "") => `/rest/api/3/issue/${encodeURIComponent(key)}${suffix}`;
 
 export const jira = {
-  isConfigured: () => jiraConfigured,
-
   async listEpics(q?: string): Promise<JiraIssueSummary[]> {
-    const project = jqlString(env.jiraProjectKey ?? "");
-    const clauses = [`project = ${project}`, "issuetype = Epic"];
+    const clauses = [`project = ${jqlString(env.jiraProjectKey ?? "")}`, "issuetype = Epic"];
     if (q?.trim()) clauses.push(`summary ~ ${jqlString(`${q.trim()}*`)}`);
-    const jql = `${clauses.join(" AND ")} ORDER BY updated DESC`;
-    const issues = await search(jql, SUMMARY_FIELDS, 100);
-    return issues.map(toSummary);
-  },
-
-  async getEpic(epicKey: string): Promise<JiraIssueDetail> {
-    const raw = await jiraFetch<RawJiraIssue>(`/rest/api/3/issue/${encodeURIComponent(epicKey)}?fields=${DETAIL_FIELDS}`);
-    return toDetail(raw);
-  },
-
-  // Stories, Tasks and Bugs are all parented to the Epic, so one JQL query covers them.
-  async getEpicChildren(epicKey: string): Promise<{ stories: JiraIssueSummary[]; tasks: JiraIssueSummary[]; bugs: JiraIssueSummary[] }> {
-    const jql = `parent = ${jqlString(epicKey)} ORDER BY created ASC`;
-    const issues = await search(jql, SUMMARY_FIELDS, 200);
-    const summaries = issues.map(toSummary);
-    return {
-      stories: summaries.filter((i) => i.issueType === "Story"),
-      tasks: summaries.filter((i) => i.issueType === "Task"),
-      bugs: summaries.filter((i) => i.issueType === "Bug"),
-    };
+    const issues = await search(`${clauses.join(" AND ")} ORDER BY updated DESC`, 100);
+    return issues.map((issue) => toSummary(issue, env.jiraUrl));
   },
 
   async getIssue(key: string): Promise<JiraIssueDetail> {
-    const raw = await jiraFetch<RawJiraIssue>(`/rest/api/3/issue/${encodeURIComponent(key)}?fields=${DETAIL_FIELDS}`);
-    return toDetail(raw);
+    return toDetail(await jiraFetch<RawJiraIssue>(issuePath(key, `?fields=${DETAIL_FIELDS}`)), env.jiraUrl);
   },
 
-  // The moves actually available from an issue's current status - Jira's own workflow decides
-  // this, not AURA, so the UI only ever offers transitions Jira itself would allow.
+  async getEpic(epicKey: string): Promise<JiraEpicDetail> {
+    const [epic, children] = await Promise.all([jira.getIssue(epicKey), search(`parent = ${jqlString(epicKey)} ORDER BY created ASC`, 200)]);
+    const summaries = children.map((issue) => toSummary(issue, env.jiraUrl));
+    const ofType = (type: string) => summaries.filter((i) => i.issueType === type);
+    return { epic, stories: ofType("Story"), tasks: ofType("Task"), bugs: ofType("Bug") };
+  },
+
   async getTransitions(key: string): Promise<JiraTransition[]> {
-    const { transitions } = await jiraFetch<{ transitions: { id: string; name: string; to?: { name?: string } }[] }>(
-      `/rest/api/3/issue/${encodeURIComponent(key)}/transitions`,
-    );
+    const { transitions } = await jiraFetch<{ transitions?: { id: string; name: string; to?: { name?: string } }[] }>(issuePath(key, "/transitions"));
     return (transitions ?? []).map((t) => ({ id: t.id, name: t.name, toStatus: t.to?.name ?? t.name }));
   },
 
-  // Moves an issue through one of its available transitions - a direct human action (like
-  // dragging a card on a Jira board), not an agent write; no gate needed.
   async transitionIssue(key: string, transitionId: string): Promise<void> {
-    await jiraFetch<undefined>(`/rest/api/3/issue/${encodeURIComponent(key)}/transitions`, {
-      method: "POST",
-      body: { transition: { id: transitionId } },
-    });
+    await jiraFetch(issuePath(key, "/transitions"), { method: "POST", body: { transition: { id: transitionId } } });
   },
 
-  // An issue's comment thread, oldest first - includes both human comments and any AURA-agent
-  // provenance-stamped comments (Gate 3/4/5/6/7's own `jira.addComment` calls), so this is the
-  // one place both show up together.
   async getComments(key: string): Promise<JiraComment[]> {
-    const { comments } = await jiraFetch<{ comments: RawJiraComment[] }>(
-      `/rest/api/3/issue/${encodeURIComponent(key)}/comment?orderBy=created`,
-    );
+    const { comments } = await jiraFetch<{ comments?: RawJiraComment[] }>(issuePath(key, "/comment?orderBy=created"));
     return (comments ?? []).map(toComment);
   },
 
-  // Posts a plain-text comment - a direct human action, not an agent write; no gate needed
-  // (matches transitionIssue's own reasoning).
   async addComment(key: string, body: string): Promise<JiraComment> {
-    const raw = await jiraFetch<RawJiraComment>(`/rest/api/3/issue/${encodeURIComponent(key)}/comment`, {
-      method: "POST",
-      body: { body: textToAdf(body) },
-    });
-    return toComment(raw);
+    return toComment(await jiraFetch<RawJiraComment>(issuePath(key, "/comment"), { method: "POST", body: { body: textToAdf(body) } }));
   },
 };

@@ -1,6 +1,3 @@
-// Wire types for apps/agent-runtime (Mastra server). Only the fields the API relies on are
-// typed; everything else is passed through untouched.
-
 export interface RuntimeAgentSummary {
   name: string;
   description?: string;
@@ -29,7 +26,7 @@ export interface RuntimeThreadList {
   hasMore: boolean;
 }
 
-export type RuntimeChunkType =
+type RuntimeChunkType =
   | "start"
   | "step-start"
   | "text-delta"
@@ -53,24 +50,6 @@ export interface RuntimeChunk {
   [key: string]: unknown;
 }
 
-export interface SuspendedRunsResponse {
-  runs: Array<{
-    runId: string;
-    status: "suspended";
-    threadId?: string;
-    resourceId?: string;
-    suspendedAt: string;
-    toolCalls: Array<{
-      toolCallId?: string;
-      toolName?: string;
-      args?: unknown;
-      requiresApproval: boolean;
-      suspendPayload?: unknown;
-    }>;
-  }>;
-  total: number;
-}
-
 export interface AskUserOption {
   label: string;
   value?: string;
@@ -83,22 +62,17 @@ export interface AskUserSuspendPayload {
   selectionMode?: "single_select" | "multi_select";
 }
 
-// Every turn: the AURA run the runtime's tool gateway tags its spans, metrics and events with
-// (agent-runtime gateway/context.ts RUN_CONTEXT_KEY).
+// Must match agent-runtime gateway/context.ts.
 export const RUN_CONTEXT_KEY = "auraRun";
 
 export interface RuntimeRunContext {
   runId: string;
-  // The conversation the run belongs to (a Task's plan lock is per conversation).
   threadId: string | null;
   requestId: string | null;
   userId: string;
   role: string;
 }
 
-// Resumed turns: the human decision that resumed the run, for every decision type. The runtime's
-// gateway lets a gated step run only after an approve/answer decision, and only once per
-// decision (agent-runtime gateway/context.ts DECISION_CONTEXT_KEY).
 export const DECISION_CONTEXT_KEY = "auraDecision";
 
 export interface RuntimeDecision {
@@ -109,10 +83,8 @@ export interface RuntimeDecision {
   decidedAt: string;
 }
 
-// Dashboard settings sent with every turn; the runtime re-checks every bound.
 export const SETTINGS_CONTEXT_KEY = "auraSettings";
 
-// GET /usage/tokens on the runtime (agent-runtime store/token-ledger.ts TokenReport).
 export interface TokenUsageReport {
   since: string;
   days: number;

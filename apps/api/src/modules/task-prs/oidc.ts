@@ -1,17 +1,12 @@
 import { createPublicKey, verify, type JsonWebKey } from "node:crypto";
 
-// GitHub Actions OIDC tokens (plan §10, V6): aura-ci.yml asks GitHub for a short-lived token with
-// audience "aura" and sends it with its CI report. apps/api checks GitHub's signature, issuer,
-// audience and expiry, then trusts the token's `repository` and `sha` claims - so CI can report
-// without any secret stored in the repository.
-
 export const GITHUB_OIDC_ISSUER = "https://token.actions.githubusercontent.com";
 const JWKS_URL = `${GITHUB_OIDC_ISSUER}/.well-known/jwks`;
 const JWKS_TTL_MS = 60 * 60_000;
 const CLOCK_SKEW_S = 60;
 
 export interface GithubOidcClaims {
-  repository: string; // owner/name
+  repository: string;
   sha: string;
   ref: string;
   event_name: string;
@@ -22,10 +17,10 @@ export interface GithubOidcClaims {
 export class OidcError extends Error {}
 
 type Jwks = { keys: (JsonWebKey & { kid?: string })[] };
-export type JwksSource = () => Promise<Jwks>;
+type JwksSource = () => Promise<Jwks>;
 
 let cached: { at: number; jwks: Jwks } | null = null;
-export const githubJwks: JwksSource = async () => {
+const githubJwks: JwksSource = async () => {
   if (cached && Date.now() - cached.at < JWKS_TTL_MS) return cached.jwks;
   const res = await fetch(JWKS_URL);
   if (!res.ok) throw new OidcError(`GitHub's signing keys are unavailable (${res.status})`);
@@ -49,7 +44,7 @@ export async function verifyGithubOidc(token: string, options: { audience: strin
   let keys = (await (options.jwks ?? githubJwks)()).keys;
   let jwk = keys.find((k) => k.kid === header.kid);
   if (!jwk && !options.jwks) {
-    // GitHub rotated its keys since we cached them.
+    // GitHub rotated its keys since they were cached.
     cached = null;
     keys = (await githubJwks()).keys;
     jwk = keys.find((k) => k.kid === header.kid);

@@ -5,7 +5,7 @@ vi.mock("../../config/env.js", () => ({ env: { approvalSlaHours: 72, runTurnTime
 const { SETTING_DEFINITIONS, settingDefinition } = await import("./settings.registry.js");
 const { authorizeTarget, capFor, resolveSettings, runtimeSettings } = await import("./settings.resolve.js");
 type StoredSetting = import("./settings.resolve.js").StoredSetting;
-type AuthedUser = import("../../middleware/auth.js").AuthedUser;
+type AuthedUser = import("../../lib/auth/user.js").AuthedUser;
 
 const PROJECT = "11111111-1111-4111-8111-111111111111";
 const OTHER_PROJECT = "22222222-2222-4222-8222-222222222222";

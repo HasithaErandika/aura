@@ -7,7 +7,6 @@ export function notFoundHandler(_req: Request, res: Response) {
   res.status(404).json({ error: { code: "not_found", message: "Route not found" } });
 }
 
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
 export function errorHandler(error: unknown, req: Request, res: Response, _next: NextFunction) {
   if (error instanceof HttpError) {
     if (error.status >= 500) {
@@ -22,7 +21,6 @@ export function errorHandler(error: unknown, req: Request, res: Response, _next:
     return;
   }
 
-  // Body-parser JSON syntax errors carry a status.
   const status = typeof (error as { status?: unknown })?.status === "number" ? (error as { status: number }).status : 500;
   const message = status === 500 && env.isProduction ? "Internal server error" : errorMessage(error);
   if (status >= 500) {

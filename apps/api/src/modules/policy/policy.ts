@@ -1,12 +1,11 @@
-import type { Role } from "../identity/roles.js";
 import { forbidden } from "../../lib/http/errors.js";
-
-// Authorization data (docs/ARCHITECTURE.md §6): who may run which agent and who answers each gate.
+import type { Role } from "../../lib/auth/roles.js";
 
 export type AgentAccess = "run" | "read";
 
-// Delegate tool short names ("delegate_to_po" → "po") mapped to runtime agent ids.
-export const AGENT_ALIASES: Record<string, string> = {
+type Actor = { id: string; role: Role };
+
+const AGENT_ALIASES: Record<string, string> = {
   po: "po-agent",
   ba: "ba-agent",
   architect: "architect-agent",
@@ -23,7 +22,7 @@ export function canonicalAgentId(agentId: string): string {
 }
 
 // Role → agent → access; anything missing is denied. Admins read everything and run nothing.
-export const ROLE_AGENT_GRANTS: Record<Role, Record<string, AgentAccess>> = {
+const ROLE_AGENT_GRANTS: Record<Role, Record<string, AgentAccess>> = {
   project_owner: { orchestrator: "run", "po-agent": "run", "ba-agent": "read", "deployer-agent": "read" },
   business_analyst: { orchestrator: "run", "ba-agent": "run", "po-agent": "read", "qa-agent": "read" },
   architect: { orchestrator: "run", "architect-agent": "run", "ba-agent": "read", "qa-agent": "read", "deployer-agent": "read", "vscode-agent": "read" },
@@ -44,7 +43,7 @@ export const ROLE_AGENT_GRANTS: Record<Role, Record<string, AgentAccess>> = {
   },
 };
 
-// The role that answers a gate after this agent's draft. VS Code gates go to the run's requester.
+// VS Code gates have no approver role: the run's requester answers them.
 export const AGENT_APPROVER_ROLE: Record<string, Role> = {
   "po-agent": "project_owner",
   "ba-agent": "business_analyst",
@@ -53,8 +52,13 @@ export const AGENT_APPROVER_ROLE: Record<string, Role> = {
   "deployer-agent": "deployer",
 };
 
-// Gate labels for display; the runtime never reads them.
-export const AGENT_GATE_INFO: Record<string, { gate: number | null; name: string; outcome: string }> = {
+export interface GateInfo {
+  gate: number | null;
+  name: string;
+  outcome: string;
+}
+
+const AGENT_GATE_INFO: Record<string, GateInfo> = {
   "po-agent": { gate: 1, name: "Epic approval", outcome: "Jira Epic filed, status Ready for Analysis" },
   "ba-agent": { gate: 2, name: "Story approval", outcome: "Jira Stories filed, status Ready for Architecture" },
   "architect-agent": { gate: 3, name: "Architecture approval", outcome: "Design documents saved and Jira Tasks filed, status Ready for Development" },
@@ -66,12 +70,16 @@ export const AGENT_GATE_INFO: Record<string, { gate: number | null; name: string
 };
 
 const DELEGATE_TOOL_PREFIX = "delegate_to_";
+const GATE_DECISION_PATTERN = /approve|reject|revise/i;
 
-// "delegate_to_po" → "po-agent"; null for any tool that is not a delegation.
 export function delegatedAgentFromTool(toolName: string | undefined): string | null {
   if (!toolName?.startsWith(DELEGATE_TOOL_PREFIX)) return null;
   const agent = toolName.slice(DELEGATE_TOOL_PREFIX.length);
   return agent ? canonicalAgentId(agent) : null;
+}
+
+export function agentGrants(role: Role): Record<string, AgentAccess> {
+  return ROLE_AGENT_GRANTS[role];
 }
 
 export function agentAccess(role: Role, agentId: string): AgentAccess | null {
@@ -90,7 +98,10 @@ export function assertCanRunAgent(role: Role, agentId: string): void {
   if (!canRunAgent(role, agentId)) throw forbidden(`Role ${role} is not granted to run agent ${agentId}`, { role, agentId });
 }
 
-// Anyone with an agent grant takes part in the pipeline and may read its artifacts.
+export function assertCanReadAgent(role: Role, agentId: string): void {
+  if (!canReadAgent(role, agentId)) throw forbidden("Your role cannot access this agent", { role, agentId });
+}
+
 function isPipelineRole(role: Role): boolean {
   return role === "admin" || Object.keys(ROLE_AGENT_GRANTS[role]).length > 0;
 }
@@ -99,7 +110,6 @@ export function canViewDesignDocs(role: Role): boolean {
   return isPipelineRole(role);
 }
 
-// The role that runs the agent producing a document kind may edit it.
 export function canEditDesignDoc(role: Role, owningAgent: "architect-agent" | "qa-agent"): boolean {
   return canRunAgent(role, owningAgent);
 }
@@ -108,7 +118,6 @@ export function canViewJira(role: Role): boolean {
   return isPipelineRole(role);
 }
 
-// Task pull requests and CI: everyone who reads the QA plan.
 export function canViewTaskPrs(role: Role): boolean {
   return canReadAgent(role, "qa-agent");
 }
@@ -119,21 +128,24 @@ export interface ApprovalScope {
   requestedBy: string;
 }
 
-// Who must answer a runtime pause: the agent's approver role, else the run's requester.
 export function resolveApprover(producingAgent: string | null, requestedBy: string): ApprovalScope {
   const canonical = producingAgent ? canonicalAgentId(producingAgent) : null;
   return { producingAgent: canonical, requiredRole: canonical ? (AGENT_APPROVER_ROLE[canonical] ?? null) : null, requestedBy };
 }
 
 // Admins never stand in for an approver.
-export function canDecide(user: { id: string; role: Role }, scope: ApprovalScope): boolean {
+export function canDecide(user: Actor, scope: ApprovalScope): boolean {
   return scope.requiredRole ? user.role === scope.requiredRole : user.id === scope.requestedBy;
 }
 
-export function assertCanDecide(user: { id: string; role: Role }, scope: ApprovalScope): void {
+export function assertCanDecide(user: Actor, scope: ApprovalScope): void {
   if (canDecide(user, scope)) return;
   const message = scope.requiredRole ? `This decision requires the ${scope.requiredRole} role` : "Only the person who started this run can answer this question";
   throw forbidden(message, { requiredRole: scope.requiredRole });
+}
+
+export function canViewApproval(user: Actor, scope: ApprovalScope): boolean {
+  return user.role === "admin" || scope.requestedBy === user.id || canDecide(user, scope);
 }
 
 export interface RunScope {
@@ -141,14 +153,21 @@ export interface RunScope {
   currentAgent: string | null;
 }
 
-// A run is visible to its requester, admins and the approver role of its current agent.
-export function canViewRun(user: { id: string; role: Role }, run: RunScope): boolean {
+export function canViewRun(user: Actor, run: RunScope): boolean {
   if (user.role === "admin" || run.requestedBy === user.id) return true;
   return Boolean(run.currentAgent && AGENT_APPROVER_ROLE[canonicalAgentId(run.currentAgent)] === user.role);
 }
 
-export function canStopRun(user: { id: string; role: Role }, run: { requestedBy: string }): boolean {
+export function canStopRun(user: Actor, run: { requestedBy: string }): boolean {
   return user.role === "admin" || run.requestedBy === user.id;
+}
+
+export function canNoteRun(user: Actor, run: { requestedBy: string }): boolean {
+  return run.requestedBy === user.id;
+}
+
+export function canChangeSharedSettings(role: Role): boolean {
+  return role === "admin";
 }
 
 export function agentsApprovedByRole(role: Role): string[] {
@@ -161,17 +180,12 @@ export function rolesWithAccess(agentId: string, access: AgentAccess): Role[] {
   return (Object.keys(ROLE_AGENT_GRANTS) as Role[]).filter((role) => agentAccess(role, agentId) === access);
 }
 
-export function gateInfoFor(agentId: string | null) {
+export function gateInfoFor(agentId: string | null): GateInfo | null {
   return agentId ? (AGENT_GATE_INFO[canonicalAgentId(agentId)] ?? null) : null;
 }
 
-const GATE_DECISION_PATTERN = /approve|reject|revise/i;
-
 // A pause offering Approve/Revise/Reject is a gate; anything else is a plain question.
-export function isGateDecision(options: { label: string; value?: string }[] | null | undefined): boolean {
-  return Boolean(options?.some((o) => GATE_DECISION_PATTERN.test(o.label) || (o.value ? GATE_DECISION_PATTERN.test(o.value) : false)));
-}
-
-export function gateInfoForPause(producingAgent: string | null, options: { label: string; value?: string }[] | null | undefined) {
-  return isGateDecision(options) ? gateInfoFor(producingAgent) : null;
+export function gateInfoForPause(producingAgent: string | null, options: { label: string; value?: string }[] | null | undefined): GateInfo | null {
+  const isGate = Boolean(options?.some((o) => GATE_DECISION_PATTERN.test(o.label) || (o.value ? GATE_DECISION_PATTERN.test(o.value) : false)));
+  return isGate ? gateInfoFor(producingAgent) : null;
 }

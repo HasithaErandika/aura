@@ -1,15 +1,12 @@
 import { z, type ZodTypeAny } from "zod";
 import { env } from "../../config/env.js";
 
-// Every setting the dashboard can change. Unlisted keys cannot be stored; secrets never belong here.
-// owner "api" is read here; owner "runtime" is sent with each turn and re-checked by the runtime.
-// cap: a user value can never exceed the shared value.
+// Unlisted keys cannot be stored; secrets never belong here.
 
 export const SETTING_SCOPES = ["global", "project", "user"] as const;
 export type SettingScope = (typeof SETTING_SCOPES)[number];
 
-export const SETTING_GROUPS = ["agents", "governance", "limits"] as const;
-export type SettingGroup = (typeof SETTING_GROUPS)[number];
+type SettingGroup = "agents" | "governance" | "limits";
 
 export type SettingValue = string | number | boolean;
 
@@ -21,9 +18,9 @@ export interface SettingDefinition {
   owner: "api" | "runtime";
   scopes: readonly SettingScope[];
   schema: ZodTypeAny;
-  // Used when nothing is set at any scope.
   fallback: () => SettingValue;
   input: { type: "enum"; options: readonly string[] } | { type: "integer"; min: number; max: number; unit?: string };
+  // A capped user value can never exceed the shared value.
   cap?: boolean;
 }
 
@@ -38,7 +35,7 @@ function choice<const T extends readonly [string, ...string[]]>(options: T) {
 const SHARED: readonly SettingScope[] = ["global", "project"];
 const ANY: readonly SettingScope[] = ["global", "project", "user"];
 
-// Runtime bounds match apps/agent-runtime config/settings.ts parseDashboardSettings().
+// Runtime bounds must match agent-runtime config/settings.ts.
 export const SETTING_DEFINITIONS: readonly SettingDefinition[] = [
   {
     key: "vscode.evaluatorRounds",

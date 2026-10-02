@@ -1,32 +1,26 @@
-import { supabaseAdmin } from "../../lib/supabase.js";
+import type { Role } from "../../lib/auth/roles.js";
+import type { Person, ProfileSummary } from "./identity.types.js";
+import { profilesRepository } from "./profiles.repository.js";
 
-export interface ProfileSummary {
-  id: string;
-  fullName: string | null;
-  email: string;
+export type PersonLookup = (id: string | null | undefined) => Person | null;
+
+async function profilesById(ids: (string | null | undefined)[]): Promise<Map<string, ProfileSummary>> {
+  const unique = [...new Set(ids.filter((id): id is string => Boolean(id)))];
+  const profiles = await profilesRepository.byIds(unique);
+  return new Map(profiles.map((p) => [p.id, p]));
 }
 
-export interface GitIdentity {
-  name: string | null;
-  email: string | null;
+function personLookup(profiles: Map<string, ProfileSummary>): PersonLookup {
+  return (id) => {
+    const profile = id ? profiles.get(id) : undefined;
+    return profile ? { fullName: profile.fullName, email: profile.email } : null;
+  };
 }
 
-// The name/email a user set for commits AURA makes on their behalf (PUT /me/git-identity).
-export async function gitIdentityFor(userId: string): Promise<GitIdentity> {
-  const { data, error } = await supabaseAdmin.from("profiles").select("git_name, git_email").eq("id", userId).single();
-  if (error || !data) return { name: null, email: null };
-  return { name: data.git_name ?? null, email: data.git_email ?? null };
+export async function peopleById(ids: (string | null | undefined)[]): Promise<PersonLookup> {
+  return personLookup(await profilesById(ids));
 }
 
-// Batched lookup used to attach requester and approver names to runs and approvals.
-export async function profilesById(ids: string[]): Promise<Map<string, ProfileSummary>> {
-  const unique = Array.from(new Set(ids.filter(Boolean)));
-  const map = new Map<string, ProfileSummary>();
-  if (unique.length === 0) return map;
-  const { data, error } = await supabaseAdmin.from("profiles").select("id, full_name, email").in("id", unique);
-  if (error) throw new Error(`profiles lookup failed: ${error.message}`);
-  for (const row of (data ?? []) as Array<{ id: string; full_name: string | null; email: string }>) {
-    map.set(row.id, { id: row.id, fullName: row.full_name, email: row.email });
-  }
-  return map;
+export function userIdsWithRole(role: Role): Promise<string[]> {
+  return profilesRepository.idsWithRole(role);
 }

@@ -1,10 +1,8 @@
-import type { AgentWriteInput, DocKind } from "./design-docs.types.js";
-
-// Maps the Markdown an Epic's workspace holds from before V3 (.workspaces/<EPIC>/architecture and
-// qa) onto design documents, for scripts/import-design-docs.ts. Pure, so it is tested directly.
+import type { AgentWriteInput } from "./design-docs.schemas.js";
+import type { DocKind } from "./design-docs.types.js";
 
 export interface WorkspaceFile {
-  // Relative to the Epic's folder, with forward slashes, e.g. "architecture/docs/adr/0001-x.md".
+  // Relative to the Epic folder with forward slashes, e.g. "architecture/plan.md".
   path: string;
   content: string;
 }

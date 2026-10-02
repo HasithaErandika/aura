@@ -1,4 +1,3 @@
-// Matches the `user_role` enum (migrations 0001 and 0005) and docs/ARCHITECTURE.md roles.
 export const ROLES = ["admin", "project_owner", "business_analyst", "architect", "developer", "qa_engineer", "deployer"] as const;
 
 export type Role = (typeof ROLES)[number];

@@ -2,7 +2,8 @@ import { generateKeyPairSync, sign } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import { applyCiReport } from "./ci-report.js";
 import { GITHUB_OIDC_ISSUER, verifyGithubOidc } from "./oidc.js";
-import { ciReportSchema, recordPrSchema, taskFromBranch, type TaskPrView } from "./task-prs.types.js";
+import { ciReportSchema, recordPrSchema } from "./task-prs.schemas.js";
+import { taskFromBranch, type TaskPrView } from "./task-prs.types.js";
 
 const { privateKey, publicKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
 const jwks = async () => ({ keys: [{ ...publicKey.export({ format: "jwk" }), kid: "k1" }] });

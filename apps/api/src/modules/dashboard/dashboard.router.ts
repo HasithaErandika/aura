@@ -1,90 +1,35 @@
 import { Router } from "express";
+import { currentUser, requireRole } from "../../lib/auth/user.js";
 import { asyncHandler } from "../../lib/http/async-handler.js";
-import { currentUser, requireRole } from "../../middleware/auth.js";
-import { profilesById } from "../identity/profiles.service.js";
-import { agentsApprovedByRole, ROLE_AGENT_GRANTS } from "../policy/policy.js";
-import { approvalsRepository } from "../approvals/approvals.repository.js";
-import { expireOverdue, toApprovalViews } from "../approvals/approvals.service.js";
-import { runsRepository } from "../runs/runs.repository.js";
-import { toRunView } from "../runs/runs.types.js";
-import { runtimeClient } from "../runtime/runtime.client.js";
+import { parseOrThrow } from "../../lib/http/validate.js";
+import { runtimeClient } from "../runtime/index.js";
+import { qualityQuerySchema, tokenUsageQuerySchema } from "./dashboard.schemas.js";
+import { dashboardSummary } from "./dashboard.service.js";
 import { agentQuality } from "./quality.service.js";
 
 export const dashboardRouter = Router();
 
-// One call for the landing screen after sign-in: counts, what needs the caller's decision,
-// their recent runs, and whether the runtime is up. Everything comes from live records.
 dashboardRouter.get(
   "/summary",
   asyncHandler(async (req, res) => {
-    const user = currentUser(req);
-    await expireOverdue();
-    const isAdmin = user.role === "admin";
-    const approves = agentsApprovedByRole(user.role);
-
-    const [pendingForRole, pendingOnMyRuns, runCounts, recentRuns, rawNeedsDecision, runtime] = await Promise.all([
-      isAdmin ? approvalsRepository.countPending({}) : approvalsRepository.countPendingForUser(user.id, user.role),
-      approvalsRepository.countPending({ requestedBy: user.id }),
-      runsRepository.countByStatus(isAdmin ? {} : { requestedBy: user.id }),
-      isAdmin ? runsRepository.list({ limit: 8 }) : runsRepository.listVisibleTo(user.id, approves, 8),
-      // Admin sees every pending gate (visibility only, per policy.ts - admins never decide).
-      // A non-admin's listForUser() is broader than "needs my decision": it also returns
-      // pending gates on their own runs that need a *different* role, for context. Fetch a
-      // wider page and filter to canDecide below so this card only shows what its title
-      // promises, without capping to 6 before that filter runs.
-      isAdmin
-        ? approvalsRepository.list({ status: ["PENDING"], limit: 6 })
-        : approvalsRepository.listForUser(user.id, user.role, ["PENDING"], 30),
-      runtimeClient.health(),
-    ]);
-
-    const needsDecisionViews = await toApprovalViews(rawNeedsDecision, user);
-    const needsDecision = isAdmin ? needsDecisionViews : needsDecisionViews.filter((a) => a.canDecide).slice(0, 6);
-
-    const profiles = await profilesById(recentRuns.map((r) => r.requested_by));
-
-    res.json({
-      role: user.role,
-      grants: { agents: ROLE_AGENT_GRANTS[user.role], approves },
-      counts: {
-        pendingForMyRole: pendingForRole,
-        pendingOnMyRuns: pendingOnMyRuns,
-        activeRuns: (runCounts.RUNNING ?? 0) + (runCounts.PENDING ?? 0),
-        suspendedRuns: runCounts.SUSPENDED_FOR_APPROVAL ?? 0,
-        succeededRuns: runCounts.SUCCEEDED ?? 0,
-        failedRuns: (runCounts.FAILED ?? 0) + (runCounts.EXPIRED ?? 0) + (runCounts.HALTED_LOOP_GUARD ?? 0),
-        rejectedRuns: runCounts.REJECTED ?? 0,
-      },
-      needsDecision,
-      recentRuns: recentRuns.map((row) => {
-        const p = profiles.get(row.requested_by);
-        return toRunView(row, p ? { fullName: p.fullName, email: p.email } : null);
-      }),
-      runtime,
-    });
+    res.json(await dashboardSummary(currentUser(req)));
   }),
 );
 
-function daysParam(raw: unknown, fallback: number): number {
-  const n = Number(raw);
-  return Number.isInteger(n) && n >= 1 && n <= 90 ? n : fallback;
-}
-
-// GET /dashboard/token-usage?days=7 (admin): tokens per agent and model from the runtime's ledger,
-// and how much draft text the gateway kept out of the Orchestrator's context.
 dashboardRouter.get(
   "/token-usage",
   requireRole("admin"),
   asyncHandler(async (req, res) => {
-    res.json(await runtimeClient.tokenUsage(daysParam(req.query.days, 7)));
+    const { days } = parseOrThrow(tokenUsageQuerySchema, req.query);
+    res.json(await runtimeClient.tokenUsage(days));
   }),
 );
 
-// GET /dashboard/agent-quality?days=30 (admin): how humans decided on each agent's gates.
 dashboardRouter.get(
   "/agent-quality",
   requireRole("admin"),
   asyncHandler(async (req, res) => {
-    res.json(await agentQuality(daysParam(req.query.days, 30)));
+    const { days } = parseOrThrow(qualityQuerySchema, req.query);
+    res.json(await agentQuality(days));
   }),
 );

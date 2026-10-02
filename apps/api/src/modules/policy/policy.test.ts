@@ -1,12 +1,18 @@
 import { describe, expect, it } from "vitest";
 import {
+  agentGrants,
   agentsApprovedByRole,
+  assertCanDecide,
+  assertCanReadAgent,
   assertCanRunAgent,
+  canChangeSharedSettings,
   canDecide,
   canEditDesignDoc,
+  canNoteRun,
   canReadAgent,
   canRunAgent,
   canStopRun,
+  canViewApproval,
   canViewTaskPrs,
   canonicalAgentId,
   delegatedAgentFromTool,
@@ -106,6 +112,42 @@ describe("approvals", () => {
     expect(gateInfoFor("deploy")?.gate).toBe(8);
     expect(gateInfoFor(null)).toBeNull();
     expect(agentsApprovedByRole("qa_engineer")).toEqual(["qa-agent"]);
+  });
+});
+
+describe("approval visibility and decisions", () => {
+  const scope = resolveApprover("architect-agent", "requester");
+
+  it("shows an approval to its requester, its approver role and admins", () => {
+    expect(canViewApproval({ id: "requester", role: "developer" }, scope)).toBe(true);
+    expect(canViewApproval({ id: "x", role: "architect" }, scope)).toBe(true);
+    expect(canViewApproval({ id: "x", role: "admin" }, scope)).toBe(true);
+    expect(canViewApproval({ id: "x", role: "qa_engineer" }, scope)).toBe(false);
+  });
+
+  it("refuses a decision from the wrong role with 403", () => {
+    expect(() => assertCanDecide({ id: "x", role: "architect" }, scope)).not.toThrow();
+    expect(() => assertCanDecide({ id: "x", role: "developer" }, scope)).toThrow(expect.objectContaining({ status: 403 }));
+  });
+});
+
+describe("run notes and settings", () => {
+  it("lets only the requester add a note to a run", () => {
+    expect(canNoteRun({ id: "u1", role: "developer" }, { requestedBy: "u1" })).toBe(true);
+    expect(canNoteRun({ id: "a1", role: "admin" }, { requestedBy: "u1" })).toBe(false);
+  });
+
+  it("lets only admins change shared settings", () => {
+    expect(canChangeSharedSettings("admin")).toBe(true);
+    expect(canChangeSharedSettings("developer")).toBe(false);
+  });
+});
+
+describe("agent grants", () => {
+  it("lists what a role may run and read, and rejects reads outside it", () => {
+    expect(Object.keys(agentGrants("admin")).length).toBeGreaterThan(0);
+    for (const agentId of Object.keys(agentGrants("developer"))) expect(canReadAgent("developer", agentId)).toBe(true);
+    expect(() => assertCanReadAgent("developer", "no-such-agent")).toThrow(expect.objectContaining({ status: 403 }));
   });
 });
 

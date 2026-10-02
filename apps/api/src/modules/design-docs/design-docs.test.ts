@@ -1,8 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-// A tiny in-memory stand-in for the Supabase query builder: enough of from().select/insert/
-// update/delete with eq/in/order/limit/single/maybeSingle for this module, with the unique
-// constraints the migration declares.
+// In-memory stand-in for the Supabase query builder, with the migration's unique constraints.
 type Row = Record<string, unknown>;
 const tables: Record<string, Row[]> = { design_documents: [], design_document_versions: [] };
 const UNIQUE: Record<string, string[][]> = { design_documents: [["epic_key", "slug"]], design_document_versions: [["document_id", "version"]] };
@@ -49,8 +47,9 @@ function query(table: string) {
 vi.mock("../../lib/supabase.js", () => ({ supabaseAdmin: { from: (t: string) => query(t) } }));
 
 const { createDocument, getDocument, saveVersion, writeFromAgent, listEpics } = await import("./design-docs.service.js");
-const { createDocSchema, defaultSlug, owningAgent } = await import("./design-docs.types.js");
-const { canEditDesignDoc, canViewDesignDocs } = await import("../policy/policy.js");
+const { defaultSlug, owningAgent } = await import("./design-docs.types.js");
+const { createDocSchema } = await import("./design-docs.schemas.js");
+const { canEditDesignDoc, canViewDesignDocs } = await import("../policy/index.js");
 
 beforeEach(() => {
   tables.design_documents = [];

@@ -5,11 +5,11 @@ const updates: Record<string, unknown>[] = [];
 const audits: Record<string, unknown>[] = [];
 let localTurn = false;
 
-vi.mock("../audit/audit.service.js", () => ({ writeAudit: vi.fn(async (e: Record<string, unknown>) => void audits.push(e)) }));
-vi.mock("../bridge/hub.js", () => ({ bridgeHub: { stopRun: vi.fn(() => 1) } }));
+vi.mock("../audit/index.js", () => ({ writeAudit: vi.fn(async (e: Record<string, unknown>) => void audits.push(e)) }));
+vi.mock("../bridge/index.js", () => ({ cancelBridgeCalls: vi.fn(() => 1) }));
 vi.mock("./run-stream.service.js", () => ({ STOPPED_MESSAGE: "Stopped. Send a message to continue." }));
 vi.mock("./turn-jobs.js", () => ({ stopTurn: vi.fn(() => localTurn) }));
-vi.mock("../runs/runs.repository.js", () => ({ runsRepository: { update: vi.fn(async (_id: string, patch: Record<string, unknown>) => void updates.push(patch)) } }));
+vi.mock("../runs/index.js", () => ({ runsRepository: { update: vi.fn(async (_id: string, patch: Record<string, unknown>) => void updates.push(patch)) } }));
 vi.mock("./run-events.js", () => ({
   RunEventWriter: class {
     constructor(private runId: string) {}
@@ -21,7 +21,7 @@ vi.mock("./run-events.js", () => ({
 }));
 
 const { stopRun } = await import("./stop-run.js");
-const { bridgeHub } = await import("../bridge/hub.js");
+const { cancelBridgeCalls } = await import("../bridge/index.js");
 
 const user = { id: "u1", role: "developer" as const };
 const run = (status: string) => ({ id: "run-1", status, requested_by: "u1" }) as never;
@@ -37,7 +37,7 @@ describe("stopRun", () => {
   it("aborts a turn running here and cancels its tool calls; the turn records the end itself", async () => {
     localTurn = true;
     expect(await stopRun(run("RUNNING"), user, "req-1")).toBe("stopped");
-    expect(bridgeHub.stopRun).toHaveBeenCalledWith("run-1");
+    expect(cancelBridgeCalls).toHaveBeenCalledWith("run-1");
     expect(updates).toEqual([]);
     expect(audits[0]).toMatchObject({ action: "run.stopped", entityId: "run-1", metadata: { result: "stopped", cancelledCalls: 1 } });
   });

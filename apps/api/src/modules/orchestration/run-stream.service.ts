@@ -1,36 +1,26 @@
-import { env } from "../../config/env.js";
+import type { AuthedUser } from "../../lib/auth/user.js";
 import { sha256 } from "../../lib/hash.js";
-import type { EventSink } from "./run-events.js";
 import { errorMessage, logger } from "../../lib/logger.js";
-import type { AuthedUser } from "../../middleware/auth.js";
-import { writeAudit } from "../audit/audit.service.js";
-import { approvalsRepository } from "../approvals/approvals.repository.js";
-import { canDecide, delegatedAgentFromTool, gateInfoForPause, resolveApprover } from "../policy/policy.js";
-import { runsRepository } from "../runs/runs.repository.js";
-import type { RunRow, RunStatus } from "../runs/runs.types.js";
-import { runtimeClient } from "../runtime/runtime.client.js";
-import { turnSettings, type TurnSettings } from "../settings/settings.service.js";
-import { DECISION_CONTEXT_KEY, RUN_CONTEXT_KEY, SETTINGS_CONTEXT_KEY, type AskUserSuspendPayload, type RuntimeChunk, type RuntimeDecision, type RuntimeRunContext } from "../runtime/runtime.types.js";
+import { createApprovalRequest, toGateView } from "../approvals/index.js";
+import { writeAudit, type AuditEvent } from "../audit/index.js";
+import { canDecide, delegatedAgentFromTool, gateInfoForPause, resolveApprover } from "../policy/index.js";
+import { runsRepository, type NewRunStep, type RunRow, type RunStatus } from "../runs/index.js";
+import {
+  DECISION_CONTEXT_KEY,
+  RUN_CONTEXT_KEY,
+  SETTINGS_CONTEXT_KEY,
+  runtimeClient,
+  type AskUserSuspendPayload,
+  type RuntimeChunk,
+  type RuntimeDecision,
+  type RuntimeRunContext,
+} from "../runtime/index.js";
+import { turnSettings, type TurnSettings } from "../settings/index.js";
+import type { EventSink } from "./run-events.js";
 
-// Observes one runtime stream (a fresh turn or a resumed one) and mirrors what the
-// Orchestrator decides to do into AURA's governance records:
-//   - every tool call and result becomes a run step (the "progress" the UI shows),
-//   - a delegation tells us which agent is currently producing output,
-//   - an ask_user suspension becomes a durable approval request routed by policy,
-//   - finish / error close the run.
-// The sequence of those events is entirely the runtime's; nothing here assumes an order.
-
-const TOOL_RESULT_PREVIEW_CHARS = 4000;
-
-interface StreamContext {
-  run: RunRow;
-  viewer: AuthedUser;
-  writer: EventSink;
-  requestId: string;
-  settings: TurnSettings;
-  // Aborted when the developer presses Stop (turn-jobs.ts stopTurn).
-  stop?: AbortSignal;
-}
+const PREVIEW_CHARS = 4000;
+const SUMMARY_CHARS = 4000;
+const STREAM_ENDED = "Runtime stream ended unexpectedly";
 
 export const STOPPED_MESSAGE = "Stopped. Send a message to continue.";
 
@@ -39,35 +29,46 @@ export interface TurnOutcome {
   approvalId: string | null;
 }
 
-function preview(value: unknown): unknown {
-  if (typeof value === "string") return value.length > TOOL_RESULT_PREVIEW_CHARS ? `${value.slice(0, TOOL_RESULT_PREVIEW_CHARS)}...` : value;
+interface StreamContext {
+  run: RunRow;
+  viewer: AuthedUser;
+  writer: EventSink;
+  requestId: string;
+  settings: TurnSettings;
+  stop?: AbortSignal;
+}
+
+type Data = Record<string, unknown>;
+
+export function preview(value: unknown, max = PREVIEW_CHARS): unknown {
+  if (typeof value === "string") return value.length > max ? `${value.slice(0, max)}...` : value;
   if (value && typeof value === "object") {
     const text = JSON.stringify(value);
-    if (text.length <= TOOL_RESULT_PREVIEW_CHARS) return value;
-    return { truncated: true, preview: text.slice(0, TOOL_RESULT_PREVIEW_CHARS) };
+    return text.length <= max ? value : { truncated: true, preview: text.slice(0, max) };
   }
   return value;
 }
 
-// Runtime error chunks carry { error: { message, name, stack } } or a plain string.
-function runtimeErrorMessage(payload: Record<string, unknown> | undefined): string {
+export function runtimeErrorMessage(payload: Data | undefined): string {
   const inner = payload?.error ?? payload;
-  if (inner && typeof inner === "object" && typeof (inner as { message?: unknown }).message === "string") {
-    return (inner as { message: string }).message;
-  }
+  if (inner && typeof inner === "object" && typeof (inner as { message?: unknown }).message === "string") return (inner as { message: string }).message;
   return errorMessage(inner ?? "runtime error");
 }
 
-function runContext(run: { id: string; thread_id: string | null }, requestId: string, user: AuthedUser): RuntimeRunContext {
+const dataOf = (chunk: RuntimeChunk): Data => ((chunk as { data?: Data }).data ?? {}) as Data;
+const toolOf = (chunk: RuntimeChunk) => ({ toolName: String(chunk.payload?.toolName ?? "tool"), toolCallId: String(chunk.payload?.toolCallId ?? "") });
+const now = () => new Date().toISOString();
+
+function runContext(run: RunRow, requestId: string, user: AuthedUser): RuntimeRunContext {
   return { runId: run.id, threadId: run.thread_id, requestId, userId: user.id, role: user.role };
 }
 
-function isAskUserSuspension(chunk: RuntimeChunk): boolean {
-  return chunk.type === "tool-call-suspended" && chunk.payload?.toolName === "ask_user";
+function systemAudit(event: Omit<AuditEvent, "actorId" | "actorRole">): Promise<void> {
+  return writeAudit({ actorId: null, actorRole: null, ...event });
 }
 
-export async function pipeRuntimeStream(context: StreamContext, stream: AsyncGenerator<RuntimeChunk>): Promise<TurnOutcome> {
-  const { writer, viewer } = context;
+async function pipeRuntimeStream(context: StreamContext, stream: AsyncGenerator<RuntimeChunk>): Promise<TurnOutcome> {
+  const { writer, viewer, requestId } = context;
   let run = context.run;
   let seq = await runsRepository.nextSeq(run.id);
   let assistantText = "";
@@ -76,20 +77,98 @@ export async function pipeRuntimeStream(context: StreamContext, stream: AsyncGen
   let outcome: TurnOutcome = { status: "RUNNING", approvalId: null };
   let finished = false;
 
-  // Steps are buffered and written in one insert at each durable point (suspension, error,
-  // end of turn) so forwarding the stream to the browser never waits on the database.
-  type StepKind = "tool-call" | "tool-result" | "tool-error" | "text" | "suspended" | "resumed" | "error" | "finish" | "progress";
-  const buffered: Parameters<typeof runsRepository.addSteps>[0] = [];
-  const step = async (kind: StepKind, fields: { toolName?: string; toolCallId?: string; payload?: Record<string, unknown> }) => {
+  // Steps are buffered and written at durable points so streaming never waits on the database.
+  const buffered: NewRunStep[] = [];
+  const step = (kind: NewRunStep["kind"], fields: Omit<NewRunStep, "runId" | "seq" | "kind"> = {}) => {
     buffered.push({ runId: run.id, seq: seq++, kind, ...fields });
   };
   const flushSteps = async () => {
-    if (buffered.length === 0) return;
     const rows = buffered.splice(0, buffered.length);
-    try {
-      await runsRepository.addSteps(rows);
-    } catch (error) {
-      logger.error("could not persist run steps", { runId: run.id, count: rows.length, message: errorMessage(error) });
+    await runsRepository.addSteps(rows).catch((error) => logger.error("could not persist run steps", { runId: run.id, count: rows.length, message: errorMessage(error) }));
+  };
+  const summary = () => assistantText.trim().slice(0, SUMMARY_CHARS) || run.output_summary;
+  const emitText = (delta: string) => {
+    assistantText += delta;
+    writer.send("text", { delta });
+  };
+
+  const onSuspended = async (chunk: RuntimeChunk) => {
+    const { toolName, toolCallId } = toolOf(chunk);
+    if (toolName !== "ask_user") {
+      step("suspended", { toolName, payload: { unsupported: true } });
+      writer.send("error", { message: `Runtime suspended on unsupported tool ${toolName}` });
+      return;
+    }
+    const runtimeRunId = chunk.runId ?? run.runtime_run_id;
+    if (!runtimeRunId) {
+      writer.send("error", { message: "Runtime suspended without a run id; cannot record the gate" });
+      return;
+    }
+    const suspend = (chunk.payload?.suspendPayload ?? {}) as AskUserSuspendPayload;
+    const scope = resolveApprover(currentAgent, run.requested_by);
+    const snapshot = assistantText.trim() || null;
+    const expiresAt = new Date(Date.now() + context.settings.approvalSlaHours * 3_600_000).toISOString();
+    const approval = await createApprovalRequest({
+      runId: run.id,
+      threadId: run.thread_id,
+      agentId: run.agent_id,
+      runtimeRunId,
+      toolCallId,
+      producingAgent: scope.producingAgent,
+      requiredRole: scope.requiredRole,
+      requestedBy: run.requested_by,
+      question: suspend.question,
+      options: suspend.options ?? null,
+      selectionMode: suspend.selectionMode ?? null,
+      snapshot,
+      snapshotHash: sha256(`${snapshot ?? ""}\n${suspend.question}\n${JSON.stringify(suspend.options ?? [])}`),
+      expiresAt,
+    });
+    run = await runsRepository.update(run.id, { status: "SUSPENDED_FOR_APPROVAL", runtime_run_id: runtimeRunId });
+    step("suspended", { toolName, toolCallId, payload: { approvalId: approval.id, producingAgent: scope.producingAgent, requiredRole: scope.requiredRole } });
+    await flushSteps();
+    await systemAudit({ action: "approval.requested", entityType: "approval_request", entityId: approval.id, requestId, metadata: { runId: run.id, producingAgent: scope.producingAgent, requiredRole: scope.requiredRole } });
+    outcome = { status: "SUSPENDED_FOR_APPROVAL", approvalId: approval.id };
+    writer.send("gate", {
+      approvalId: approval.id,
+      runId: run.id,
+      producingAgent: scope.producingAgent,
+      gate: toGateView(gateInfoForPause(scope.producingAgent, suspend.options)),
+      requiredRole: scope.requiredRole,
+      question: suspend.question,
+      options: suspend.options ?? [],
+      selectionMode: suspend.selectionMode ?? null,
+      snapshot,
+      expiresAt,
+      canDecide: canDecide(viewer, scope),
+    });
+  };
+
+  const onGateway = async (data: Data) => {
+    step("progress", { payload: { source: "gateway", ...data } });
+    writer.send("progress", { source: "gateway", ...data });
+    const audit = { entityType: "workflow_run", entityId: run.id, requestId };
+    if (data.outcome === "blocked") {
+      await systemAudit({ ...audit, action: "gateway.blocked", metadata: { tool: data.tool, mode: data.mode, reason: data.reason, message: data.message, approvalId: data.approvalId ?? null } });
+    }
+    if (Array.isArray(data.findings) && data.findings.length) {
+      await systemAudit({ ...audit, action: "gateway.untrusted_content", metadata: { tool: data.tool, mode: data.mode, outcome: data.outcome, findings: preview(data.findings) } });
+    }
+    if (data.reason === "loop_guard") {
+      run = await runsRepository.update(run.id, { status: "HALTED_LOOP_GUARD", last_error: typeof data.message === "string" ? data.message : null });
+      outcome = { status: "HALTED_LOOP_GUARD", approvalId: null };
+      await systemAudit({ ...audit, action: "run.halted_loop_guard", metadata: { tool: data.tool, mode: data.mode, message: data.message } });
+    }
+  };
+
+  const onFinish = async (chunk: RuntimeChunk) => {
+    finished = true;
+    if (outcome.status === "RUNNING") {
+      step("finish", { payload: { usage: preview(chunk.payload?.usage), reason: chunk.payload?.finishReason ?? null } });
+      run = await runsRepository.update(run.id, { status: "SUCCEEDED", output_summary: summary(), finished_at: now() });
+      outcome = { status: "SUCCEEDED", approvalId: null };
+    } else if (outcome.status === "HALTED_LOOP_GUARD") {
+      run = await runsRepository.update(run.id, { output_summary: summary(), finished_at: now() });
     }
   };
 
@@ -103,271 +182,107 @@ export async function pipeRuntimeStream(context: StreamContext, stream: AsyncGen
       switch (chunk.type) {
         case "text-delta": {
           const delta = typeof chunk.payload?.text === "string" ? chunk.payload.text : "";
-          if (delta) {
-            assistantText += delta;
-            writer.send("text", { delta });
-          }
+          if (delta) emitText(delta);
           break;
         }
-
         case "tool-call": {
-          const toolName = String(chunk.payload?.toolName ?? "tool");
-          const toolCallId = String(chunk.payload?.toolCallId ?? "");
+          const { toolName, toolCallId } = toolOf(chunk);
           const delegated = delegatedAgentFromTool(toolName);
           if (delegated && (delegated !== currentAgent || !involved.has(delegated))) {
             currentAgent = delegated;
             involved.add(delegated);
-            run = await runsRepository.update(run.id, { current_agent: currentAgent, agents_involved: Array.from(involved) });
+            run = await runsRepository.update(run.id, { current_agent: currentAgent, agents_involved: [...involved] });
           }
-          await step("tool-call", { toolName, toolCallId, payload: { args: preview(chunk.payload?.args) } });
+          step("tool-call", { toolName, toolCallId, payload: { args: preview(chunk.payload?.args) } });
           writer.send("tool", { phase: "call", toolName, toolCallId, args: chunk.payload?.args, agent: delegated });
           break;
         }
-
         case "tool-result": {
-          const toolName = String(chunk.payload?.toolName ?? "tool");
-          const toolCallId = String(chunk.payload?.toolCallId ?? "");
-          const result = chunk.payload?.result;
-          await step("tool-result", { toolName, toolCallId, payload: { result: preview(result) } });
-          writer.send("tool", { phase: "result", toolName, toolCallId, result: preview(result), agent: delegatedAgentFromTool(toolName) });
-
+          const { toolName, toolCallId } = toolOf(chunk);
+          const result = preview(chunk.payload?.result);
+          step("tool-result", { toolName, toolCallId, payload: { result } });
+          writer.send("tool", { phase: "result", toolName, toolCallId, result, agent: delegatedAgentFromTool(toolName) });
           break;
         }
-
         case "tool-error": {
-          const toolName = String(chunk.payload?.toolName ?? "tool");
-          const toolCallId = String(chunk.payload?.toolCallId ?? "");
+          const { toolName, toolCallId } = toolOf(chunk);
           const error = runtimeErrorMessage(chunk.payload);
-          await step("tool-error", { toolName, toolCallId, payload: { error } });
+          step("tool-error", { toolName, toolCallId, payload: { error } });
           writer.send("tool", { phase: "error", toolName, toolCallId, error });
           break;
         }
-
-        case "tool-call-suspended": {
-          if (!isAskUserSuspension(chunk)) {
-            // Another suspending tool would need its own resume contract; surface it and stop.
-            await step("suspended", { toolName: String(chunk.payload?.toolName ?? ""), payload: { unsupported: true } });
-            writer.send("error", { message: `Runtime suspended on unsupported tool ${String(chunk.payload?.toolName)}` });
-            break;
-          }
-          const suspend = (chunk.payload?.suspendPayload ?? {}) as AskUserSuspendPayload;
-          const toolCallId = String(chunk.payload?.toolCallId ?? "");
-          const runtimeRunId = chunk.runId ?? run.runtime_run_id;
-          if (!runtimeRunId) {
-            writer.send("error", { message: "Runtime suspended without a run id; cannot record the gate" });
-            break;
-          }
-          const scope = resolveApprover(currentAgent, run.requested_by);
-          const snapshot = assistantText.trim() || null;
-          const snapshotHash = sha256(`${snapshot ?? ""}\n${suspend.question}\n${JSON.stringify(suspend.options ?? [])}`);
-          const expiresAt = new Date(Date.now() + context.settings.approvalSlaHours * 3_600_000).toISOString();
-          const approval = await approvalsRepository.create({
-            runId: run.id,
-            threadId: run.thread_id,
-            agentId: run.agent_id,
-            runtimeRunId,
-            toolCallId,
-            producingAgent: scope.producingAgent,
-            requiredRole: scope.requiredRole,
-            requestedBy: run.requested_by,
-            question: suspend.question,
-            options: suspend.options ?? null,
-            selectionMode: suspend.selectionMode ?? null,
-            snapshot,
-            snapshotHash,
-            expiresAt,
-          });
-          run = await runsRepository.update(run.id, { status: "SUSPENDED_FOR_APPROVAL", runtime_run_id: runtimeRunId });
-          await step("suspended", {
-            toolName: "ask_user",
-            toolCallId,
-            payload: { approvalId: approval.id, producingAgent: scope.producingAgent, requiredRole: scope.requiredRole },
-          });
-          await flushSteps();
-          await writeAudit({
-            actorId: null,
-            actorRole: null,
-            action: "approval.requested",
-            entityType: "approval_request",
-            entityId: approval.id,
-            requestId: context.requestId,
-            metadata: { runId: run.id, producingAgent: scope.producingAgent, requiredRole: scope.requiredRole },
-          });
-          outcome = { status: "SUSPENDED_FOR_APPROVAL", approvalId: approval.id };
-          const gate = gateInfoForPause(scope.producingAgent, suspend.options);
-          writer.send("gate", {
-            approvalId: approval.id,
-            runId: run.id,
-            producingAgent: scope.producingAgent,
-            gate: gate ? { number: gate.gate, name: gate.name, outcome: gate.outcome } : null,
-            requiredRole: scope.requiredRole,
-            question: suspend.question,
-            options: suspend.options ?? [],
-            selectionMode: suspend.selectionMode ?? null,
-            snapshot,
-            expiresAt,
-            canDecide: canDecide(viewer, scope),
-          });
+        case "tool-call-suspended":
+          await onSuspended(chunk);
           break;
-        }
-
         case "error": {
           const message = runtimeErrorMessage(chunk.payload);
-          await step("error", { payload: { message } });
-          run = await runsRepository.update(run.id, { status: "FAILED", last_error: message, finished_at: new Date().toISOString() });
+          step("error", { payload: { message } });
+          run = await runsRepository.update(run.id, { status: "FAILED", last_error: message, finished_at: now() });
           outcome = { status: "FAILED", approvalId: null };
           finished = true;
           writer.send("error", { message });
           break;
         }
-
-        // A workflow-backed delegate tool (e.g. delegate_to_architect) relays its internal
-        // step progress as a transient custom chunk into this same stream (Mastra's tool
-        // `writer` API - see apps/agent-runtime/src/mastra/tools/delegate-tools.ts). Mirrored
-        // as a run step exactly like a tool call, so the Run Console shows per-section
-        // progress without a second tracking mechanism (docs/ARCHITECTURE.md §7).
         case "data-architect-step": {
-          const data = (chunk as unknown as { data?: Record<string, unknown> }).data ?? {};
-          await step("progress", { payload: data });
+          const data = dataOf(chunk);
+          step("progress", { payload: data });
           writer.send("progress", data);
           break;
         }
-
-        // A Task session in VS Code (agent-runtime tools/task-tools.ts): the Gate 4 plan, each
-        // coder and Evaluator step, and the Gate 5 review. Clients render the plan and review
-        // views from it; the run keeps it as progress steps.
         case "data-task": {
-          const data = (chunk as unknown as { data?: Record<string, unknown> }).data ?? {};
-          await step("progress", { payload: { source: "task", ...data } });
-          writer.send("progress", { source: "task", ...data });
+          const data = { source: "task", ...dataOf(chunk) };
+          step("progress", { payload: data });
+          writer.send("progress", data);
           break;
         }
-
-        // A draft the runtime's gateway sent to the human instead of into the Orchestrator's
-        // context (agent-runtime gateway/gateway.ts deliverDraft - the token saver). It becomes
-        // part of the assistant's reply exactly as if the model had written it, so the chat shows
-        // it and the approval snapshot the human decides on contains it.
+        // Gateway drafts join the reply so the chat and the approval snapshot both contain them.
         case "data-draft": {
-          const data = (chunk as unknown as { data?: Record<string, unknown> }).data ?? {};
+          const data = dataOf(chunk);
           const markdown = typeof data.markdown === "string" ? data.markdown : "";
-          if (markdown) {
-            const delta = `${assistantText && !assistantText.endsWith("\n") ? "\n\n" : ""}${markdown}\n\n`;
-            assistantText += delta;
-            writer.send("text", { delta });
-            await step("progress", { payload: { source: "draft", tool: data.tool, mode: data.mode, draftId: data.draftId ?? null, chars: markdown.length } });
-          }
+          if (!markdown) break;
+          emitText(`${assistantText && !assistantText.endsWith("\n") ? "\n\n" : ""}${markdown}\n\n`);
+          step("progress", { payload: { source: "draft", tool: data.tool, mode: data.mode, draftId: data.draftId ?? null, chars: markdown.length } });
           break;
         }
-
-        // The runtime's tool gateway (agent-runtime gateway/gateway.ts) reports every gated step,
-        // every refusal and every prompt-injection finding. Stored as a run step; refusals and
-        // findings also go to the audit log, and a tripped loop guard halts the run for a human.
-        case "data-gateway": {
-          const data = (chunk as unknown as { data?: Record<string, unknown> }).data ?? {};
-          await step("progress", { payload: { source: "gateway", ...data } });
-          writer.send("progress", { source: "gateway", ...data });
-          const findings = Array.isArray(data.findings) ? data.findings : [];
-          if (data.outcome === "blocked") {
-            await writeAudit({
-              actorId: null,
-              actorRole: null,
-              action: "gateway.blocked",
-              entityType: "workflow_run",
-              entityId: run.id,
-              requestId: context.requestId,
-              metadata: { tool: data.tool, mode: data.mode, reason: data.reason, message: data.message, approvalId: data.approvalId ?? null },
-            });
-          }
-          if (findings.length) {
-            await writeAudit({
-              actorId: null,
-              actorRole: null,
-              action: "gateway.untrusted_content",
-              entityType: "workflow_run",
-              entityId: run.id,
-              requestId: context.requestId,
-              metadata: { tool: data.tool, mode: data.mode, outcome: data.outcome, findings: preview(findings) },
-            });
-          }
-          if (data.reason === "loop_guard") {
-            run = await runsRepository.update(run.id, { status: "HALTED_LOOP_GUARD", last_error: typeof data.message === "string" ? data.message : null });
-            // Kept unless the Orchestrator follows up with ask_user, whose suspension supersedes it.
-            outcome = { status: "HALTED_LOOP_GUARD", approvalId: null };
-            await writeAudit({
-              actorId: null,
-              actorRole: null,
-              action: "run.halted_loop_guard",
-              entityType: "workflow_run",
-              entityId: run.id,
-              requestId: context.requestId,
-              metadata: { tool: data.tool, mode: data.mode, message: data.message },
-            });
-          }
+        case "data-gateway":
+          await onGateway(dataOf(chunk));
           break;
-        }
-
-        case "finish": {
-          finished = true;
-          // An error chunk arrives before finish; only a still-running turn completes here.
-          if (outcome.status === "RUNNING") {
-            await step("finish", { payload: { usage: preview(chunk.payload?.usage), reason: chunk.payload?.finishReason ?? null } });
-            run = await runsRepository.update(run.id, {
-              status: "SUCCEEDED",
-              output_summary: assistantText.trim().slice(0, 4000) || run.output_summary,
-              finished_at: new Date().toISOString(),
-            });
-            outcome = { status: "SUCCEEDED", approvalId: null };
-          } else if (outcome.status === "HALTED_LOOP_GUARD") {
-            run = await runsRepository.update(run.id, {
-              output_summary: assistantText.trim().slice(0, 4000) || run.output_summary,
-              finished_at: new Date().toISOString(),
-            });
-          }
+        case "finish":
+          await onFinish(chunk);
           break;
-        }
-
         default:
           break;
       }
     }
   } catch (error) {
     const stopped = context.stop?.aborted === true;
-    const message = stopped
-      ? STOPPED_MESSAGE
-      : error instanceof Error && error.name === "AbortError"
-        ? `Turn exceeded ${Math.round(context.settings.turnTimeoutMs / 60_000)} minutes and was stopped`
-        : errorMessage(error);
+    const timedOut = error instanceof Error && error.name === "AbortError";
+    const message = stopped ? STOPPED_MESSAGE : timedOut ? `Turn exceeded ${Math.round(context.settings.turnTimeoutMs / 60_000)} minutes and was stopped` : errorMessage(error);
     const status: RunStatus = stopped ? "INTERRUPTED" : "FAILED";
     if (stopped) logger.info("turn stopped", { runId: run.id });
     else logger.error("runtime stream failed", { runId: run.id, message });
-    try {
-      await step("error", { payload: { message } });
-      run = await runsRepository.update(run.id, { status, last_error: message, finished_at: new Date().toISOString() });
-    } catch (persistError) {
+    step("error", { payload: { message } });
+    run = await runsRepository.update(run.id, { status, last_error: message, finished_at: now() }).catch((persistError) => {
       logger.error("could not persist run failure", { runId: run.id, message: errorMessage(persistError) });
-    }
+      return run;
+    });
     outcome = { status, approvalId: null };
     writer.send("error", { message });
     finished = true;
   }
 
   if (!finished && outcome.status === "RUNNING") {
-    // Stream ended without a finish chunk (runtime dropped the connection).
-    run = await runsRepository.update(run.id, { status: "FAILED", last_error: "Runtime stream ended unexpectedly", finished_at: new Date().toISOString() });
+    run = await runsRepository.update(run.id, { status: "FAILED", last_error: STREAM_ENDED, finished_at: now() });
     outcome = { status: "FAILED", approvalId: null };
-    writer.send("error", { message: "Runtime stream ended unexpectedly" });
+    writer.send("error", { message: STREAM_ENDED });
   }
 
-  if (assistantText.trim()) {
-    await step("text", { payload: { text: assistantText.trim().slice(0, TOOL_RESULT_PREVIEW_CHARS) } });
-  }
+  if (assistantText.trim()) step("text", { payload: { text: assistantText.trim().slice(0, PREVIEW_CHARS) } });
   await flushSteps();
-
   writer.send("done", { runId: run.id, status: outcome.status, approvalId: outcome.approvalId });
   return outcome;
 }
 
-// Records a new run (status PENDING) and its audit row, before the turn is queued.
 export async function createTurnRun(input: { user: AuthedUser; agentId: string; threadId: string; message: string; requestId: string }): Promise<RunRow> {
   const run = await runsRepository.create({
     agentId: input.agentId,
@@ -375,115 +290,86 @@ export async function createTurnRun(input: { user: AuthedUser; agentId: string; 
     requestedBy: input.user.id,
     requestedByRole: input.user.role,
     title: input.message.slice(0, 120),
-    inputSummary: input.message.slice(0, 4000),
+    inputSummary: input.message.slice(0, SUMMARY_CHARS),
   });
-  await writeAudit({
-    actorId: input.user.id,
-    actorRole: input.user.role,
-    action: "run.requested",
-    entityType: "workflow_run",
-    entityId: run.id,
-    requestId: input.requestId,
-    metadata: { agentId: input.agentId, threadId: input.threadId },
-  });
+  await writeAudit({ actorId: input.user.id, actorRole: input.user.role, action: "run.requested", entityType: "workflow_run", entityId: run.id, requestId: input.requestId, metadata: { agentId: input.agentId, threadId: input.threadId } });
   return run;
 }
 
-// Runs a recorded turn against the runtime (called from the turn job, modules/orchestration/turn-jobs.ts).
-export async function startTurn(input: { run: RunRow; user: AuthedUser; message: string; requestId: string; writer: EventSink; stop?: AbortSignal }): Promise<TurnOutcome> {
-  const { run } = input;
-  input.writer.send("run", { runId: run.id, runtimeRunId: null, status: run.status });
-
-  // Dashboard settings for this requester and project (modules/settings).
-  const settings = await turnSettings(input.user.id);
-  const turn = new AbortController();
-  const turnTimer = setTimeout(() => turn.abort(), settings.turnTimeoutMs);
-  const signal = input.stop ? AbortSignal.any([turn.signal, input.stop]) : turn.signal;
-  let stream: AsyncGenerator<RuntimeChunk>;
-  try {
-    stream = await runtimeClient.stream(
-      run.agent_id,
-      {
-        messages: [{ role: "user", content: input.message }],
-        memory: { thread: run.thread_id, resource: input.user.id },
-        requestContext: { [RUN_CONTEXT_KEY]: runContext(run, input.requestId, input.user), [SETTINGS_CONTEXT_KEY]: settings.runtime },
-      },
-      signal,
-    );
-  } catch (error) {
-    clearTimeout(turnTimer);
-    const message = errorMessage(error);
-    await runsRepository.update(run.id, { status: "FAILED", last_error: message, finished_at: new Date().toISOString() });
-    input.writer.send("error", { message });
-    input.writer.send("done", { runId: run.id, status: "FAILED", approvalId: null });
-    return { status: "FAILED", approvalId: null };
-  }
-
-  try {
-    return await pipeRuntimeStream({ run, viewer: input.user, writer: input.writer, requestId: input.requestId, settings, stop: input.stop }, stream);
-  } finally {
-    clearTimeout(turnTimer);
-  }
-}
-
-export async function resumeTurn(input: {
-  user: AuthedUser;
+interface TurnInput {
   run: RunRow;
-  runtimeRunId: string;
-  toolCallId: string;
-  resumeData: string;
-  decision: RuntimeDecision;
+  user: AuthedUser;
   requestId: string;
   writer: EventSink;
   stop?: AbortSignal;
-}): Promise<TurnOutcome> {
-  let run = input.run;
-  // The requester's settings, not the approver's: the run is still the requester's work.
-  const settings = await turnSettings(run.requested_by);
+}
+
+// Opens the runtime stream under the turn time limit and pipes it; a failed open fails the run.
+async function runTurn(
+  input: TurnInput,
+  settings: TurnSettings,
+  open: (signal: AbortSignal) => Promise<AsyncGenerator<RuntimeChunk>>,
+  beforePipe: (run: RunRow) => Promise<RunRow> = async (run) => run,
+): Promise<TurnOutcome> {
   const turn = new AbortController();
-  const turnTimer = setTimeout(() => turn.abort(), settings.turnTimeoutMs);
+  const timer = setTimeout(() => turn.abort(), settings.turnTimeoutMs);
   const signal = input.stop ? AbortSignal.any([turn.signal, input.stop]) : turn.signal;
-  let stream: AsyncGenerator<RuntimeChunk>;
   try {
-    stream = await runtimeClient.resumeStream(
+    let stream: AsyncGenerator<RuntimeChunk>;
+    try {
+      stream = await open(signal);
+    } catch (error) {
+      const message = errorMessage(error);
+      await runsRepository.update(input.run.id, { status: "FAILED", last_error: message, finished_at: now() });
+      input.writer.send("error", { message });
+      input.writer.send("done", { runId: input.run.id, status: "FAILED", approvalId: null });
+      return { status: "FAILED", approvalId: null };
+    }
+    const run = await beforePipe(input.run);
+    return await pipeRuntimeStream({ run, viewer: input.user, writer: input.writer, requestId: input.requestId, settings, stop: input.stop }, stream);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+export async function startTurn(input: TurnInput & { message: string }): Promise<TurnOutcome> {
+  const { run, user } = input;
+  input.writer.send("run", { runId: run.id, runtimeRunId: null, status: run.status });
+  const settings = await turnSettings(user.id);
+  return runTurn(input, settings, (signal) =>
+    runtimeClient.stream(
+      run.agent_id,
+      {
+        messages: [{ role: "user", content: input.message }],
+        memory: { thread: run.thread_id, resource: user.id },
+        requestContext: { [RUN_CONTEXT_KEY]: runContext(run, input.requestId, user), [SETTINGS_CONTEXT_KEY]: settings.runtime },
+      },
+      signal,
+    ),
+  );
+}
+
+// Settings come from the requester, not the approver: the run is still the requester's work.
+export async function resumeTurn(input: TurnInput & { runtimeRunId: string; toolCallId: string; resumeData: string; decision: RuntimeDecision }): Promise<TurnOutcome> {
+  const { run, user } = input;
+  const settings = await turnSettings(run.requested_by);
+  const open = (signal: AbortSignal) =>
+    runtimeClient.resumeStream(
       run.agent_id,
       {
         runId: input.runtimeRunId,
         toolCallId: input.toolCallId,
         resumeData: input.resumeData,
         memory: { thread: run.thread_id, resource: run.requested_by },
-        requestContext: {
-          [RUN_CONTEXT_KEY]: runContext(run, input.requestId, input.user),
-          // Read by the runtime's tool gateway: a gated step needs this decision, once.
-          [DECISION_CONTEXT_KEY]: input.decision,
-          [SETTINGS_CONTEXT_KEY]: settings.runtime,
-        },
+        requestContext: { [RUN_CONTEXT_KEY]: runContext(run, input.requestId, user), [DECISION_CONTEXT_KEY]: input.decision, [SETTINGS_CONTEXT_KEY]: settings.runtime },
       },
       signal,
     );
-  } catch (error) {
-    clearTimeout(turnTimer);
-    const message = errorMessage(error);
-    run = await runsRepository.update(run.id, { status: "FAILED", last_error: message, finished_at: new Date().toISOString() });
-    input.writer.send("error", { message });
-    input.writer.send("done", { runId: run.id, status: "FAILED", approvalId: null });
-    return { status: "FAILED", approvalId: null };
-  }
-
-  run = await runsRepository.update(run.id, { status: "RUNNING" });
-  await runsRepository.addStep({
-    runId: run.id,
-    seq: await runsRepository.nextSeq(run.id),
-    kind: "resumed",
-    toolName: "ask_user",
-    toolCallId: input.toolCallId,
-    payload: { by: input.user.id, role: input.user.role },
+  return runTurn(input, settings, open, async (current) => {
+    const resumed = await runsRepository.update(current.id, { status: "RUNNING" });
+    const seq = await runsRepository.nextSeq(current.id);
+    await runsRepository.addSteps([{ runId: current.id, seq, kind: "resumed", toolName: "ask_user", toolCallId: input.toolCallId, payload: { by: user.id, role: user.role } }]);
+    input.writer.send("run", { runId: current.id, runtimeRunId: input.runtimeRunId, status: "RUNNING" });
+    return resumed;
   });
-  input.writer.send("run", { runId: run.id, runtimeRunId: input.runtimeRunId, status: "RUNNING" });
-
-  try {
-    return await pipeRuntimeStream({ run, viewer: input.user, writer: input.writer, requestId: input.requestId, settings, stop: input.stop }, stream);
-  } finally {
-    clearTimeout(turnTimer);
-  }
 }

@@ -3,12 +3,12 @@ import type { AddressInfo } from "node:net";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import WebSocket from "ws";
 
-vi.mock("../audit/audit.service.js", () => ({ writeAudit: vi.fn(async () => undefined) }));
+vi.mock("../audit/index.js", () => ({ writeAudit: vi.fn(async () => undefined) }));
 vi.mock("../../lib/logger.js", () => ({ logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() }, errorMessage: (e: unknown) => String(e) }));
 
-const { BridgeHub } = await import("./hub.js");
-const { TicketStore } = await import("./tickets.js");
-const { attachBridge } = await import("./ws.js");
+const { BridgeHub } = await import("./bridge.hub.js");
+const { TicketStore } = await import("./bridge.tickets.js");
+const { attachBridge } = await import("./bridge.ws.js");
 
 function fakeSocket() {
   const sent: Record<string, unknown>[] = [];
@@ -86,6 +86,14 @@ describe("BridgeHub", () => {
 
     hub.receive(connection, JSON.stringify({ type: "tool.result", callId: second!.callId, ok: true, value: { name: "." } }));
     expect(await other).toMatchObject({ ok: true });
+  });
+});
+
+describe("callSummary", () => {
+  it("summarises paths and commands for the audit log", async () => {
+    const { callSummary } = await import("./bridge.service.js");
+    expect(callSummary({ op: "fs.writeFile", args: { path: "src/a.ts" } })).toEqual({ op: "fs.writeFile", path: "src/a.ts", command: null });
+    expect(callSummary({ op: "sandbox.exec", args: { command: "npm", args: ["test", "--", "-u"] } })).toEqual({ op: "sandbox.exec", path: null, command: "npm test -- -u" });
   });
 });
 

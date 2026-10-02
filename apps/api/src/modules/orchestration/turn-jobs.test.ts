@@ -5,7 +5,7 @@ const runs = new Map<string, { id: string; status: string; updated_at: string }>
 
 vi.mock("../../config/env.js", () => ({ env: { databaseUrl: undefined, turnConcurrency: 4, turnConcurrencyPerUser: 2 } }));
 vi.mock("../../lib/logger.js", () => ({ logger: { error: vi.fn(), warn: vi.fn(), info: vi.fn() }, errorMessage: (e: unknown) => (e instanceof Error ? e.message : String(e)) }));
-vi.mock("../approvals/approvals.service.js", () => ({ expireOverdue: vi.fn() }));
+vi.mock("../approvals/index.js", () => ({ expireOverdue: vi.fn() }));
 vi.mock("./run-stream.service.js", () => ({
   startTurn: vi.fn(async () => {
     throw new Error("runtime unreachable");
@@ -21,7 +21,7 @@ vi.mock("./run-events.js", () => ({
     async flush() {}
   },
 }));
-vi.mock("../runs/runs.repository.js", () => ({
+vi.mock("../runs/index.js", () => ({
   runsRepository: {
     findById: async (id: string) => runs.get(id) ?? null,
     update: async (id: string, patch: Record<string, unknown>) => Object.assign(runs.get(id)!, patch),

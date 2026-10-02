@@ -1,11 +1,9 @@
 import { badRequest, forbidden } from "../../lib/http/errors.js";
-import type { AuthedUser } from "../../middleware/auth.js";
+import type { AuthedUser } from "../../lib/auth/user.js";
+import { canChangeSharedSettings } from "../policy/index.js";
 import { SETTING_DEFINITIONS, type SettingDefinition, type SettingScope, type SettingValue } from "./settings.registry.js";
 
-// Pure resolution of stored settings into the values that apply to one user in one project.
-// The most specific scope wins: user > project > global > fallback. A "cap" setting (a budget)
-// never lets a user value exceed the project/global value - it is clamped, so lowering a project
-// limit later also lowers every personal value above it.
+// Most specific wins: user > project > global > fallback; capped user values are clamped.
 
 export interface StoredSetting {
   scope: SettingScope;
@@ -14,17 +12,16 @@ export interface StoredSetting {
   value: unknown;
 }
 
-export type SettingSource = SettingScope | "default";
+type SettingSource = SettingScope | "default";
 
-export interface EffectiveSetting {
+interface EffectiveSetting {
   value: SettingValue;
   source: SettingSource;
 }
 
 export type EffectiveSettings = Record<string, EffectiveSetting>;
 
-// A stored value that no longer passes its schema (bounds tightened in code) is ignored, never
-// applied.
+// A stored value that fails its current schema is ignored, never applied.
 function valid(def: SettingDefinition, value: unknown): SettingValue | undefined {
   const parsed = def.schema.safeParse(value);
   return parsed.success ? (parsed.data as SettingValue) : undefined;
@@ -58,8 +55,7 @@ export function resolveSettings(rows: StoredSetting[], target: { projectId: stri
   return result;
 }
 
-// What the runtime receives: only runtime-owned values that were set somewhere (not defaults), so
-// its own .env keeps working for everything the dashboard doesn't set.
+// Only runtime-owned values set somewhere, so the runtime's own .env still supplies defaults.
 export function runtimeSettings(effective: EffectiveSettings): Record<string, SettingValue> {
   const out: Record<string, SettingValue> = {};
   for (const def of SETTING_DEFINITIONS) {
@@ -69,7 +65,6 @@ export function runtimeSettings(effective: EffectiveSettings): Record<string, Se
   return out;
 }
 
-// The limit a user value is checked against when it is saved: the value that applies without it.
 export function capFor(def: SettingDefinition, effectiveWithoutUser: EffectiveSettings): number | null {
   if (!def.cap) return null;
   const value = effectiveWithoutUser[def.key]?.value;
@@ -81,12 +76,11 @@ export interface SettingTarget {
   scopeId: string | null;
 }
 
-// Who may change a setting at a scope: admins for global and project values, every user for their
-// own preferences only.
+// Admins change shared values; every user changes only their own preferences.
 export function authorizeTarget(def: SettingDefinition, target: SettingTarget, user: AuthedUser): SettingTarget {
   if (!def.scopes.includes(target.scope)) throw badRequest(`${def.key} can't be set at ${target.scope} scope`, { scopes: def.scopes });
   if (target.scope === "user") return { scope: "user", scopeId: user.id };
-  if (user.role !== "admin") throw forbidden("Only an admin can change shared settings");
+  if (!canChangeSharedSettings(user.role)) throw forbidden("Only an admin can change shared settings");
   if (target.scope === "global") return { scope: "global", scopeId: null };
   if (!target.scopeId) throw badRequest("A project setting needs a project id");
   return target;

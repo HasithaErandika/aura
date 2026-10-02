@@ -1,13 +1,8 @@
-import { supabaseAdmin } from "../../lib/supabase.js";
-import { upstreamError } from "../../lib/http/errors.js";
-
-// Agent quality from real outcomes (docs/ARCHITECTURE.md §8): how humans decided on each agent's
-// gates. Offline evals say whether a prompt is good on fixed cases; this says whether the drafts
-// people actually got were good enough to approve.
+import { dashboardRepository } from "./dashboard.repository.js";
 
 export interface AgentQualityRow {
   agent: string;
-  gates: number; // approval requests raised for this agent's output
+  gates: number;
   decided: number;
   approve: number;
   revise: number;
@@ -15,8 +10,8 @@ export interface AgentQualityRow {
   answer: number;
   expired: number;
   pending: number;
-  approvalRate: number | null; // approve / decided
-  firstPassRate: number | null; // threads where the first decision was approve / threads decided
+  approvalRate: number | null;
+  firstPassRate: number | null;
   medianDecisionMinutes: number | null;
 }
 
@@ -41,7 +36,7 @@ function median(values: number[]): number | null {
 export function aggregateQuality(rows: QualityInputRow[]): AgentQualityRow[] {
   const byAgent = new Map<string, QualityInputRow[]>();
   for (const row of rows) {
-    if (!row.producing_agent) continue; // a clarification question, not a gate on an agent's output
+    if (!row.producing_agent) continue;
     const list = byAgent.get(row.producing_agent) ?? [];
     list.push(row);
     byAgent.set(row.producing_agent, list);
@@ -52,7 +47,6 @@ export function aggregateQuality(rows: QualityInputRow[]): AgentQualityRow[] {
     const minutes: number[] = [];
     let expired = 0;
     let pending = 0;
-    // First decision per thread, in time order.
     const firstByThread = new Map<string, { at: string; decision: string }>();
     for (const row of list) {
       if (row.status === "PENDING") pending++;
@@ -83,11 +77,5 @@ export function aggregateQuality(rows: QualityInputRow[]): AgentQualityRow[] {
 
 export async function agentQuality(days: number): Promise<{ since: string; agents: AgentQualityRow[] }> {
   const since = new Date(Date.now() - days * 86_400_000).toISOString();
-  const { data, error } = await supabaseAdmin
-    .from("approval_requests")
-    .select("producing_agent, thread_id, status, requested_at, decided_at, approval_decisions (decision, created_at)")
-    .gte("requested_at", since)
-    .limit(5000);
-  if (error) throw upstreamError(error.message);
-  return { since, agents: aggregateQuality((data ?? []) as unknown as QualityInputRow[]) };
+  return { since, agents: aggregateQuality(await dashboardRepository.approvalsSince(since)) };
 }
