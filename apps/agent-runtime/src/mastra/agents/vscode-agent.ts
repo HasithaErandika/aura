@@ -11,6 +11,7 @@ import { VSCODE_AGENT_MODEL_ID } from './registry';
 import { loadSkillTool, projectContext } from './vscode-context';
 import { designDocsTool } from './vscode-design-docs';
 import { governedModels } from '../config/model-policy';
+import { redactionProcessor } from '../gateway/redaction';
 
 // The VS Code developer workspace (ADR-4): one agent whose workspace is the developer's open folder,
 // reached through the extension (bridge/) under their permission mode, rules and hooks. A Task goes
@@ -63,6 +64,7 @@ export const vscodeAgent = new Agent({
     delegate_to_pr: governed(delegateToPrTool),
   },
   model: governedModels(withGeminiFallback(VSCODE_AGENT_MODEL_ID, { reasoningFormat: 'hidden', reasoningEffort: 'low' })),
+  inputProcessors: [redactionProcessor],
   workspace: vscodeWorkspace,
   memory: new Memory({ options: { lastMessages: 20 } }),
   defaultOptions: {

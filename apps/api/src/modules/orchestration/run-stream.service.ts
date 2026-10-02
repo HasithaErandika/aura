@@ -167,6 +167,9 @@ async function pipeRuntimeStream(context: StreamContext, stream: AsyncGenerator<
     if (data.outcome === "blocked") {
       await systemAudit({ ...audit, action: "gateway.blocked", metadata: { tool: data.tool, mode: data.mode, reason: data.reason, message: data.message, approvalId: data.approvalId ?? null } });
     }
+    if (data.redactions && typeof data.redactions === "object" && Object.keys(data.redactions).length) {
+      await systemAudit({ ...audit, action: "gateway.redacted", metadata: { tool: data.tool, mode: data.mode, counts: preview(data.redactions) } });
+    }
     if (Array.isArray(data.findings) && data.findings.length) {
       await systemAudit({ ...audit, action: "gateway.untrusted_content", metadata: { tool: data.tool, mode: data.mode, outcome: data.outcome, findings: preview(data.findings) } });
     }

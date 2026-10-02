@@ -12,6 +12,8 @@ export interface DashboardSettings {
   evaluatorRounds?: number;
   // Which model providers may see this project's data (config/model-policy.ts).
   dataClass?: DataClass;
+  // Personal data removed before prompts as well as secrets (lib/redact.ts).
+  piiRedaction?: 'on' | 'off';
 }
 
 interface RequestContextLike {
@@ -26,6 +28,8 @@ export function parseDashboardSettings(raw: unknown): DashboardSettings {
       if (typeof value === 'number' && Number.isInteger(value) && value >= 1 && value <= 5) result.evaluatorRounds = value;
     } else if (key === 'governance.injectionPolicy') {
       if (value === 'warn' || value === 'block') result.injectionPolicy = value;
+    } else if (key === 'governance.piiRedaction') {
+      if (value === 'on' || value === 'off') result.piiRedaction = value;
     } else if (key === 'governance.dataClass') {
       if (DATA_CLASSES.includes(value as DataClass)) result.dataClass = value as DataClass;
     }

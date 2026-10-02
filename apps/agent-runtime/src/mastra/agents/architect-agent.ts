@@ -2,6 +2,7 @@ import { Agent } from '@mastra/core/agent';
 import { withGeminiFallback } from '../config/models';
 import { ARCHITECT_MODEL_ID } from './registry';
 import { governedModels } from '../config/model-policy';
+import { redactionProcessor } from '../gateway/redaction';
 
 // Drafts the architecture design from approved Stories across one or more Epics, covering APIs, data, security, AI, ADRs, and architecture tasks.
 // Invoked only by the Orchestrator at Gate 3; no direct tools are used.
@@ -48,6 +49,8 @@ Write like a professional design that will sit in Jira for engineering to build 
 When revising, apply the feedback and keep every other field unchanged.`,
 
   model: governedModels(withGeminiFallback(ARCHITECT_MODEL_ID, { reasoningFormat: 'hidden' })),
+
+  inputProcessors: [redactionProcessor],
   defaultOptions: {
     maxSteps: 1,
   },

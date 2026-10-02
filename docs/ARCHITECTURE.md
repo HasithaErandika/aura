@@ -396,6 +396,15 @@ agent and workflow calls follow the same policy.
 Every model that answers is recorded: gateway events carry the models used inside a tool call,
 and the API writes them on `approval.requested` and `run.turn_ended` audit rows (provider/model).
 
+**Redaction** (`gateway/redaction.ts`, `lib/redact.ts`). An input processor on every agent runs
+before each model call and replaces secrets in messages and tool results with a label naming
+them (`[REDACTED:github-token]`): private keys, cloud, GitHub, Slack, Stripe, model-provider and
+AURA tokens, JWTs, bearer tokens, URL passwords and `PASSWORD=`-style values. Emails, phone and
+card numbers go too unless the project sets *Remove personal data from prompts* to off; test
+addresses (`example.com`, `.test`) stay. Deterministic: no model sees the text first. A draft
+built from redacted content says what was removed, and the API audits `gateway.redacted` (counts
+by rule, never the values).
+
 ---
 
 ## 9. Status

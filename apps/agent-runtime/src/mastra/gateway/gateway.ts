@@ -9,6 +9,7 @@ import { riskOf } from './risk';
 import { collectFindings, findingsBanner, injectionPolicy, type Finding } from './untrusted';
 import { settingsFrom } from '../config/settings';
 import { withTurnContext } from '../config/turn-context';
+import { redactionBanner } from './redaction';
 
 // The tool gateway (docs/ARCHITECTURE.md §6.2).
 // Every delegate tool of the Orchestrator and the vscode-agent is wrapped by governed(), so each call goes through the
@@ -45,6 +46,8 @@ export interface GatewayEvent {
   findings?: Finding[];
   // provider/model ids that answered inside this call, for the audit trail (step 4.2).
   models?: string[];
+  // What redaction removed before the model saw it, by rule (step 4.3).
+  redactions?: Record<string, number>;
 }
 
 // Structural view of what a Mastra tool looks like to the gateway.
@@ -136,9 +139,11 @@ export async function runGoverned(tool: ToolLike, input: Record<string, unknown>
   };
   const execute = tool.execute as (input: unknown, context: unknown) => Promise<unknown>;
   let models: string[] = [];
+  let redactions: Record<string, number> = {};
   const call = async () => {
     const ran = await withTurnContext(context.requestContext, () => execute(input, context));
     models = ran.models;
+    redactions = ran.redactions;
     return ran.result;
   };
 
@@ -164,8 +169,9 @@ export async function runGoverned(tool: ToolLike, input: Record<string, unknown>
   }
 
   const record = result && typeof result === 'object' ? (result as Record<string, unknown>) : null;
-  if (record && findings.length && typeof record.markdown === 'string') {
-    result = { ...record, markdown: `${findingsBanner(findings)}\n${record.markdown}` };
+  if (record && typeof record.markdown === 'string' && (findings.length || Object.keys(redactions).length)) {
+    const banners = [findings.length ? findingsBanner(findings) : '', Object.keys(redactions).length ? redactionBanner(redactions) : ''].filter(Boolean).join('\n');
+    result = { ...record, markdown: `${banners}\n${record.markdown}` };
   }
   result = await deliverDraft(tool.id, mode, result, context);
 
@@ -176,7 +182,7 @@ export async function runGoverned(tool: ToolLike, input: Record<string, unknown>
   metrics.toolDuration.observe({ tool: tool.id, mode }, (performance.now() - started) / 1000);
   // Every gated step, every finding and every model call is worth a run step (the audit records
   // which provider saw the data); routine low-risk calls without a model only go to the log.
-  const event: GatewayEvent = { ...base, outcome, durationMs: elapsed(), ...(findings.length ? { findings } : {}), ...(models.length ? { models } : {}) };
+  const event: GatewayEvent = { ...base, outcome, durationMs: elapsed(), ...(findings.length ? { findings } : {}), ...(models.length ? { models } : {}), ...(Object.keys(redactions).length ? { redactions } : {}) };
   if (risk.tier === 'medium' || findings.length || models.length) await emit(context, event);
   else console.log(`[aura-gateway] ${JSON.stringify({ ...event, findings: 0 })}`);
   return result;

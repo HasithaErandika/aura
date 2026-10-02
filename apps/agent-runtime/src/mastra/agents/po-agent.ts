@@ -2,6 +2,7 @@ import { Agent } from '@mastra/core/agent';
 import { withGeminiFallback } from '../config/models';
 import { PO_MODEL_ID } from './registry';
 import { governedModels } from '../config/model-policy';
+import { redactionProcessor } from '../gateway/redaction';
 
 // Drafts and revises Epics as structured JSON without using tools or writing to Jira.
 // Invoked only by the Orchestrator at Gate 1; Jira filing happens through `delegate_to_po` after human approval.
@@ -32,6 +33,8 @@ placeholder:
 When revising, apply the feedback and keep every other field unchanged.`,
 
   model: governedModels(withGeminiFallback(PO_MODEL_ID, { reasoningFormat: 'hidden' })),
+
+  inputProcessors: [redactionProcessor],
   defaultOptions: {
     maxSteps: 1,
   },

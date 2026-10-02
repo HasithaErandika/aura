@@ -8,6 +8,7 @@ import { ORCHESTRATOR_MODEL_ID } from './registry';
 import { governed } from '../gateway/gateway';
 import { answeringModel, trackTokens, type TokenUsage } from '../store/token-ledger';
 import { governedModels } from '../config/model-policy';
+import { redactionProcessor } from '../gateway/redaction';
 
 // The Orchestrator's tools; each delegate tool goes through the gateway, ask_user is the gate itself.
 export const orchestratorTools = {
@@ -72,7 +73,7 @@ Resuming: if the human is vague ("continue", "work on <epicKey>"), ask what they
   model: governedModels(withGeminiFallback(ORCHESTRATOR_MODEL_ID, { reasoningFormat: 'hidden', reasoningEffort: 'low' })),
   tools: orchestratorTools,
   // Earlier turns' tool calls reach the model as their compact results only (draft ids, keys).
-  inputProcessors: [new ToolCallFilter({ preserveModelOutput: true })],
+  inputProcessors: [new ToolCallFilter({ preserveModelOutput: true }), redactionProcessor],
   memory: new Memory({
     options: {
       // Drafts go to the human directly, so 16 messages cover a whole gate conversation.

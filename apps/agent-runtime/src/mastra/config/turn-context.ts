@@ -11,18 +11,25 @@ interface RequestContextLike {
 interface TurnStore {
   requestContext: RequestContextLike | undefined;
   models: Set<string>;
+  redactions: Record<string, number>;
 }
 
 const storage = new AsyncLocalStorage<TurnStore>();
 
-export async function withTurnContext<T>(requestContext: RequestContextLike | undefined, fn: () => Promise<T>): Promise<{ result: T; models: string[] }> {
-  const store: TurnStore = { requestContext, models: new Set() };
+export async function withTurnContext<T>(requestContext: RequestContextLike | undefined, fn: () => Promise<T>): Promise<{ result: T; models: string[]; redactions: Record<string, number> }> {
+  const store: TurnStore = { requestContext, models: new Set(), redactions: {} };
   const result = await storage.run(store, fn);
-  return { result, models: [...store.models] };
+  return { result, models: [...store.models], redactions: store.redactions };
 }
 
 export function turnRequestContext(): RequestContextLike | undefined {
   return storage.getStore()?.requestContext;
+}
+
+export function noteRedactions(counts: Record<string, number>): void {
+  const store = storage.getStore();
+  if (!store) return;
+  for (const [rule, n] of Object.entries(counts)) store.redactions[rule] = (store.redactions[rule] ?? 0) + n;
 }
 
 export function noteModel(model: string): void {

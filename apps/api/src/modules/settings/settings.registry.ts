@@ -88,6 +88,16 @@ export const SETTING_DEFINITIONS: readonly SettingDefinition[] = [
     fallback: () => "public",
   },
   {
+    key: "governance.piiRedaction",
+    group: "governance",
+    label: "Remove personal data from prompts",
+    description: "on: emails, phone numbers and card numbers are replaced with a label before any model sees them (test addresses such as user@example.com stay). Secrets and keys are always removed, whatever this says.",
+    owner: "runtime",
+    scopes: SHARED,
+    ...choice(["on", "off"]),
+    fallback: () => "on",
+  },
+  {
     key: "governance.vscodeModes",
     group: "governance",
     label: "VS Code permission modes",

@@ -231,7 +231,7 @@ models, inside a budget, on a deployed environment with alerts. Email sign-in st
 |---|---|---|
 | 4.1 ✅ | `project_members` table, project-scoped grants in `policy.ts`, RLS on runs, approvals, design documents and task PRs | People see only their projects |
 | 4.2 ✅ | Model policy: provider allow-list per project data class, contracted providers first, free tier only for `public` projects; provider and model on every audit row | Data stays with approved processors |
-| 4.3 | Redaction before every prompt: secrets, keys and configured PII patterns, with findings on the draft | No secret leaves the company |
+| 4.3 ✅ | Redaction before every prompt: secrets, keys and configured PII patterns, with findings on the draft | No secret leaves the company |
 | 4.4 | Budgets per run, user and project, enforced in the gateway; warnings at 80 %; Admin → Usage by department | Predictable cost |
 | 4.5 | Dockerfiles for api, runtime and web; Terraform for one cloud; staging and production; migrations applied and recorded by CI | Repeatable deployment |
 | 4.6 | OpenTelemetry tracing across api, runtime and the bridge; log shipping; alerts on failed turns, stuck gates and CI report errors | Problems are seen before users report them |

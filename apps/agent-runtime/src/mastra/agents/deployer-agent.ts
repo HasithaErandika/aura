@@ -2,6 +2,7 @@ import { Agent } from '@mastra/core/agent';
 import { withGeminiFallback } from '../config/models';
 import { DEPLOYER_MODEL_ID } from './registry';
 import { governedModels } from '../config/model-policy';
+import { redactionProcessor } from '../gateway/redaction';
 
 // Drafts release notes, a change plan, and a rollback plan from an Epic's filed Tasks. Invoked
 // only by the Orchestrator at Gate 8 - plan-only, on purpose (contracts/deploy-drafts.ts): there
@@ -32,6 +33,8 @@ When revising, apply the feedback and keep every other field unchanged unless th
 to touch it.`,
 
   model: governedModels(withGeminiFallback(DEPLOYER_MODEL_ID, { reasoningFormat: 'hidden' })),
+
+  inputProcessors: [redactionProcessor],
   defaultOptions: {
     maxSteps: 1,
   },
