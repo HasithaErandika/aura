@@ -136,6 +136,11 @@ export function createAuraClient(options: AuraClientOptions) {
       list: () => request<{ projects: Project[] }>("GET", "/projects").then((r) => r.projects),
     },
 
+    settings: {
+      // What applies to the signed-in user in a project: { key: { value, source } }.
+      effective: (projectId?: string) => request<{ projectId: string | null; settings: Record<string, { value: string | number | boolean; source: string }> }>("GET", `/settings/effective${q({ projectId })}`).then((r) => r.settings),
+    },
+
     bridge: {
       status: () => request<BridgeStatus>("GET", "/bridge/status"),
     },

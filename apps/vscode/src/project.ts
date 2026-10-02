@@ -2,7 +2,7 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import * as vscode from "vscode";
 import type { Project } from "@aura/client";
-import { PROJECT_FILE, STACKS, auraMemory, ciWorkflow, parseGitRemote, remoteMatches, withAuraIgnores, type ProjectConfig, type Stack } from "./project-setup.js";
+import { PROJECT_FILE, STACKS, auraMemory, ciWorkflow, defaultSettings, parseGitRemote, remoteMatches, withAuraIgnores, type ProjectConfig, type Stack } from "./project-setup.js";
 import type { Session } from "./session.js";
 
 // Connect this folder to an AURA project, or create a new project here (plan §9). Everything runs
@@ -125,6 +125,7 @@ export async function initializeProject(session: Session): Promise<void> {
   await vscode.workspace.fs.createDirectory(vscode.Uri.joinPath(folder.uri, ".github", "workflows"));
   await writeText(folder.uri, ".github/workflows/aura-ci.yml", ciWorkflow(stacks));
   await writeText(folder.uri, ".aura/AURA.md", auraMemory(config, stacks));
+  await writeText(folder.uri, ".aura/settings.json", defaultSettings(stacks));
 
   const commit = `git init -b main && git add -A && git commit -m "chore: initialize ${project.key} with AURA" && git branch development`;
   if ((await runTask("AURA: git init", commit, cwd)) !== 0) {
@@ -141,5 +142,5 @@ export async function initializeProject(session: Session): Promise<void> {
     if (code !== 0) void vscode.window.showWarningMessage("AURA: the push failed. The project is ready locally; push main and development when the remote is ready.");
   }
   await session.refresh();
-  void vscode.window.showInformationMessage(`AURA: ${project.key} is initialized: ${stacks.map((s) => STACKS[s].folder).join(" and ")}, main and development branches, CI and .aura/.`);
+  void vscode.window.showInformationMessage(`AURA: ${project.key} is initialized: ${stacks.map((s) => STACKS[s].folder).join(" and ")}, main and development branches, CI and .aura/ (project memory and settings).`);
 }

@@ -2,27 +2,39 @@ import * as vscode from "vscode";
 import { BridgeClient, type Approval, type BridgeState } from "./bridge-client.js";
 import { ChatViewProvider, type ChatActivity } from "./chat/view.js";
 import { WorkspaceExecutor } from "./executor.js";
-import { PermissionPolicy } from "./permissions.js";
+import { Governance } from "./governance.js";
+import { MODE_LABELS, PermissionPolicy } from "./permissions.js";
 import { connectRepository, initializeProject } from "./project.js";
 import { Session } from "./session.js";
 import { TasksProvider, type TaskNode } from "./tasks-tree.js";
 
 // AURA for VS Code (ADR-4, docs/plans/aura-vscode-agents.md). V1: browser sign-in, the Tasks view
 // (Epic → Stories and Tasks), the chat panel with the VS Code agent, Stop / Resume / Open Run in
-// Web, and Connect Repository / Initialize Project. Agents run in the AURA cloud; every file change and command they make runs
-// here, inside the open folder, after your approval.
+// Web, and Connect Repository / Initialize Project. V2: permission modes, project rules and hooks
+// (.aura/settings.json), background processes. Agents run in the AURA cloud; every file change
+// and command they make runs here, inside the open folder, under those rules.
 
 let bridge: BridgeClient | null = null;
+let executor: WorkspaceExecutor | null = null;
 let bridgeState: BridgeState = "disconnected";
 const policy = new PermissionPolicy();
 
 export function activate(context: vscode.ExtensionContext) {
   const output = vscode.window.createOutputChannel("AURA");
   const status = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 100);
+  const modeStatus = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 99);
   const session = new Session(context);
-  context.subscriptions.push(output, status);
+  context.subscriptions.push(output, status, modeStatus);
 
   const log = (line: string) => output.appendLine(`[${new Date().toLocaleTimeString()}] ${line}`);
+  const governance = new Governance(context, session, policy, log);
+  const showMode = () => {
+    modeStatus.text = { plan: "$(eye) Plan", default: "$(shield) Ask", acceptEdits: "$(edit) Accept edits" }[governance.mode];
+    modeStatus.tooltip = `AURA permission mode: ${MODE_LABELS[governance.mode]}. Click to change.`;
+    modeStatus.command = "aura.setMode";
+    modeStatus.show();
+  };
+  context.subscriptions.push(governance.onDidChange(showMode), governance.watch());
 
   let activity: ChatActivity = { busy: false, stopping: false, runId: null, title: "" };
   const showStatus = () => {
@@ -44,8 +56,8 @@ export function activate(context: vscode.ExtensionContext) {
   };
 
   const ask = async (question: string, detail: string): Promise<Approval> => {
-    const choice = await vscode.window.showWarningMessage(question, { modal: true, detail }, "Allow once", "Allow for this session", "Deny");
-    return choice === "Allow once" ? "once" : choice === "Allow for this session" ? "session" : "deny";
+    const choice = await vscode.window.showWarningMessage(question, { modal: true, detail }, "Allow once", "Allow for this session", "Allow for this project", "Deny");
+    return choice === "Allow once" ? "once" : choice === "Allow for this session" ? "session" : choice === "Allow for this project" ? "project" : "deny";
   };
 
   const connect = async (): Promise<boolean> => {
@@ -56,14 +68,18 @@ export function activate(context: vscode.ExtensionContext) {
     if (bridge && bridgeState !== "disconnected") return true;
     bridge?.stop();
     policy.reset();
+    await governance.reload();
+    executor ??= new WorkspaceExecutor(folder.uri.fsPath);
     bridge = new BridgeClient({
       apiUrl: session.apiUrl,
       token: () => Promise.resolve(session.token()),
-      executor: new WorkspaceExecutor(folder.uri.fsPath),
+      executor,
       policy,
       workspaceName: folder.name,
       ask,
       log,
+      hooks: () => governance.hooks,
+      allowForProject: (rule) => governance.allowForProject(rule),
       onState: (state) => {
         bridgeState = state;
         showStatus();
@@ -138,6 +154,11 @@ export function activate(context: vscode.ExtensionContext) {
     vscode.commands.registerCommand("aura.refreshTasks", () => tasks.refresh()),
     vscode.commands.registerCommand("aura.newChat", () => chat.newChat()),
     vscode.commands.registerCommand("aura.stop", () => chat.stop()),
+    vscode.commands.registerCommand("aura.setMode", () => governance.pickMode()),
+    vscode.commands.registerCommand("aura.stopBackgroundProcesses", () => {
+      executor?.killAll();
+      log("■ Stopped every background process this window started.");
+    }),
     vscode.commands.registerCommand("aura.resume", () => chat.resume()),
     vscode.commands.registerCommand("aura.openRunInWeb", () => {
       const runId = chat.current.runId;
@@ -157,11 +178,14 @@ export function activate(context: vscode.ExtensionContext) {
   );
 
   showStatus();
+  showMode();
   void session.refresh().then(async () => {
+    await governance.reload();
     if (await session.token()) await connect();
   });
 }
 
 export function deactivate() {
   bridge?.stop();
+  executor?.killAll();
 }

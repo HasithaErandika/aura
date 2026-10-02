@@ -7,10 +7,13 @@ import { bridgeCaller } from '../bridge/client';
 import { BridgeFilesystem, BridgeSandbox } from '../bridge/workspace';
 import { answeringModel, trackTokens, type TokenUsage } from '../store/token-ledger';
 import { VSCODE_AGENT_MODEL_ID } from './registry';
+import { loadSkillTool, projectContext } from './vscode-context';
 
-// V0 of the VS Code developer workspace (ADR-4, docs/plans/aura-vscode-agents.md): one agent
-// whose workspace is the folder open in the developer's VS Code. Files and commands are reached
-// through the AURA extension (bridge/), which asks the developer before any write or command.
+// The VS Code developer workspace (ADR-4, docs/plans/aura-vscode-agents.md): one agent whose
+// workspace is the folder open in the developer's VS Code. Files and commands are reached through
+// the AURA extension (bridge/), which applies the developer's permission mode and the project's
+// rules and hooks. V2: native grep, background processes, project memory (.aura/AURA.md) and
+// skills (vscode-context.ts).
 // The workspace is resolved per run from the request context apps/api sends, so each run reaches
 // the VS Code of the developer who started it.
 
@@ -34,18 +37,29 @@ export const vscodeWorkspace = new Workspace({
   sandboxCacheKey: ({ requestContext }) => runFrom(requestContext)?.runId,
 });
 
+const bridgeFor = (requestContext: { get: (key: string) => unknown }) => bridgeCaller(runIdOf(requestContext));
+
+const INSTRUCTIONS = `You are AURA's coding agent, working in the developer's own VS Code workspace.
+
+- Use the workspace tools to read, search (grep), list, edit and write files and to run commands. Paths are relative to the workspace folder.
+- Look before you change: read the relevant files first. Prefer edit_file for small changes to existing files.
+- The developer's permission mode and the project's rules decide what runs: some actions ask the developer, some are refused. If one is refused, do not retry it or work around it; explain what you wanted to do and ask how to proceed. In plan mode you can only read: propose a plan instead of changing anything.
+- Prefer the project's own scripts (npm test, npm run lint, npm run build) over ad-hoc commands. Start dev servers and long runs with background: true, then read them with get_process_output, and stop them when done.
+- A commit may be refused by the project's beforeCommit hooks: fix what they report, then commit again.
+- Report results from real command output only. Never claim a test passed without running it.
+- Be brief.`;
+
 export const vscodeAgent = new Agent({
   id: 'vscode-agent',
   name: 'VS Code Agent',
   description: "Works in the folder open in the developer's VS Code: reads files, edits them and runs commands, each one through the AURA extension.",
-  instructions: `You are AURA's coding agent, working in the developer's own VS Code workspace.
-
-- Use the workspace tools to read files, list folders, edit files and run commands. Paths are relative to the workspace folder.
-- Look before you change: read the relevant files first.
-- The developer approves every file change and command in VS Code. If one is refused, do not retry it; explain what you wanted to do and ask how to proceed.
-- Prefer the project's own scripts (npm test, npm run lint, npm run build) over ad-hoc commands.
-- Report results from real command output only. Never claim a test passed without running it.
-- Be brief.`,
+  // Project memory and the skill list are read from the developer's machine for every turn.
+  instructions: async ({ requestContext }) => {
+    if (!runFrom(requestContext)) return INSTRUCTIONS;
+    const project = await projectContext(bridgeFor(requestContext)).catch(() => '');
+    return project ? `${INSTRUCTIONS}\n\n${project}` : INSTRUCTIONS;
+  },
+  tools: { load_skill: loadSkillTool(bridgeFor) },
   model: withGeminiFallback(VSCODE_AGENT_MODEL_ID, { reasoningFormat: 'hidden', reasoningEffort: 'low' }),
   workspace: vscodeWorkspace,
   memory: new Memory({ options: { lastMessages: 20 } }),

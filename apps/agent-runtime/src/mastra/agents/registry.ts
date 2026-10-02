@@ -153,9 +153,9 @@ export const AGENT_MANIFEST: Record<AgentId, AgentManifestEntry> = {
     label: 'VS Code Agent',
     modelId: VSCODE_AGENT_MODEL_ID,
     delegatesTo: [],
-    note: "V0 of the VS Code developer workspace (ADR-4): a Mastra Workspace whose filesystem and sandbox are the folder open in the developer's VS Code, reached through apps/api and the AURA extension (bridge/). The extension asks the developer before every write and command. Developers run it directly; it has no gates of its own.",
-    agentVersion: '0.1.0',
-    promptVersion: '1.0.0',
+    note: "The VS Code developer workspace (ADR-4): a Mastra Workspace whose filesystem and sandbox are the folder open in the developer's VS Code, reached through apps/api and the AURA extension (bridge/). The extension applies the developer's permission mode and the project's rules and hooks before every write and command. V2 adds native grep, background processes, project memory (.aura/AURA.md) and skills (load_skill). Developers run it directly; it has no gates of its own.",
+    agentVersion: '0.2.0', // V2: grep, background processes, load_skill
+    promptVersion: '2.0.0', // project memory and skills in the instructions; modes, hooks, background runs
   },
   'ci-tool': {
     label: 'CI (delegate_to_ci, local run)',

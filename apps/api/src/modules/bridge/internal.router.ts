@@ -54,7 +54,7 @@ internalRouter.post(
 
     // Every change made on a developer's machine is in the audit log; reads only in the server log.
     const changes = !READ_ONLY_OPS.includes(body.op);
-    const summary = { op: body.op, path: body.args.path ?? body.args.src ?? null, command: body.op === "sandbox.exec" ? [body.args.command, ...((body.args.args as unknown[]) ?? [])].join(" ").slice(0, 300) : null };
+    const summary = { op: body.op, path: body.args.path ?? body.args.src ?? null, command: body.op === "sandbox.exec" || body.op === "proc.spawn" ? [body.args.command, ...((body.args.args as unknown[]) ?? [])].join(" ").slice(0, 300) : null };
     logger.info("bridge call", { runId: run.id, ...summary, ok: outcome.ok, durationMs: outcome.durationMs, error: outcome.ok ? undefined : outcome.error.code });
     if (changes) {
       await writeAudit({

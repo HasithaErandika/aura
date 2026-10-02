@@ -57,7 +57,7 @@ flowchart LR
 | `apps/web` | React, Vite, Tailwind | Approval inbox, agent chat, runs, Jira view, Project Files, admin | 5173 |
 | `apps/api` | Express | Auth, policy, approvals, audit, settings, Jira reads, terminal tickets | 4000 |
 | `apps/agent-runtime` | Mastra | Orchestrator, agents, workflows, tool gateway, drafts, terminal | 4111 / 4112 |
-| `apps/vscode` | VS Code extension | The developer's client (V1): Tasks, chat with the agent, Stop / Resume; agents' file and command calls run here, after a permission check | — |
+| `apps/vscode` | VS Code extension | The developer's client (V2): Tasks, chat with the agent, Stop / Resume, permission modes, project rules and hooks; agents' file and command calls run here | — |
 | `packages/aura-client` | TypeScript | Typed REST + SSE client, used by the extension | — |
 | `packages/aura-bridge` | TypeScript | Bridge protocol between the cloud and the extension | — |
 
@@ -308,6 +308,12 @@ The `vscode-agent` uses a Mastra `Workspace` whose filesystem and sandbox live o
 machine ([ADR-4](adr/0004-vscode-developer-workspace.md)). The extension connects with a 60-second
 single-use ticket (`POST /bridge/tickets`, developers only). Every change it makes is audited
 (`bridge.tool.call`).
+
+The agent gets Mastra's workspace tools on this bridge (files, `grep` run on the developer's
+machine, commands, background processes) and `load_skill`. Each turn starts with the project's
+`.aura/AURA.md` and the list of skills (AURA's library and `.aura/skills/`). The extension applies
+the developer's permission mode, the project's rules and hooks (`.aura/settings.json`) and the
+built-in refusals before anything runs.
 
 **Stop.** `POST /runs/:id/stop` (the requester or an admin) cancels the run's tool call on the
 developer's machine (`run.cancel`), refuses its next calls, and aborts the turn, which ends as

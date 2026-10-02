@@ -8,7 +8,7 @@
 //   runtime ──HTTP──▶ apps/api ──WebSocket──▶ VS Code extension
 //           ◀────────          ◀──────────── (tool.result)
 
-export const BRIDGE_PROTOCOL_VERSION = 1;
+export const BRIDGE_PROTOCOL_VERSION = 2;
 
 // Every operation the cloud can ask the extension to perform. Paths are relative to the open
 // workspace folder; the extension refuses anything that resolves outside it.
@@ -24,12 +24,18 @@ export const BRIDGE_OPS = [
   "fs.readdir",
   "fs.exists",
   "fs.stat",
+  "fs.grep",
   "sandbox.exec",
+  // Background processes (dev servers, long test runs): start, read output, stop.
+  "proc.spawn",
+  "proc.read",
+  "proc.kill",
+  "proc.list",
 ] as const;
 export type BridgeOp = (typeof BRIDGE_OPS)[number];
 
 // Operations that change nothing on the developer's machine.
-export const READ_ONLY_OPS: readonly BridgeOp[] = ["fs.readFile", "fs.readdir", "fs.exists", "fs.stat"];
+export const READ_ONLY_OPS: readonly BridgeOp[] = ["fs.readFile", "fs.readdir", "fs.exists", "fs.stat", "fs.grep", "proc.read", "proc.list"];
 
 export interface FsEntry {
   name: string;
@@ -56,6 +62,34 @@ export interface ExecResult {
   stderrTruncated: boolean;
 }
 
+export interface GrepMatch {
+  line: number; // 1-based
+  column: number; // 0-based, UTF-16
+  text: string;
+  before?: string[];
+  after?: string[];
+}
+
+export interface GrepFile {
+  path: string; // relative to the search root, POSIX separators
+  matches: GrepMatch[];
+}
+
+export interface ProcessInfo {
+  pid: string;
+  command: string;
+  running: boolean;
+  exitCode?: number;
+}
+
+// Output since `offset` (characters already read), so polling never resends what was seen.
+export interface ProcessOutput extends ProcessInfo {
+  stdout: string;
+  stderr: string;
+  stdoutOffset: number;
+  stderrOffset: number;
+}
+
 // Arguments and results per operation. File contents travel as UTF-8 text or base64.
 export interface BridgeOpMap {
   "fs.readFile": { args: { path: string; encoding?: "utf8" | "base64" }; result: { content: string; encoding: "utf8" | "base64" } };
@@ -69,7 +103,15 @@ export interface BridgeOpMap {
   "fs.readdir": { args: { path: string; recursive?: boolean }; result: { entries: FsEntry[] } };
   "fs.exists": { args: { path: string }; result: { exists: boolean } };
   "fs.stat": { args: { path: string }; result: FsStat };
+  "fs.grep": {
+    args: { pattern: string; path: string; caseSensitive?: boolean; includeHidden?: boolean; maxCountPerFile?: number; maxTotalMatches?: number; contextLines?: number };
+    result: { files: GrepFile[]; truncated: boolean };
+  };
   "sandbox.exec": { args: { command: string; args?: string[]; cwd?: string; timeoutMs?: number }; result: ExecResult };
+  "proc.spawn": { args: { command: string; cwd?: string; timeoutMs?: number }; result: ProcessInfo };
+  "proc.read": { args: { pid: string; stdoutOffset?: number; stderrOffset?: number }; result: ProcessOutput };
+  "proc.kill": { args: { pid: string }; result: { killed: boolean } };
+  "proc.list": { args: Record<string, never>; result: { processes: ProcessInfo[] } };
 }
 
 export type BridgeArgs<O extends BridgeOp> = BridgeOpMap[O]["args"];

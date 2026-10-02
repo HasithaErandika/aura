@@ -25,7 +25,7 @@ export function remoteMatches(remote: { owner: string; name: string } | null, re
   return remote.owner.toLowerCase() === registered.owner.toLowerCase() && remote.name.toLowerCase() === registered.name.toLowerCase();
 }
 
-const AURA_IGNORES = [".aura/worktrees/", ".aura/council/"];
+const AURA_IGNORES = [".aura/worktrees/", ".aura/council/", ".aura/settings.local.json"];
 
 // .gitignore with AURA's local folders added once.
 export function withAuraIgnores(gitignore: string): string {
@@ -99,4 +99,19 @@ ${stacks.map((s) => `- \`cd ${STACKS[s].folder} && npm test\`, \`npm run lint\`,
 - \`main\`: releases only. \`development\`: integration; every Task opens a pull request into it.
 - Task branches: \`feat/<EPIC>/<TASK>\`, parallel parts \`feat/<EPIC>/<TASK>_s1\`.
 `;
+}
+
+// The project's starting .aura/settings.json: each app's checks run without asking, lint before
+// every commit, secrets never read.
+export function defaultSettings(stacks: Stack[]): string {
+  const dirs = stacks.map((s) => STACKS[s].folder);
+  return `${JSON.stringify(
+    {
+      defaultMode: "default",
+      permissions: { allow: [], ask: ["Edit(package.json)", "Edit(.github/**)"], deny: ["Read(**/.env)", "Read(**/.env.local)", "Read(**/.env.*.local)"] },
+      hooks: { afterEdit: [], beforeCommit: dirs.map((d) => `cd ${d} && npm run lint --if-present`) },
+    },
+    null,
+    2,
+  )}\n`;
 }

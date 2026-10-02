@@ -2,7 +2,7 @@
   "name": "aura-vscode",
   "displayName": "AURA",
   "description": "AURA for developers: pick a Jira Task, work on it with AURA's agents in a chat panel, and keep every file change and command under your approval. Agents run in the AURA cloud; your code stays on your machine.",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "private": true,
   "publisher": "aura",
   "license": "UNLICENSED",
@@ -119,6 +119,16 @@
         "icon": "$(globe)"
       },
       {
+        "command": "aura.setMode",
+        "title": "Set Permission Mode",
+        "category": "AURA"
+      },
+      {
+        "command": "aura.stopBackgroundProcesses",
+        "title": "Stop Background Processes",
+        "category": "AURA"
+      },
+      {
         "command": "aura.connectRepository",
         "title": "Connect Repository",
         "category": "AURA"
@@ -193,7 +203,16 @@
           "description": "The AURA web app URL, for Open Run in Web. Leave empty to use the address of your last browser sign-in."
         }
       }
-    }
+    },
+    "jsonValidation": [
+      {
+        "fileMatch": [
+          ".aura/settings.json",
+          ".aura/settings.local.json"
+        ],
+        "url": "./media/settings.schema.json"
+      }
+    ]
   },
   "scripts": {
     "build": "esbuild src/extension.ts --bundle --platform=node --format=cjs --target=node20 --external:vscode --outfile=dist/extension.cjs",

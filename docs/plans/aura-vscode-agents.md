@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | **Approved 2026-10-02** · Parts B, C, V0 and V1 built (V1 live check pending) · V2 next |
+| **Status** | **Approved 2026-10-02** · Parts B, C, V0, V1 and V2 built (live checks pending) · V3 next |
 | **Target** | AI agent harness for a leading Sri Lankan technology company |
 | **Date** | 2026-10-02 |
 | **Needs** | ADR-4 (supersedes ADR-1, ADR-2 D1–D2/D5, ADR-3 D2/D8) |
@@ -327,7 +327,7 @@ flowchart LR
 | Part B, C | Postgres state; queued, resumable runs | A run survives a runtime restart |
 | V0 | ADR-4. Spike: API WebSocket relay + Mastra `Workspace` bridge provider; `read_file` and `execute_command` round-trip with a permission prompt | 🟢 **Passed** (see §12.1) |
 | V1 | Extension base: device-flow sign-in, Tasks view, AURA panel with streaming, Stop / Resume / Open Run in Web, status bar with the active run, Initialize / Connect Repository | 🟡 Built and unit-tested (§12.2); live check in VS Code pending. Tasks are not yet linked to Stories in Jira (V3) |
-| V2 | Full tool set, permission engine, modes, hooks, `.aura/AURA.md`, skills | One coder implements a Task end-to-end |
+| V2 | Full tool set, permission engine, modes, hooks, `.aura/AURA.md`, skills | 🟡 Built and unit-tested (§12.3); the end-to-end Task with a live model is pending |
 | V3 | Design docs, ADRs, SRS, QA plans in Postgres; Architect specialists; Design documents and QA web pages (Markdown editor, no CodeMirror) | Gate 3 writes nothing to disk; Project Files removed |
 | V4 | Router, coder specialists, Evaluator loop, Plan and Review views | A Bug goes to issue-solver; Gate 5 review in the diff editor |
 | V5 | Task Planner, parallel sub-branches, merge step | A two-scope Task runs as `_s1` + `_s2` and merges |
@@ -376,9 +376,22 @@ Postgres). The agent turn with a live model and the VS Code UI itself are verifi
 | Open Run in Web | ✅ Opens `/app/runs/<id>` (`aura.webUrl`, else the last sign-in's address) |
 | Status bar | ✅ Connection, project, and the Task the agent is working on (click to stop) |
 | Initialize Project, Connect Repository | ✅ |
-| Permission prompt | ✅ Allow once · Allow for this session · Deny. "Allow for this project" comes with the rules files in V2 |
-| Typing while the agent works | ⏳ V2 (notes to a running turn) |
+| Permission prompt | ✅ Allow once · Allow for this session · Allow for this project (V2) · Deny |
+| Typing while the agent works | ⏳ V4, with the Evaluator loop (notes to a running turn) |
 | Plan, Review, PR views | ⏳ V4, V6 |
+
+### 12.3 V2 scope as built
+
+| Plan item (§5–§7) | Built |
+|---|---|
+| Tools | ✅ Mastra's workspace tools on the bridge: `read_file`, `write_file`, `edit_file`, `list_files` (glob patterns), `grep` (searched on the developer's machine in one call, `fs.grep`), `file_stat`, `mkdir`, `delete`, `execute_command` (with `background: true`), `get_process_output`, `kill_process`; plus `load_skill` |
+| Background processes | ✅ `proc.spawn/read/list/kill`: dev servers and long runs don't hit the 4.5-minute call limit; output is read when asked, never polled idle; stopped when VS Code closes or with **AURA: Stop Background Processes** |
+| Modes | ✅ Plan (read-only), Default (ask), Accept edits; status bar and **AURA: Set Permission Mode**; Admin → Settings → *VS Code permission modes* restricts them per project |
+| Rules | ✅ `.aura/settings.json` (team) and `.aura/settings.local.json` (yours, git-ignored): `Bash(cmd)`, `Bash(cmd:*)`, `Edit(glob)`, `Read(glob)` in `allow` / `ask` / `deny`; built-in denies always win; JSON schema in VS Code |
+| Hooks | ✅ `afterEdit` (with `{file}`), `beforeCommit` (a failure stops the commit and tells the agent why). Upload of test reports moves to V6 with the CI lane |
+| Project memory | ✅ `.aura/AURA.md` read at the start of every turn; refused if it carries an injection pattern |
+| Skills | ✅ Library: `nestjs-module`, `react-feature`, `debug-failing-test`, `write-unit-tests`, `playwright-e2e`, `code-review`, `git-hygiene`; plus `.aura/skills/<name>/SKILL.md`, which replaces a library skill of the same name |
+| Initialize Project | ✅ Also writes a starting `.aura/settings.json` (lint before commit, `.env` files never read) |
 
 ## 13. Removed
 

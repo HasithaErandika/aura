@@ -5,14 +5,18 @@ import type {
   FileContent,
   FileEntry,
   FileStat,
+  FilesystemGrepOptions,
+  FilesystemGrepResult,
   ListOptions,
+  ProcessInfo,
   ReadOptions,
   RemoveOptions,
+  SpawnProcessOptions,
   WorkspaceFilesystem,
   WorkspaceSandbox,
   WriteOptions,
 } from '@mastra/core/workspace';
-import { DirectoryNotFoundError, FileExistsError, FileNotFoundError, PermissionError } from '@mastra/core/workspace';
+import { DirectoryNotFoundError, FileExistsError, FileNotFoundError, PermissionError, ProcessHandle, SandboxProcessManager } from '@mastra/core/workspace';
 import type { BridgeCaller } from './client';
 import { BridgeCallError } from './client';
 
@@ -107,9 +111,106 @@ export class BridgeFilesystem implements WorkspaceFilesystem {
     return (await this.bridge.call('fs.exists', { path }).catch(mastraError(path, 'read'))).exists;
   }
 
+  // Searched on the developer's machine in one call, instead of Mastra reading every file over
+  // the bridge.
+  async grep(options: FilesystemGrepOptions): Promise<FilesystemGrepResult[]> {
+    const r = await this.bridge
+      .call('fs.grep', {
+        pattern: options.pattern,
+        path: options.path,
+        caseSensitive: options.caseSensitive,
+        includeHidden: options.includeHidden,
+        maxCountPerFile: options.maxCountPerFile,
+        maxTotalMatches: options.maxTotalMatches,
+        contextLines: options.contextLines,
+      })
+      .catch(mastraError(options.path, 'grep', 'directory'));
+    return r.files;
+  }
+
   async stat(path: string): Promise<FileStat> {
     const s = await this.bridge.call('fs.stat', { path }).catch(mastraError(path, 'stat'));
     return { name: s.name, path: s.path, type: s.type, size: s.size, createdAt: new Date(s.createdAt), modifiedAt: new Date(s.modifiedAt) };
+  }
+}
+
+// How often a waiting background process is polled for new output.
+const POLL_MS = 1000;
+
+// A background process running on the developer's machine. Output is fetched when someone looks
+// (get_process_output) or waits, never polled in the background, so an idle dev server costs no
+// bridge calls.
+export class BridgeProcessHandle extends ProcessHandle {
+  exitCode: number | undefined;
+  private stdoutOffset = 0;
+  private stderrOffset = 0;
+  private readonly startedAt = Date.now();
+
+  constructor(
+    private readonly bridge: BridgeCaller,
+    readonly pid: string,
+    command: string,
+    options?: SpawnProcessOptions,
+  ) {
+    super(options);
+    this.command = command;
+  }
+
+  // Pulls the output produced since the last read.
+  async refresh(): Promise<void> {
+    const r = await this.bridge.call('proc.read', { pid: this.pid, stdoutOffset: this.stdoutOffset, stderrOffset: this.stderrOffset });
+    this.stdoutOffset = r.stdoutOffset;
+    this.stderrOffset = r.stderrOffset;
+    if (r.stdout) this.emitStdout(r.stdout);
+    if (r.stderr) this.emitStderr(r.stderr);
+    if (!r.running) this.exitCode = r.exitCode ?? 1;
+  }
+
+  override async wait(): Promise<CommandResult> {
+    while (this.exitCode === undefined) {
+      await this.refresh();
+      if (this.exitCode === undefined) await new Promise((resolve) => setTimeout(resolve, POLL_MS));
+    }
+    return { success: this.exitCode === 0, exitCode: this.exitCode, stdout: this.stdout, stderr: this.stderr, executionTimeMs: Date.now() - this.startedAt, command: this.command };
+  }
+
+  async kill(): Promise<boolean> {
+    return (await this.bridge.call('proc.kill', { pid: this.pid })).killed;
+  }
+
+  async sendStdin(): Promise<void> {
+    throw new Error("Background processes on the developer's machine don't take input");
+  }
+}
+
+export class BridgeProcessManager extends SandboxProcessManager {
+  constructor(private readonly bridge: BridgeCaller) {
+    super();
+  }
+
+  override async spawn(command: string, options: SpawnProcessOptions = {}): Promise<ProcessHandle> {
+    const info = await this.bridge.call('proc.spawn', { command, cwd: options.cwd, timeoutMs: options.timeout });
+    const handle = new BridgeProcessHandle(this.bridge, info.pid, command, options);
+    this._tracked.set(info.pid, handle);
+    return handle;
+  }
+
+  override async list(): Promise<ProcessInfo[]> {
+    return (await this.bridge.call('proc.list', {} as never)).processes.map((p) => ({ pid: p.pid, command: p.command, running: p.running, exitCode: p.exitCode }));
+  }
+
+  // Each turn is a new run with a new manager, so a process started in an earlier turn is looked
+  // up on the developer's machine. Either way the output is brought up to date first.
+  override async get(pid: string): Promise<ProcessHandle | undefined> {
+    let handle = this._tracked.get(pid) as BridgeProcessHandle | undefined;
+    if (!handle) {
+      const known = (await this.list()).find((p) => p.pid === pid);
+      if (!known) return undefined;
+      handle = new BridgeProcessHandle(this.bridge, pid, known.command ?? '');
+      this._tracked.set(pid, handle);
+    }
+    await handle.refresh().catch(() => undefined);
+    return handle;
   }
 }
 
@@ -118,16 +219,23 @@ export class BridgeSandbox implements WorkspaceSandbox {
   readonly name = 'VS Code';
   readonly provider = 'aura-vscode';
   status = 'running' as const;
+  readonly processes: BridgeProcessManager;
 
   constructor(
     private readonly bridge: BridgeCaller,
     runId: string,
   ) {
     this.id = `vscode-sandbox-${runId}`;
+    this.processes = new BridgeProcessManager(bridge);
+    this.processes.sandbox = this as never;
   }
 
   getInstructions(): string {
-    return "Commands run in the developer's VS Code workspace folder on their own machine. Each command may wait for the developer's approval, and some are always refused (force pushes, deleting outside the folder, piping downloads into a shell). Prefer the project's own scripts (npm test, npm run lint).";
+    return "Commands run in the developer's VS Code workspace folder on their own machine. Each command may wait for the developer's approval, and some are always refused (force pushes, deleting outside the folder, piping downloads into a shell). Prefer the project's own scripts (npm test, npm run lint). Use background: true for dev servers and anything that runs longer than a few minutes, then read it with get_process_output.";
+  }
+
+  async ensureRunning(): Promise<void> {
+    // Always running: the developer's machine.
   }
 
   async snapshot(): Promise<void> {

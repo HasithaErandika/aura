@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { addUserMessage, applyEvent, emptyChat, fromHistory, markStopping, toolDetail } from "./chat/model.js";
-import { ciWorkflow, parseGitRemote, remoteMatches, withAuraIgnores } from "./project-setup.js";
+import { ciWorkflow, defaultSettings, parseGitRemote, remoteMatches, withAuraIgnores } from "./project-setup.js";
 
 describe("chat model", () => {
   it("streams text into one assistant message and tracks tool calls by id", () => {
@@ -71,6 +71,14 @@ describe("project setup", () => {
     expect(once).toContain(".aura/worktrees/");
     expect(withAuraIgnores(once)).toBe(once);
     expect(withAuraIgnores("")).toContain(".aura/council/");
+  });
+
+  it("starts a project with settings the parser accepts", async () => {
+    const { parseSettings } = await import("./project-settings.js");
+    const s = parseSettings(defaultSettings(["frontend", "backend"]), ".aura/settings.json");
+    expect(s.problems).toEqual([]);
+    expect(s.hooks.beforeCommit).toEqual(["cd frontend && npm run lint --if-present", "cd backend && npm run lint --if-present"]);
+    expect(s.permissions.deny).toContain("Read(**/.env)");
   });
 
   it("writes one CI job per app folder", () => {

@@ -6,7 +6,8 @@ Agents run in the AURA cloud; every file they read or change and every command t
 
 **Status: V1**: browser sign-in, the **AURA** sidebar (Tasks: Epic → Stories and Tasks; Chat
 with the agent, streamed, tool calls inline, resumes after a reload), **Start Work on Task**,
-**Stop** / **Resume** / **Open Run in Web**, **Connect Repository** and **Initialize Project**. Specialist agents, branches and PRs come in V2–V6
+**Stop** / **Resume** / **Open Run in Web**, **Connect Repository** and **Initialize Project**.
+**V2**: permission modes, project rules and hooks, background processes, project memory and skills. Specialist agents, branches and PRs come in V2–V6
 ([plan](../../docs/plans/aura-vscode-agents.md)).
 
 ```mermaid
@@ -46,12 +47,47 @@ the web app isn't where you last signed in. The runtime needs
 
 | Request | Behaviour |
 |---|---|
-| Read, list, stat files | Allowed |
+| Read, list, search, stat files | Allowed |
 | `git status/diff/log`, `ls`, `npm test`, `npm run lint/typecheck/build` | Allowed |
-| Write, move, delete files; any other command | **Asks you**: Allow once · Allow for this session · Deny |
+| Write, move, delete files; any other command; starting a background process | **Asks you**: Allow once · Allow for this session · Allow for this project · Deny |
 | Chained or redirected commands (`&&`, `;`, `\|`, `>`, `$(...)`) | Always asks |
 | Force push, `sudo`, `curl … \| sh`, deleting outside the folder, reading `~/.ssh`, `~/.aws`… | **Always refused** |
 | Any path outside the open folder (including through symlinks) | **Always refused** |
+
+### Modes
+
+The status bar shows the mode; click it (or **AURA: Set Permission Mode**) to change it. An admin
+can limit the modes per project (Admin → Settings → *VS Code permission modes*).
+
+| Mode | File changes | Commands |
+|---|---|---|
+| Plan | Refused | Only the read-only commands and checks above |
+| Default | Ask | Ask unless allowed |
+| Accept edits | Allowed in this folder | Ask unless allowed |
+
+### Project rules and hooks
+
+`.aura/settings.json` is shared with the team; `.aura/settings.local.json` is yours (git-ignored;
+**Allow for this project** writes there). Deny beats ask beats allow; the built-in refusals above
+always win.
+
+```json
+{
+  "defaultMode": "default",
+  "permissions": {
+    "allow": ["Bash(npm run e2e:*)", "Edit(docs/**)"],
+    "ask": ["Edit(package.json)"],
+    "deny": ["Read(**/.env)"]
+  },
+  "hooks": {
+    "afterEdit": ["npx prettier --write {file}"],
+    "beforeCommit": ["npm run lint"]
+  }
+}
+```
+
+`.aura/AURA.md` is the project memory every agent turn starts with (like `CLAUDE.md`), and
+`.aura/skills/<name>/SKILL.md` adds a skill the agent can load next to AURA's own.
 
 Commands run through your shell in the folder, with secrets (tokens, keys, passwords) removed
 from their environment. Output is capped at 30,000 characters.
@@ -64,7 +100,9 @@ from their environment. Output is capped at 30,000 characters.
 | `src/chat/` | Chat panel: conversation per Task, streaming, Stop / Resume |
 | `src/tasks-tree.ts`, `src/project*.ts`, `src/session.ts` | Tasks view, Connect / Initialize, sign-in |
 | `src/bridge-client.ts` | WebSocket to the API: tickets, reconnect, permission → run → result |
-| `src/permissions.ts` | Allow / ask / deny rules |
-| `src/executor.ts` | File operations and commands inside the folder |
+| `src/permissions.ts` | Modes, built-in and project allow / ask / deny rules |
+| `src/project-settings.ts`, `src/governance.ts` | `.aura/settings*.json`, modes allowed by the admin |
+| `src/hooks.ts` | `afterEdit` and `beforeCommit` hooks |
+| `src/executor.ts` | File operations, search, commands and background processes inside the folder |
 
 Protocol: [`packages/aura-bridge`](../../packages/aura-bridge/src/index.ts).

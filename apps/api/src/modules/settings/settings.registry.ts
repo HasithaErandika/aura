@@ -130,6 +130,16 @@ export const SETTING_DEFINITIONS: readonly SettingDefinition[] = [
     fallback: () => "warn",
   },
   {
+    key: "governance.vscodeModes",
+    group: "governance",
+    label: "VS Code permission modes",
+    description: "Which modes developers may pick in AURA for VS Code. all: plan, default and accept edits. no-accept-edits: every file change asks. plan-only: agents read and propose only.",
+    owner: "api",
+    scopes: SHARED,
+    ...choice(["all", "no-accept-edits", "plan-only"]),
+    fallback: () => "all",
+  },
+  {
     key: "limits.turnTimeoutMinutes",
     group: "limits",
     label: "Agent turn time limit",
