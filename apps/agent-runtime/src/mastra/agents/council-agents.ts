@@ -4,17 +4,9 @@ import { COUNCIL_IMPLEMENTER_MODEL_IDS, COUNCIL_PLANNER_MODEL_IDS, COUNCIL_REVIE
 import { buildImplementerTools, buildReadOnlyCouncilTools } from '../tools/council-tools';
 import type { CheckResult } from '../lib/sandbox';
 
-// The three Coding Council agents (workflows/coding-council.ts, docs/plans/aura-code-cli-council.md
-// section 4.4). Built fresh per council run and never registered in mastra.agents - their tools
-// are bound by closure to one Task's worktree, same reason as agents/mastra-coding-agent.ts.
-//
-// Tool split is deliberate:
-//   - Planner: read-only tools, plain-text plan output.
-//   - Implementer: the only role that can change anything (write/edit files, run allowlisted checks).
-//   - Reviewer: NO tools at all - the diff and check output are put in its prompt, and it answers
-//     with a structured verdict. Free-tier models are least reliable at tool calls
-//     (docs/logs/dev-coding-run-KAN-45.md, qa-tester-run-KAN-36), so the role that decides whether
-//     the loop continues never depends on one.
+// The three Coding Council agents, built per run with tools bound to one Task's worktree.
+// Planner: read-only tools. Implementer: the only role that writes or runs checks.
+// Reviewer: no tools, so the role that decides whether the loop continues never depends on tool calls.
 
 // Groq's reasoning models otherwise stream their chain of thought into the text.
 const GROQ_OPTIONS = { reasoningFormat: 'hidden' };

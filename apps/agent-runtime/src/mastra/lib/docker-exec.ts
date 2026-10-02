@@ -53,11 +53,7 @@ export interface DockerRunResult {
   output: string;
 }
 
-// Runs the container as the host user (POSIX only - process.getuid is undefined on Windows,
-// where Docker Desktop's own volume-permission translation already avoids this problem) so
-// scaffolded files land owned by whoever is running AURA, not root. The image's default user
-// has no /etc/passwd entry for an arbitrary host UID, which leaves $HOME unset and breaks npm's
-// cache directory - HOME and npm_config_cache are pinned to a writable path to avoid that.
+// Runs the container as the host user with a writable HOME, so scaffolded files are not owned by root.
 function userArgs(): string[] {
   const uid = process.getuid?.();
   const gid = process.getgid?.();

@@ -47,9 +47,7 @@ function testFail(error: unknown): z.infer<typeof testOutputSchema> {
   return { ok: false, error: error instanceof Error ? error.message : String(error) };
 }
 
-// Runs the Tester workflow (workflows/tester-workflow.ts) to completion, relaying its live
-// container output into this tool's own stream, the same pattern runQaWorkflow (qa.ts) and
-// runArchitectWorkflow (architect.ts) already use for their own workflows.
+// Runs the Tester workflow, relaying its container output into this tool's stream.
 async function runTesterWorkflow(mastra: MastraLike, initial: AttemptState, writer: ToolWriterLike | undefined): Promise<AttemptState> {
   const workflow = (mastra as { getWorkflow?: (id: string) => { createRun: () => Promise<{ stream: (args: { inputData: AttemptState }) => { fullStream: AsyncIterable<{ type: string; payload?: { chunk?: string; attempt?: number } }>; result: Promise<{ status: string; result?: unknown; error?: { message?: string } }> } }> } } | undefined)?.getWorkflow?.('tester-workflow');
   if (!workflow) throw new Error('tester-workflow is not registered');

@@ -10,8 +10,7 @@ export function auraMode(env: NodeJS.ProcessEnv = process.env): AuraMode {
   return mode;
 }
 
-// Every reason this environment can't run as a shared server, all at once so one restart fixes
-// them. Empty in local mode.
+// Every reason this environment can't run as a shared server; empty in local mode.
 export function serverModeProblems(env: NodeJS.ProcessEnv = process.env): string[] {
   if (auraMode(env) !== 'server') return [];
   const problems: string[] = [];

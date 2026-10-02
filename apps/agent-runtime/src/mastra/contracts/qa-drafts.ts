@@ -67,8 +67,7 @@ export function renderTestPlan(draft: QaDraft): string {
   ].join('\n');
 }
 
-// One scenario as a design document for QA: what it tests and how, without the Playwright
-// source (QA reads scenarios, not code; the spec file is reviewed in the PR).
+// One scenario as a design document for QA, without the Playwright source.
 export function renderScenarioDoc(scenario: TestScenario): string {
   return [
     `# ${scenario.title}`,
@@ -82,8 +81,7 @@ export function renderScenarioDoc(scenario: TestScenario): string {
   ].join('\n');
 }
 
-// The documents Gate 6 saves once the human approved the test plan: the plan, and one
-// document per scenario, linked to the first Story it tests.
+// Documents Gate 6 saves after approval: the plan, and one per scenario.
 export function qaDocuments(draft: QaDraft): DesignDocWrite[] {
   return [
     { kind: 'qa-plan', slug: 'qa-plan', title: `Test plan for ${draft.epicKey}`, content: renderTestPlan(draft) },
@@ -93,8 +91,7 @@ export function qaDocuments(draft: QaDraft): DesignDocWrite[] {
   ];
 }
 
-// Renders the Jira comment posted on the Epic after filing the test plan - links the saved
-// documents, same pattern as architectureFiledComment.
+// Jira comment on the Epic linking the saved test plan documents.
 export function qaFiledComment(draft: QaDraft, docs: DesignDocLink[], stamp: string): string {
   return [
     `AURA QA Agent filed a test plan with ${draft.scenarios.length} scenario${draft.scenarios.length === 1 ? '' : 's'} for this Epic.`,

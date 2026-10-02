@@ -83,8 +83,7 @@ printManifest({
 // AURA_MODE=server refuses loopback-only settings before anything starts listening.
 assertServerModeSafe();
 
-// The web terminal's WebSocket server (terminal/server.ts) - its own port, off unless
-// TERMINAL_TICKET_SECRET is set.
+// The web terminal's WebSocket server; off unless TERMINAL_TICKET_SECRET is set.
 startTerminalServer();
 
 export const mastra = new Mastra({

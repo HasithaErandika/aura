@@ -25,8 +25,7 @@ interface QaWorkflowLike {
 }
 type QaMastra = (MastraLike & { getWorkflow?: (id: string) => QaWorkflowLike } & Partial<WorkspaceRegistry>) | undefined;
 
-// Runs the QA Workflow, relaying each step's start/result into this tool's own stream, the same
-// pattern as runArchitectWorkflow (architect.ts).
+// Runs the QA workflow, relaying each step into this tool's stream.
 async function runQaWorkflow(mastra: QaMastra, input: { epicKey: string; epicSummary: string; storiesText: string; codeContext: string }, writer: ToolWriterLike | undefined): Promise<QaDraft> {
   const workflow = mastra?.getWorkflow?.('qa-workflow');
   if (!workflow) throw new Error('qa-workflow is not registered');
@@ -84,14 +83,7 @@ export interface QaScenarioRevision {
   scenario: TestScenario;
 }
 
-// Regenerates exactly ONE scenario's Playwright source from real failure evidence, leaving
-// every other scenario in the draft byte-identical (docs/ARCHITECTURE.md's Tester Agent loop:
-// "only the failing scenario may be modified" - a full-plan revise regenerating all 30 scenarios
-// because one failed would put stable, passing tests at risk of unnecessary AI churn for no
-// reason). Exported so both this tool's own `revise-scenario` mode (a human asking QA to fix one
-// test by hand) and workflows/tester-workflow.ts (the automated loop, bypassing the tool/approval
-// wrapper the same way delegate-tools/code.ts's runCodingFix does - Gate 7's own human approval
-// already covers bounded retries within its loop) share one implementation instead of two.
+// Regenerates one failing scenario from evidence, leaving the others unchanged.
 export async function reviseQaScenario(mastra: MastraLike, previous: DraftRecord<QaDraft>, fileName: string, feedback: string): Promise<QaScenarioRevision> {
   const target = previous.content.scenarios.find((s) => s.fileName === fileName);
   if (!target) throw new Error(`no scenario named "${fileName}" in draft ${previous.id}`);

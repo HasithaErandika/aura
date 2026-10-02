@@ -15,32 +15,11 @@ import { ensureAuraExcludes } from '../workspace/dev-workspace';
 
 const execFileAsync = promisify(execFile);
 
-// The Coding Council - provider "council" of delegate_to_code (Gate 5), docs/plans/
-// aura-code-cli-council.md section 4.4. Three agents discuss the work instead of one agent
-// writing code in a single shot:
-//
-//   1. PLAN     Planner writes a plan; Reviewer critiques it (<= planRounds); Planner revises.
-//               Skipped in lean mode (contracts/council.ts CouncilMode).
-//   2. BUILD    Implementer implements the agreed plan (lean: plans inline first); checks run.
-//   3. REVIEW   Reviewer reviews the real diff + real check output -> APPROVE | CHANGES.
-//               CHANGES -> Implementer fixes only the listed issues -> checks -> REVIEW again
-//               (<= maxRounds).
-//   4. DONE     approved, rounds exhausted, or token budget exhausted.
-//
-// All of it runs inside ONE human-approved Gate 5 execute, the same trust boundary the Tester
-// loop and the Architect workflow already use. The human stays last: Gate 5's approval starts
-// this, and the result is reviewed before anyone commits it (`aura commit`).
-//
-// Built for free-tier models: turns are strictly sequential; a rate-limited call waits (up to
-// MAX_WAIT_MS) and retries after the model chain's own fallbacks are exhausted; the Reviewer sees
-// the diff, never the whole repo; earlier rounds reach later turns only as a compact summary; and
-// a token budget stops the run cleanly rather than failing mid-edit. A failing check forces
-// CHANGES no matter what the Reviewer says - real output always outranks a model's opinion.
-//
-// Every round ends in a checkpoint commit ("council: round N") on the Task's branch, so any round
-// can be inspected or rolled back. It is authored by the human who approved Gate 5 when their
-// profile has a git identity, AURA otherwise, and always committed by AURA; `aura commit` later
-// folds them into one commit authored by the developer.
+// The Coding Council (delegate_to_code provider "council", web Gate 5): PLAN (Planner and Reviewer,
+// skipped in lean mode) -> BUILD (Implementer, then checks) -> REVIEW (Reviewer on the real diff and
+// check output; CHANGES loops back up to maxRounds) -> DONE. Runs inside one approved Gate 5 execute.
+// A failing check forces CHANGES; rate limits wait and retry; a token budget stops the run cleanly.
+// Each round ends in a checkpoint commit authored by the Gate 5 approver when they have a git identity.
 
 // Loop limits: contracts/council.ts councilSettings (dashboard → .env → code default). Re-exported
 // for server/council-routes.ts.
@@ -94,8 +73,7 @@ function errorText(error: unknown): string {
   return (error instanceof Error ? error.message : String(error)).slice(0, 120);
 }
 
-// An error from a model provider's API (HTTP status attached by the AI SDK), as opposed to a bug
-// or a schema-validation failure, which retrying would not fix.
+// A model provider's API error, as opposed to a bug or schema failure retrying would not fix.
 function isProviderError(error: unknown): boolean {
   const e = error as { statusCode?: number; name?: string } | undefined;
   return typeof e?.statusCode === 'number' || e?.name === 'AI_APICallError' || isRateLimit(error);
@@ -199,13 +177,7 @@ async function runCouncil(input: CouncilInput): Promise<CouncilResult> {
     void recordModelUsage(model, tokens).catch(() => undefined);
   };
 
-  // One agent turn with budget accounting and rate-limit waits. The agent's own model chain
-  // already fails over between providers; this only waits when every model in it is limited.
-  //
-  // The error that reaches here is the LAST model's in the chain, which hides why the earlier
-  // ones failed - e.g. Gemini's per-minute limit pushed a call onto a Groq model with a bad key.
-  // So any provider API error (not just a 429) earns a wait-and-retry of the whole chain, by
-  // which time a per-minute limit on an earlier model has usually reset.
+  // One agent turn with budget accounting; any provider error waits, then retries the whole model chain.
   async function turn<T>(round: number, phase: CouncilPhase, role: CouncilRole, call: () => Promise<T>): Promise<T> {
     if (totalTokens >= settings.tokenBudget) throw new BudgetExhausted();
     emit({ round, phase, role, status: 'started' });

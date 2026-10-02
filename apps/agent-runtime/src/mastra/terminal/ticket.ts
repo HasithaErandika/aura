@@ -13,8 +13,7 @@ export interface TerminalTicket {
   taskKey: string | null;
   exp: number; // epoch ms
   nonce: string;
-  // Signs the `aura` CLI inside the shell in as the ticket's user without `aura login`: the API
-  // URL, and a short-lived access token encrypted for this process (decryptCliToken).
+  // API URL and a short-lived access token for the ticket's user, encrypted for this process.
   cli?: { apiUrl: string; token: string };
 }
 
@@ -44,8 +43,7 @@ export function verifyTicket(raw: string, secret: string): TerminalTicket | null
   return ticket;
 }
 
-// Reverses apps/api terminal.router.ts encryptForRuntime (AES-256-GCM, key derived from the
-// shared secret). Null if it was tampered with or the secrets differ.
+// Reverses apps/api's encryptForRuntime (AES-256-GCM); null if tampered or the secrets differ.
 export function decryptCliToken(encrypted: string, secret: string): string | null {
   try {
     const [iv, tag, body] = encrypted.split('.').map((part) => Buffer.from(part, 'base64url'));

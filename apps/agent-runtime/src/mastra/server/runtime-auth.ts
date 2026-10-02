@@ -24,8 +24,7 @@ export function runtimeTokenFromEnv(env: NodeJS.ProcessEnv = process.env): strin
   return token;
 }
 
-// Hashing both sides first gives equal-length buffers, so timingSafeEqual never throws and the
-// comparison leaks nothing about the token's length.
+// Compares hashes so timingSafeEqual gets equal lengths and leaks nothing about the token's length.
 export function isAuthorized(header: string | undefined, token: string): boolean {
   const match = /^Bearer (.+)$/.exec(header ?? '');
   if (!match) return false;

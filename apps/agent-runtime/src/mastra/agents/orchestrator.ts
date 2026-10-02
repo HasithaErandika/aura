@@ -39,10 +39,8 @@ export const orchestratorTools = {
   delegate_to_ci: governed(delegateToCiTool),
 };
 
-// Orchestrates Epic, Story, Architecture, Dev-scaffold, Coding, QA, Testing, and Deployer-plan
-// work through PO, BA, Architect, Dev, QA, Tester, and Deployer agents plus an external coding
-// CLI, pausing for human approval at each gate. It never drafts, files, or executes directly and
-// references drafts only by ID.
+// Drives the web pipeline (Gates 1-8) through delegate tools, pausing for human approval at each
+// gate. It never drafts, files, or executes directly and references drafts only by id.
 export const orchestrator = new Agent({
   id: 'orchestrator',
   name: 'Orchestrator',

@@ -2,7 +2,7 @@ import { runtimeDb } from './runtime-db';
 import { KNOWN_DAILY_REQUEST_LIMITS } from '../config/models';
 
 // Per-day, per-model request and token counts for the Coding Council, so a developer can see how
-// much of the free tiers' daily quota is left (`aura status`, GET /council/usage). Counts only
+// much of the free tiers' daily quota is left (GET /council/usage). Counts only
 // calls AURA itself made; the provider's own dashboard is the source of truth.
 
 let ready: Promise<void> | null = null;

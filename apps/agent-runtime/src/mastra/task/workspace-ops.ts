@@ -65,8 +65,7 @@ export function parseNameStatus(text: string): ChangedFile[] {
 // A worktree links the main folder's node_modules (task/git-ops.ts); it is never part of a change.
 const NEVER_CHANGED = new Set(['node_modules']);
 
-// The change against `base` (default: the last commit), committed or not, plus new files (which
-// `git diff` leaves out).
+// The change against base, committed or not, including new files.
 export async function collectChange(bridge: BridgeCaller, base = 'HEAD'): Promise<WorkingChange> {
   if (!/^[\w./-]+$/.test(base)) throw new Error(`invalid base ref ${base}`);
   const exec = (command: string) => bridge.call('sandbox.exec', { command, timeoutMs: 60_000 }).then((r) => r.stdout);
@@ -105,14 +104,12 @@ async function projectList(bridge: BridgeCaller, key: 'checks' | 'reviewers'): P
   return null;
 }
 
-// The project's own check commands (.aura/settings.json "checks"), which win over the plan's:
-// the team decides what proves a change, not the agent.
+// The project's check commands from .aura/settings.json, which win over the plan's.
 export function projectChecks(bridge: BridgeCaller): Promise<string[] | null> {
   return projectList(bridge, 'checks');
 }
 
-// The project's default pull request reviewers (.aura/settings.json "reviewers", GitHub logins
-// or org/team).
+// The project's default pull request reviewers from .aura/settings.json.
 export function projectReviewers(bridge: BridgeCaller): Promise<string[] | null> {
   return projectList(bridge, 'reviewers');
 }

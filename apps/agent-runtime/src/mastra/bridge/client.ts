@@ -22,9 +22,7 @@ export interface BridgeCaller {
 
 type Outcome = { ok: true; value: unknown } | { ok: false; error: BridgeError };
 
-// A caller bound to one AURA run, so apps/api knows whose VS Code to use. `readOnly`, checked on
-// every call, makes the extension answer as in plan mode (a Task's plan waiting for Gate 4).
-// `worktree` points every call at a parallel sub-task's worktree (`.aura/worktrees/<name>`).
+// A caller bound to one run; readOnly answers as plan mode, worktree targets a parallel part's worktree.
 export function bridgeCaller(runId: string, fetchImpl: typeof fetch = fetch, options: { readOnly?: () => Promise<boolean>; worktree?: string } = {}): BridgeCaller {
   return {
     async call(op, args, timeoutMs) {

@@ -7,18 +7,10 @@ import { spawnPty, type PtySession } from './pty';
 import { startRestrictedShell } from './restricted';
 import { auraMode } from '../config/aura-mode';
 
-// The web terminal under the Scaffolded Project Files editor (docs/plans/aura-code-cli-council.md
-// section 4.8): a WebSocket server, separate from Mastra's HTTP server, that opens a shell in one
-// Task's worktree (or the discipline's base repo). The browser connects directly with a ticket
-// apps/api minted after checking the Developer role and auditing the session (terminal/ticket.ts),
-// so this server never decides who may connect - it only verifies the ticket.
-//
-// Modes (TERMINAL_MODE):
-//   full        a real shell on a PTY (terminal/pty.ts) - default when bound to loopback, since
-//               then only someone on this machine can reach it, who could open a shell anyway.
-//   restricted  allowlisted commands only (terminal/restricted.ts) - default otherwise.
-//   off         no terminal server at all.
-// Disabled entirely when TERMINAL_TICKET_SECRET is unset.
+// The web terminal: a WebSocket server, separate from Mastra's HTTP server, that opens a shell in a
+// Task's worktree. apps/api mints and audits the ticket; this server only verifies it.
+// TERMINAL_MODE: full (PTY, default on loopback), restricted (allowlisted commands), off.
+// Disabled when TERMINAL_TICKET_SECRET is unset. Scheduled for removal in V7.
 
 const LOOPBACK = new Set(['127.0.0.1', 'localhost', '::1']);
 
@@ -43,8 +35,7 @@ const MAX_SESSIONS_PER_USER = 3;
 // (LLM keys, Jira token, ticket secret) from this process's environment.
 const PASSTHROUGH_ENV = ['PATH', 'HOME', 'USER', 'LOGNAME', 'SHELL', 'LANG', 'LC_ALL', 'XDG_CONFIG_HOME', 'SSH_AUTH_SOCK', 'EDITOR', 'GIT_EDITOR', 'NVM_DIR', 'TZ'];
 
-// AURA_TOKEN / AURA_API_URL sign the `aura` CLI in as the ticket's user (apps/cli config.ts
-// requireConfig reads them first), so it works in the web terminal without `aura login`.
+// The web terminal shell's environment for the ticket's user.
 function shellEnv(ticket: TerminalTicket, secret: string): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = { TERM: 'xterm-256color', COLORTERM: 'truecolor', AURA_TERMINAL: '1' };
   for (const key of PASSTHROUGH_ENV) if (process.env[key]) env[key] = process.env[key];

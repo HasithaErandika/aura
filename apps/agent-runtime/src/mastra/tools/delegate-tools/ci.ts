@@ -9,22 +9,9 @@ import { draftStore } from '../../store/draft-store';
 import { provenance, buildProvenance, type ProvenanceStamp } from './shared';
 import { ciStepsToShellScript } from './dev';
 
-// Runs an Epic's whole scaffolded project (Frontend or Backend - the checked-in CI is
-// project-wide, not per-Task: devWorkspaceDir(epicKey, discipline) is the entire scaffolded
-// directory every Task in that discipline shares) locally, on demand - the developer's own "does
-// this pass before I push" preview, using the exact same step list
-// `.github/workflows/<discipline>-ci.yaml` declares (dev.ts's CI_STEPS/ciStepsToShellScript -
-// one source of truth, never two scripts that could drift). Unlike Gate 7 (delegate_to_test),
-// which deliberately reports against one specific Task to close it out in Jira, a CI run and its
-// defect (if any) belong to the Epic as a whole - there is no single Task that "owns" the shared
-// project. `run` is deliberately not gated behind human approval: like delegate_to_git's
-// `status`/`diff` ops, it only reads/builds/tests inside the ephemeral sandbox and changes
-// nothing in Jira, git, or the workspace - available to whoever can use the Orchestrator at all
-// (Developer included, same as the git tool), not tied to a specific approver role the way
-// Gate 6/7's formal QA flow is. `file-defect` DOES write to Jira, so it is gated - but self-
-// approved (no canonical agent mapping, same as git's own `commit` op). No git push, no GitHub
-// API call anywhere - AURA has no GitHub integration; the developer pushes by hand and reads
-// their own repo's real CI status themselves.
+// Runs a discipline's project checks locally in the Docker sandbox, with the same steps as its
+// checked-in CI workflow (dev.ts CI_STEPS). `run` changes nothing, so it is not gated; `file-defect`
+// writes a Jira Bug and is gated. Scheduled for removal in V7 (CI runs on GitHub via aura-ci.yml).
 
 interface CiRunDraft {
   epicKey: string;

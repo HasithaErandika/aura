@@ -137,8 +137,7 @@ export interface TaskReviewDraft {
   subtasks?: SubtaskResult[];
 }
 
-// Code decides whether a round passed: every check green, the Evaluator approves, and no
-// blocker or major finding, whatever the Evaluator's own approved flag says.
+// A round passes when every check is green, the Evaluator approves, and no blocker or major finding remains.
 export function roundPassed(verdict: EvaluatorVerdict, checks: CheckResult[]): boolean {
   return verdict.approved && checks.every((c) => c.passed) && !verdict.findings.some((f) => f.severity !== 'minor');
 }

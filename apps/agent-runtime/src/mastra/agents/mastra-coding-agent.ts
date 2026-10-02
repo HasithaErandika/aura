@@ -3,16 +3,7 @@ import { withGeminiFallback } from '../config/models';
 import { buildFileTools } from '../tools/file-tools';
 import { MASTRA_CODING_MODEL_ID } from './registry';
 
-// The single built-in Coding Agent (contracts/coding-drafts.ts, provider "mastra") - the fast
-// alternative to the Coding Council, on AURA's own configured model. It gets exactly three tools - list_files, read_file, write_file
-// (tools/file-tools.ts) - and nothing else: no shell/run-command tool, so there is no way for
-// it to execute arbitrary code even under prompt injection from Jira content. Path containment
-// inside every tool call is the safety boundary here, not a container.
-//
-// Built fresh per delegate_to_code execute call (createCodingAgent(targetDir)), not registered
-// in mastra.agents, for the same reason as the CLI-based coding path: its tools are bound by
-// closure to one Task's directory, so a single static agent instance could not be safely
-// shared across concurrent Tasks with different directories.
+// Built per Task: three file tools bound to one directory and no shell, so path containment is the boundary.
 export function createCodingAgent(targetDir: string): Agent {
   return new Agent({
     id: 'mastra-coding-agent',

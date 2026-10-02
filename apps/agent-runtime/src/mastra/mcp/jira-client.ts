@@ -103,9 +103,7 @@ function asObject(result: unknown): Record<string, unknown> {
   return {};
 }
 
-// Same unwrap as asObject() ({content:[{text}]} / {result: "<json>"}), but without its
-// object-only restriction - jira_get_transitions returns a JSON *array*, which asObject()
-// would silently discard (unwrapResultString only unwraps into an object, never an array).
+// Unwraps an MCP result to JSON, arrays included (asObject drops them).
 function unwrapToJson(result: unknown): unknown {
   if (result && typeof result === 'object' && !Array.isArray(result)) {
     const r = result as Record<string, unknown>;
@@ -194,10 +192,7 @@ export const jira = {
     return issues.map((item) => pickIssue(item as Record<string, unknown>)).filter((issue) => issue.key);
   },
 
-  // Creates a Jira issue (Epic/Story/Task/Bug), optionally under a parent Epic. Bug is used by
-  // delegate_to_test's file-defect mode (Gate 7) - if the connected project's scheme has no Bug
-  // issue type, Jira rejects the create and this throws with Jira's own error, same as any other
-  // unsupported-shape failure here (never silently falls back to a different type).
+  // Creates an Epic, Story, Task or Bug, optionally under an Epic; an unsupported type throws Jira's error.
   async createIssue(input: { summary: string; issueType: 'Epic' | 'Story' | 'Task' | 'Bug'; description: string; priority?: string; parentKey?: string }): Promise<{ key: string; url: string | null }> {
     if (!jiraProjectKey) throw new Error('JIRA_PROJECT_KEY is not set');
     const execute = findTool('_create_issue');
@@ -234,8 +229,7 @@ export const jira = {
     await execute({ issue_key: key, fields: JSON.stringify(body), return_fields: 'key' }, {});
   },
 
-  // Links two issues (mcp-atlassian's create_issue_link), e.g. an architecture Task to the Story
-  // it implements, so the Task shows its Story in Jira and in the VS Code Tasks view.
+  // Links two issues, e.g. an architecture Task to the Story it implements.
   async linkIssues(inwardKey: string, outwardKey: string, linkType = 'Relates'): Promise<void> {
     const execute = findTool('_create_issue_link');
     await execute({ link_type: linkType, inward_issue_key: inwardKey, outward_issue_key: outwardKey }, {});
@@ -247,10 +241,7 @@ export const jira = {
     await execute({ issue_key: key, body }, {});
   },
 
-  // The moves available from an issue's current status - Jira's own workflow decides what's
-  // offered, never AURA (mirrors apps/api/src/modules/jira/jira.client.ts's REST equivalent,
-  // used for the human-facing Jira page; this MCP-based one is for agent-triggered moves, e.g.
-  // the Dev agent marking a Task "In Progress" when it starts scaffolding).
+  // The moves Jira's own workflow offers from an issue's current status.
   async getTransitions(key: string): Promise<{ id: string; name: string }[]> {
     const execute = findTool('_get_transitions');
     const parsed = unwrapToJson(await execute({ issue_key: key }, {}));

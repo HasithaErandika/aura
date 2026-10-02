@@ -1,12 +1,7 @@
 import { z } from 'zod';
 
-// The Dev agent's scaffold plan. Unlike epic/story/architecture drafts, almost nothing here is
-// model-authored: discipline, targetDir, and commandDescription are all fixed by code
-// (tools/delegate-tools.ts's SCAFFOLD_COMMANDS, per docs/adr/0001-dev-agent-scaffold-and-
-// template-strategy.md) before the agent ever runs. The agent contributes only `summary` - why
-// this scaffold fits the Task - the same "agents propose, deterministic systems decide" split
-// as everywhere else, taken further: here the model doesn't even propose the action, only
-// explains it.
+// The Dev agent's scaffold plan. Discipline, targetDir and command are fixed by code (ADR-0001);
+// the model only writes `summary`, explaining why the scaffold fits the Task.
 
 export const scaffoldDisciplines = ['Frontend', 'Backend', 'Data', 'AI', 'Integration'] as const;
 export type ScaffoldDiscipline = (typeof scaffoldDisciplines)[number];
@@ -54,9 +49,7 @@ export function renderDevScaffoldPlan(draft: DevScaffoldDraft): string {
   ].join('\n');
 }
 
-// Renders the Jira comment posted on the Task after a scaffold attempt, success or failure -
-// includes the exact command that ran and, on failure, a short output tail, so a teammate
-// reading Jira (who may not have AURA open) can see what happened without leaving Jira.
+// Jira comment after a scaffold attempt: the command that ran and, on failure, an output tail.
 export function devScaffoldFiledComment(draft: DevScaffoldDraft, exitCode: number, outputTail: string, stamp: string): string {
   const lines = [
     exitCode === 0

@@ -42,13 +42,7 @@ function gitFail(error: unknown): z.infer<typeof gitOutputSchema> {
   return { ok: false, error: message };
 }
 
-// Resolves a Task's own isolated git worktree (same lookup delegate_to_code uses), for git
-// commands to run directly against - no Docker, git runs on the host as the same user that owns
-// the worktree's files (node:22-slim has no git installed anyway, and this directory is already
-// host-trusted - docs/ARCHITECTURE.md section 6.4). Never the shared base repo: every op here
-// (including `status`/`diff`) is scoped to this one Task's own branch, by construction - `init`
-// is close to a no-op now (the worktree is already a real git checkout the moment Gate 4 creates
-// it), kept only because a stray "run git init" request should still be safe, not an error.
+// A Task's own worktree for git commands on the host; never the shared base repo.
 async function taskTargetDir(taskKey: string, epicKey: string): Promise<{ targetDir: string; discipline: string } | { error: string }> {
   const task = await jira.getIssue(taskKey);
   if (task.issueType && task.issueType.toLowerCase() !== 'task') return { error: `${taskKey} is a ${task.issueType}, not a Task` };

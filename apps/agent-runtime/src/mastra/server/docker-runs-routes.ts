@@ -37,8 +37,7 @@ function runDockerPs(epic?: string): Promise<DockerPsRow[]> {
   });
 }
 
-// Turns Docker's flat "k=v,k2=v2" Labels string into an object, keeping only AURA's own
-// aura.* labels (drops Docker's own default labels).
+// Parses Docker's k=v Labels string, keeping only aura.* labels.
 function parseAuraLabels(labels: string): Record<string, string> {
   const result: Record<string, string> = {};
   for (const pair of labels.split(',')) {

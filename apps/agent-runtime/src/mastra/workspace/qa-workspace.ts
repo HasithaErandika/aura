@@ -11,9 +11,7 @@ import { AURA_WORKSPACE_ROOT } from './root';
 // Architect's design docs and the Dev/Coding agents' actual app code (devWorkspaceDir).
 export const qaWorkspaceRoot = AURA_WORKSPACE_ROOT;
 
-// Lists every Epic that has a QA workspace on disk (a `qa` subfolder) - mirrors
-// architect-workspace.ts's listEpicWorkspaces() so the QA Files viewer can offer Epics to browse
-// the same way Design Documents does.
+// Every Epic with a qa folder on disk.
 export async function listQaEpicWorkspaces(): Promise<string[]> {
   try {
     const entries = await readdir(qaWorkspaceRoot, { withFileTypes: true });

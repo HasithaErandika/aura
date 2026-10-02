@@ -21,8 +21,7 @@ export interface SkillSummary {
   source: 'library' | 'repository';
 }
 
-// Repository text the model will read as guidance: hidden characters removed, and refused when
-// it carries a high-severity injection pattern (it could otherwise steer every turn).
+// Repository guidance text with hidden characters removed; refused when it carries a high-severity injection pattern.
 export function vetRepoText(source: string, text: string, limit: number): { text: string } | { refused: string } {
   const high = scanUntrusted(source, text).filter((f) => f.severity === 'high');
   if (high.length) return { refused: `${source} was not loaded: it contains text that looks like an attempt to override the agent's rules (${high.map((f) => f.rule).join(', ')}).` };

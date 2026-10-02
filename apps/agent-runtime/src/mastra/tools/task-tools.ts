@@ -157,8 +157,7 @@ interface CoderAgentLike {
   stream: (prompt: string, options: Record<string, unknown>) => Promise<{ fullStream: AsyncIterable<{ type: string; payload?: Record<string, unknown> }>; text: Promise<string> }>;
 }
 
-// Runs the routed coder in the developer's workspace (same run, same bridge), relaying each tool
-// it uses as a Task step.
+// Runs the routed coder in the developer's workspace, relaying each tool it uses as a step.
 async function runCoder(mastra: unknown, coder: CoderId, prompt: string, requestContext: RequestContextLike | undefined, writer: ToolWriterLike | undefined, round: number, subtask?: number): Promise<string> {
   const agent = (mastra as { getAgent?: (id: string) => CoderAgentLike } | undefined)?.getAgent?.(`coder-${coder}`);
   if (!agent) throw new Error(`coder ${coder} is not registered`);
@@ -173,8 +172,7 @@ async function runCoder(mastra: unknown, coder: CoderId, prompt: string, request
   return (await output.text) || '(the coder gave no summary)';
 }
 
-// The request context a parallel coder runs with: the run's, plus its worktree, so its file and
-// command tools reach .aura/worktrees/<name> (agents/bridge-workspace.ts).
+// The run's request context plus a worktree, for a parallel coder.
 function withWorktree(requestContext: RequestContextLike, worktree: string): RequestContext {
   const source = requestContext as RequestContextLike & { keys?: () => Iterable<string> };
   const copy = new RequestContext();
@@ -183,8 +181,7 @@ function withWorktree(requestContext: RequestContextLike, worktree: string): Req
   return copy;
 }
 
-// A merge conflict between parts: the Evaluator proposes each file, code checks the proposal and
-// writes it; the checks then run on the merged result and the developer reviews it at Gate 5.
+// Merge conflict: the Evaluator proposes each file, code checks and writes it, then checks rerun.
 async function resolveConflicts(mastra: unknown, bridge: BridgeCaller, taskKey: string, sub: Subtask, conflicts: string[]): Promise<{ ok: boolean; summary: string }> {
   try {
     if (conflicts.length > 20) return { ok: false, summary: `${conflicts.length} files conflict, too many to resolve automatically` };

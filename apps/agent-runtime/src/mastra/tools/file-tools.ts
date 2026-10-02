@@ -3,15 +3,8 @@ import { z } from 'zod';
 import { mkdir, readFile, readdir, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
-// File tools for the built-in Mastra Coding Agent (agents/mastra-coding-agent.ts). Unlike the
-// Dev agent's scaffold (Docker-sandboxed), this agent edits
-// files directly via Node's fs - spinning up a container per read/write would make an iterative
-// coding loop impractically slow. The safety boundary here is the tool surface itself, not a
-// container: these are the ONLY three tools this agent ever gets (no shell/run-command tool,
-// so there is no way for it to execute arbitrary code even under prompt injection from Jira
-// content), and every path is resolved and verified to stay inside `root` before any fs call -
-// `..`, a symlink escape, or an absolute path all fail closed with a plain error, never a
-// silent redirect elsewhere on the host.
+// File tools for the built-in Mastra Coding Agent. Its only tools: no shell, and every path is
+// resolved inside `root` before any fs call, so `..`, symlinks and absolute paths fail closed.
 
 const MAX_FILE_BYTES = 512 * 1024; // a single file read/write cap - this is a Task's code, not a database dump
 
@@ -24,10 +17,7 @@ export function safeResolve(root: string, relPath: string): string {
   return resolved;
 }
 
-// Builds the three file tools bound to one Task's scaffolded directory via closure - a fresh
-// set per delegate_to_code execute call (createCodingAgent, agents/mastra-coding-agent.ts), so
-// the model can only ever address paths under that one directory, never another Task's or the
-// host's.
+// Three file tools bound to one Task's directory, so no path outside it is reachable.
 export function buildFileTools(root: string) {
   const list_files = createTool({
     id: 'list_files',

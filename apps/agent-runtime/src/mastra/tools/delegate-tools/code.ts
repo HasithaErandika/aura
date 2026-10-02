@@ -42,16 +42,7 @@ function codeFail(error: unknown): z.infer<typeof codingOutputSchema> {
   return { ok: false, error: error instanceof Error ? error.message : String(error) };
 }
 
-// Runs one prompt against an already-scaffolded targetDir with the drafted provider - the
-// provider-dispatch logic shared by delegate_to_code's own `execute` case and runCodingFix below
-// (the Tester Agent loop's automatic retry, tools/tester-workflow.ts), so there is exactly one
-// place that knows how to actually invoke a provider against a directory. Coding runs only
-// through AURA's own agents on AURA-governed models (ADR-3 D6) - the Claude Code / Codex CLI
-// providers, which ran on developers' personal logins, were removed.
-// `approved` is only set by the council: false means it finished without its Reviewer approving,
-// so the Task is not moved to In Review.
-// `approver` is the human whose approval started this run - the author of the council's checkpoint
-// commits (null: AURA authors them).
+// Runs one prompt against a scaffolded directory with the drafted provider (council or mastra agent).
 async function runCodingProviderPrompt(content: CodingTaskDraft, prompt: string, draftId: string, writer: ToolWriterLike | undefined, approver: Approver | null): Promise<{ exitCode: number; output: string; approved?: boolean }> {
   if (content.provider === 'council') {
     try {
@@ -88,13 +79,7 @@ export interface CodingFixResult {
   commit: string | null;
 }
 
-// Runs an automatic fix attempt against an already-implemented Task, from real test-failure
-// evidence - the Tester Agent loop's Dev-routing step (workflows/tester-workflow.ts), not a
-// tool the Orchestrator/a human calls directly. This deliberately bypasses delegate_to_code's
-// own draft/approve/execute contract: the loop's bounded retries run inside a single already
-// human-approved Gate 7 (the "Option A" decision - one approval starts the loop, not one per
-// attempt), the same trust boundary the Architect workflow's many internal model calls already
-// rely on for Gate 3. It never re-scaffolds; it edits the same targetDir Gate 4/5 already own.
+// Automatic fix attempt from test-failure evidence, run inside an already approved Gate 7 loop.
 export async function runCodingFix(original: DraftRecord<CodingTaskDraft>, feedback: string, writer?: ToolWriterLike, approver: Approver | null = null): Promise<CodingFixResult> {
   const prompt = [
     `A real test failure was found against the code you (or a previous attempt) wrote for Task ${original.content.taskKey}: ${original.content.prompt.split('\n')[0]}`,

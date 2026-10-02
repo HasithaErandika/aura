@@ -74,8 +74,7 @@ export function untrusted(source: string, text: string | null | undefined): stri
   return `${RULE_LINE}\n<untrusted source="${label}">\n${clean || '(empty)'}\n</untrusted>`;
 }
 
-// For short inline values (an Epic title in a sentence): sanitized and scanned like untrusted(),
-// but not fenced, since a block per title would drown the prompt.
+// Short inline values: sanitized and scanned like untrusted(), but not fenced.
 export function untrustedInline(source: string, text: string | null | undefined): string {
   const raw = text ?? '';
   collector.getStore()?.push(...scanUntrusted(source, raw));
@@ -84,8 +83,7 @@ export function untrustedInline(source: string, text: string | null | undefined)
 
 const collector = new AsyncLocalStorage<Finding[]>();
 
-// Runs fn and returns every finding recorded by untrusted() calls inside it, including in
-// awaited work it starts.
+// Runs fn and returns every finding untrusted() recorded inside it.
 export async function collectFindings<T>(fn: () => Promise<T>): Promise<{ result: T; findings: Finding[] }> {
   const findings: Finding[] = [];
   const result = await collector.run(findings, fn);

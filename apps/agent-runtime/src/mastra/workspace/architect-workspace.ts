@@ -2,14 +2,10 @@ import { readdir, stat } from 'node:fs/promises';
 import { Workspace, LocalFilesystem } from '@mastra/core/workspace';
 import { AURA_WORKSPACE_ROOT } from './root';
 
-// Creates one filesystem-only workspace per Epic for Architect documents, written only by
-// deterministic code, not by the LLM agents - lives at <AURA_WORKSPACE_ROOT>/<epicKey>/architecture,
-// one of three kinds nested under the shared per-Epic root (see workspace/root.ts).
-export const workspaceRoot = AURA_WORKSPACE_ROOT;
-const root = workspaceRoot;
+// One filesystem workspace per Epic for Architect documents, written only by code: <root>/<EPIC>/architecture.
+const root = AURA_WORKSPACE_ROOT;
 
-// Lists every Epic that has an Architect workspace on disk (an `architecture` subfolder) - the
-// shared root's top-level folders may also hold `dev`/`qa` subfolders with no architecture at all.
+// Every Epic with an architecture folder on disk.
 export async function listEpicWorkspaces(): Promise<string[]> {
   try {
     const entries = await readdir(root, { withFileTypes: true });

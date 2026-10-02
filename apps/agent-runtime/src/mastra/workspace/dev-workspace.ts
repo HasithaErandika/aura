@@ -13,21 +13,14 @@ const execFileAsync = promisify(execFile);
 // git branch/PR automation) - a human reviews and commits from here themselves.
 export const devWorkspaceRoot = AURA_WORKSPACE_ROOT;
 
-// The BASE repo for a discipline - scaffolded once (by the first Task of that discipline in the
-// Epic), never edited directly by an agent after that. Every Task gets its own git worktree
-// branched off this (taskWorktreeDir/ensureTaskWorktree below) - "Concurrent Task Execution"
-// milestone: two Tasks of the same discipline must never share one mutable directory, or one
-// Task's Coding Agent run can corrupt or race another's (docs/ARCHITECTURE.md).
+// A discipline's base repo, scaffolded once; every Task works in its own worktree off it.
 export async function devWorkspaceDir(epicKey: string, discipline: string): Promise<string> {
   const dir = path.resolve(devWorkspaceRoot, epicKey, 'dev', discipline.toLowerCase());
   await mkdir(dir, { recursive: true });
   return dir;
 }
 
-// Where a specific Task's isolated git worktree lives: <EPIC>/dev/.worktrees/<discipline>/<TASK>,
-// a SIBLING of the discipline's base repo, never inside it. Nested inside the base (the earlier
-// layout), every tool run in the base - the scaffold's own `npm test`, tsc, lint, a base CI run -
-// walked into every Task's worktree and ran/compiled all of their code too.
+// A Task's worktree path, a sibling of the base repo so base tools never walk into it.
 export function taskWorktreeDir(baseDir: string, taskKey: string): string {
   return path.resolve(path.dirname(baseDir), '.worktrees', path.basename(baseDir), taskKey);
 }
@@ -71,19 +64,7 @@ export interface TaskWorktree {
   created: boolean;
 }
 
-// Ensures a Task has its own isolated git worktree, checked out on its own branch off the base
-// repo's current HEAD - idempotent, so calling this again for a Task that already has one just
-// returns it. This is the actual fix for the bug where a second Task of the same discipline
-// would re-run the scaffold command (or a Coding Agent run) on top of another Task's changes in
-// the same shared directory: from here on, every Task-level tool (Coding Agent, Git tool,
-// Tester Agent) operates on `workDir`, never `baseDir`, directly.
-//
-// Dependency installs are NOT repeated per Task: git worktrees only check out tracked files, and
-// `node_modules` is gitignored, so a fresh worktree would otherwise need its own `npm install`
-// (slow, and defeats the point of sharing one scaffold). Instead this symlinks the base repo's
-// already-installed `node_modules` into the new worktree - a well-known pattern for worktrees +
-// Node projects. Best-effort: if there's no `node_modules` yet, or the filesystem doesn't support
-// symlinks, the Coding Agent's own `npm install` (if it runs one) just installs for real instead.
+// Idempotently creates a Task's worktree off the base HEAD, symlinking the base node_modules.
 export async function ensureTaskWorktree(baseDir: string, taskKey: string): Promise<TaskWorktree> {
   const workDir = taskWorktreeDir(baseDir, taskKey);
   const branch = taskBranchName(taskKey);
@@ -127,10 +108,7 @@ export interface LocatedTaskWorktree {
   branch: string;
 }
 
-// Finds a Task's worktree from its key alone by scanning <root>/<epic>/dev/.worktrees/<discipline>/
-// <TASK>. A Task only ever has one worktree (delegate_to_dev creates it under the
-// discipline read off the Task itself), so the first match is the answer; null if Gate 4 has not
-// created one yet. Used by the `aura` CLI's lookup route and the web terminal.
+// Finds a Task's worktree from its key alone; null before Gate 4 creates one.
 export async function findTaskWorktree(taskKey: string): Promise<LocatedTaskWorktree | null> {
   const root = path.resolve(devWorkspaceRoot);
   const epics = await readdir(root, { withFileTypes: true }).catch(() => []);

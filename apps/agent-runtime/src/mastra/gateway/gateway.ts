@@ -202,8 +202,7 @@ async function deliverDraft(tool: string, mode: string, result: unknown, context
   return { ...record, markdown: preview };
 }
 
-// Wraps a tool so every call goes through the gateway. Same id, description and schemas, so the
-// Orchestrator sees exactly the tool it saw before.
+// Wraps a tool so every call goes through the gateway; id, description and schemas are unchanged.
 export function governed<T extends ToolLike>(tool: T): T {
   return createTool({
     id: tool.id,

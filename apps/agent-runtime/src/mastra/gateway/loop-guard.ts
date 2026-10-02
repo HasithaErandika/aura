@@ -73,9 +73,7 @@ export class LoopGuard {
     return s;
   }
 
-  // Checks a call before it runs and records it. Returns the reason to refuse, or null.
-  // `decisionId` is the human decision in effect (approval id); a new decision resets the
-  // failure streak, since a human has looked at it.
+  // Checks and records a call; returns the refusal reason or null. A new decision resets the failure streak.
   check(threadId: string, tool: string, input: unknown, decisionId: string | null, draftVersion: number | null, revising: boolean): string | null {
     const s = this.state(threadId);
     const t = this.now();

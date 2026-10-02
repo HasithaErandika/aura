@@ -54,9 +54,7 @@ export function decisionFrom(requestContext: RequestContextLike | undefined): De
   return { approvalId, decision, userId, role: text(v?.role) ?? 'unknown', decidedAt: text(v?.decidedAt) ?? new Date().toISOString() };
 }
 
-// A decision that lets a gated step go ahead. "answer" counts: it's a human picking one of the
-// gate's own options whose label the clients couldn't classify (apps/web GateCard.tsx), e.g.
-// "Start the test loop". revise and reject never do.
+// Whether a decision lets a gated step run: approve or an unclassified gate option, never revise or reject.
 export function authorizesGatedStep(decision: DecisionContext | null): boolean {
   return decision?.decision === 'approve' || decision?.decision === 'answer';
 }

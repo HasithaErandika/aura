@@ -32,7 +32,7 @@ export const addCouncilNoteRoute = registerApiRoute('/council/:draftId/notes', {
   },
 });
 
-// GET /council/usage - today's model requests/tokens, for `aura status`.
+// GET /council/usage - today's per-model request and token counts.
 export const councilUsageRoute = registerApiRoute('/council/usage', {
   method: 'GET',
   handler: async (c) => c.json(await usageToday()),

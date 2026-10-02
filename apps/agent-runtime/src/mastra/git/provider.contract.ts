@@ -133,8 +133,7 @@ export function describeGitProviderContract(label: string, setup: () => Promise<
   });
 }
 
-// A human merge on the host, for providers backed by a plain git remote: merge commit on a
-// throwaway clone, pushed to the base branch.
+// A human merge for plain git remotes: merge commit on a throwaway clone, pushed to the base.
 export async function mergeViaClone(remoteUrl: string, base: string, head: string): Promise<void> {
   const dir = mkdtempSync(path.join(os.tmpdir(), 'aura-git-merge-'));
   try {

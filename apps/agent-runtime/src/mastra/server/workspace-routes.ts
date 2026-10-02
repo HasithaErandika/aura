@@ -58,13 +58,8 @@ export const readWorkspaceFileRoute = registerApiRoute('/workspace/:epicKey/file
   },
 });
 
-// Overwrites one existing design document with human-edited content (docs/ARCHITECTURE.md
-// section 6.3 "manual edit"). Deliberately narrow: only a file the Architect Workflow already
-// wrote can be overwritten - this cannot create new files or write outside the Epic's own
-// workspace. apps/api gates who may call this (architect role only) and audits every call;
-// this route trusts that gate the same way the read routes already do. There is no version
-// history for a manual edit - it simply replaces the file, and a later agent revise (`file`
-// mode) will overwrite it again from the draft.
+// Overwrites one existing design document with human-edited content; never creates files or
+// leaves the Epic's workspace. apps/api gates the caller (architect role) and audits it.
 export const writeWorkspaceFileRoute = registerApiRoute('/workspace/:epicKey/file', {
   method: 'PUT',
   handler: async (c) => {

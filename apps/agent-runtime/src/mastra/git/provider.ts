@@ -74,12 +74,10 @@ export type MergeState = 'clean' | 'conflicts' | 'merged' | 'closed';
 
 export interface GitProvider {
   readonly kind: GitProviderKind;
-  // URL a clone fetches from and pushes to. For GitHub it carries a short-lived installation
-  // token, so it's never logged or stored.
+  // Clone and push URL; for GitHub it carries a short-lived token, so it is never logged or stored.
   remoteUrl(repo: RepoRef): Promise<string>;
   getBranch(repo: RepoRef, branch: string): Promise<BranchRef | null>;
-  // Creates `branch` at `fromSha` (default: the head of the default branch). Idempotent: an
-  // existing branch at the same commit is returned as is; at a different commit it's an error.
+  // Creates a branch at fromSha (default branch head); idempotent at the same commit, an error otherwise.
   createBranch(repo: RepoRef, branch: string, fromSha?: string): Promise<BranchRef>;
   // Pushes `branch` from a local clone/worktree. Never forces.
   push(repo: RepoRef, workDir: string, branch: string): Promise<BranchRef>;
@@ -112,8 +110,7 @@ export function assertValidRepoRef(repo: RepoRef): void {
   assertValidBranch(repo.defaultBranch);
 }
 
-// A subset of `git check-ref-format --branch`, enough to keep a model- or Jira-derived value from
-// becoming an option (leading "-") or a revision expression.
+// A subset of git check-ref-format that stops a derived value becoming an option or revision expression.
 export function assertValidBranch(branch: string): void {
   const bad = !branch || branch.length > 255 || /(^[/.-])|([/.]$)|\.\.|[\s~^:?*[\\]|@\{|\/\/|[\x00-\x1f\x7f]/.test(branch) || branch.endsWith('.lock') || branch === '@';
   if (bad) throw new GitProviderError(`Invalid branch name: ${JSON.stringify(branch)}`, 'invalid');

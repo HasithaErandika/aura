@@ -1,20 +1,8 @@
 import { GEMINI_FALLBACK_MODEL } from '../config/models';
 
-// Defines a central registry for each agent’s drafting model and sub-agents, while keeping tool wiring in each agent’s own file.
-// Startup output shows the actual tool wiring, preventing the registry from becoming inconsistent or outdated.
-//
-// Model tiers on Groq (see withGeminiFallback, config/models.ts, for the Gemini fallback every
-// entry below shares): "heavy" is groq/openai/gpt-oss-120b, "light" is groq/qwen/qwen3.8-27b.
-// Heavy is used for every agent that either calls tools directly or authors quality-sensitive,
-// low-volume content a human reviews (Epic/Stories/Architecture/QA/Deployer/Coding Agent). Light
-// is used only for high-frequency or purely interpretive work with no tool schema attached
-// (Dev's fixed-plan explanation, Tester's result summary). This split is load-bearing, not
-// stylistic: qwen3.8-27b reliably fails Groq's native tool-calling (it emits the tool call as
-// literal text instead of a structured call, and Groq's API rejects it) whenever a tool schema is
-// present, but is fully reliable for plain structured-JSON output with no tools attached - so it
-// must never be assigned to an agent that holds tools (the Orchestrator, the Coding Agent) or
-// receives one via a delegate tool's own model call. Verified directly against Groq's API; see
-// docs/logs/qa-tester-run-KAN-36.md for the run that surfaced it.
+// Each agent's model, versions and note; tool wiring stays in each agent's file and is printed at startup.
+// Heavy tier is gpt-oss-120b; light tier is qwen3.8-27b, which fails Groq tool calling, so it never gets
+// an agent that holds tools (docs/logs/qa-tester-run-KAN-36.md).
 export const ORCHESTRATOR_MODEL_ID = 'groq/openai/gpt-oss-120b'; // heavy - holds tools
 export const PO_MODEL_ID = 'groq/openai/gpt-oss-120b'; // heavy - low-volume, gates every later stage
 export const BA_MODEL_ID = 'groq/openai/gpt-oss-120b'; // heavy
@@ -30,14 +18,8 @@ export const CODER_MODEL_ID = 'groq/openai/gpt-oss-120b'; // heavy - VS Code cod
 // Council's Reviewer, since two copies of one model tend to agree with each other.
 export const EVALUATOR_MODEL_ID = GEMINI_FALLBACK_MODEL;
 
-// Coding Council (workflows/coding-council.ts, agents/council-agents.ts) - an ordered fallback
-// chain per role rather than one id: each later model is tried only when the one before it
-// errors, times out, or is rate limited. Same heavy/light rule as above: the Planner and the
-// Implementer hold tools, so they lead with heavy; the Reviewer holds NO tools (it answers with
-// structured JSON only), which is the one place light qwen is safe - and it deliberately leads
-// with a different model family than the Implementer, since two copies of one model tend to
-// agree with each other. Free tier today; to move onto Claude, set ANTHROPIC_API_KEY and put
-// 'anthropic/claude-sonnet-5' first in each list (see config/models.ts's note on tiers).
+// Coding Council fallback chains per role. The Planner and Implementer hold tools, so they lead with
+// heavy; the Reviewer has none and leads with a different model family than the Implementer.
 export const COUNCIL_PLANNER_MODEL_IDS = ['groq/openai/gpt-oss-120b', GEMINI_FALLBACK_MODEL] as const; // heavy - read-only tools
 export const COUNCIL_IMPLEMENTER_MODEL_IDS = ['groq/openai/gpt-oss-120b', GEMINI_FALLBACK_MODEL] as const; // heavy - holds write/edit/check tools
 export const COUNCIL_REVIEWER_MODEL_IDS = [GEMINI_FALLBACK_MODEL, 'groq/qwen/qwen3.8-27b'] as const; // no tools - structured verdict only
@@ -54,13 +36,7 @@ export interface AgentManifestEntry {
   // Bump whenever this agent's tool contract, schema, or delegation wiring changes -
   // i.e. anything that changes what the agent can *do*, not what it says.
   agentVersion: string;
-  // Bump whenever this agent's system prompt or instructions change - i.e. anything
-  // that changes what the model is *told*, independent of its tool contract. Kept
-  // separate from agentVersion so a prompt tweak doesn't imply a behavioural contract
-  // change, and vice versa. Both start at 1.0.0: no prior version existed to inherit
-  // from (docs/ARCHITECTURE.md section 5.3, "only a partial [provenance] stamp exists
-  // today" - this registry is the source of truth to bump going forward, by hand,
-  // at the same time the prompt/tool file changes).
+  // Bump whenever the agent's instructions change, then re-record its eval baseline.
   promptVersion: string;
 }
 
@@ -70,7 +46,7 @@ export const AGENT_MANIFEST: Record<AgentId, AgentManifestEntry> = {
     modelId: ORCHESTRATOR_MODEL_ID,
     delegatesTo: ['po-agent', 'ba-agent', 'architect-agent', 'dev-agent', 'coding-agent'],
     note: 'Coordinates Gate 1 (Epic), Gate 2 (Stories), Gate 3 (Architecture), Gate 4 (Dev scaffold), and Gate 5 (Coding agent). Never drafts, files, or executes directly - no Jira, memory, filesystem, or shell tool of its own (docs/ARCHITECTURE.md section 6.2).',
-    agentVersion: '1.1.0', // every delegate tool goes through the tool gateway
+    agentVersion: '1.2.0', // earlier tool calls reach the model as compact results (ToolCallFilter)
     promptVersion: '2.0.0', // compact instructions; drafts shown by AURA, never repeated (token saving)
   },
   'po-agent': {
@@ -109,7 +85,7 @@ export const AGENT_MANIFEST: Record<AgentId, AgentManifestEntry> = {
     label: 'Coding Agent',
     modelId: `varies by provider (Coding Council: planner ${COUNCIL_PLANNER_MODEL_IDS.join(' → ')}, implementer ${COUNCIL_IMPLEMENTER_MODEL_IDS.join(' → ')}, reviewer ${COUNCIL_REVIEWER_MODEL_IDS.join(' → ')}; single agent: ${MASTRA_CODING_MODEL_ID})`,
     delegatesTo: [],
-    note: 'Implements a Task, invoked through delegate_to_code. draft is always deterministic code, never a model call - no Mastra Agent object backs this entry (docs/ARCHITECTURE.md section 6.5). execute runs one of two AURA-owned providers against the Task\'s own git worktree: the Coding Council (default, see its own entry) or a single built-in agent (agents/mastra-coding-agent.ts - list_files/read_file/write_file only, no shell). Also asked to write/update unit and integration tests (E2E stays QA\'s job). The external Claude Code / Codex CLI providers, which ran on developers\' personal logins in Docker, were removed (ADR-3 D6, agentVersion 3.0.0).',
+    note: 'Implements a Task, invoked through delegate_to_code. draft is always deterministic code, never a model call - no Mastra Agent object backs this entry (docs/ARCHITECTURE.md section 6.5). execute runs one of two AURA-owned providers against the Task\'s own git worktree: the Coding Council (default, see its own entry) or a single built-in agent (agents/mastra-coding-agent.ts - list_files/read_file/write_file only, no shell). Also asked to write/update unit and integration tests (E2E stays QA\'s job). Runs only on AURA-governed models (ADR-3 D6).',
     agentVersion: '3.1.0', // council is the default; commits authored by the Gate 5 approver
     promptVersion: '2.3.0', // untrusted Jira text fenced (gateway/untrusted.ts)
   },
@@ -203,8 +179,7 @@ export const AGENT_MANIFEST: Record<AgentId, AgentManifestEntry> = {
   },
 };
 
-// Prints each agent's real tool wiring, as resolved live from the agent itself (listTools()) by
-// the caller - not from a second, hand-maintained list, so there is nothing to keep in sync.
+// Prints each agent's real tool wiring, as resolved live by the caller.
 export function printManifest(actualToolsByAgent: Record<AgentId, readonly string[]>): void {
   const lines = (Object.keys(AGENT_MANIFEST) as AgentId[]).map((id) => {
     const entry = AGENT_MANIFEST[id];

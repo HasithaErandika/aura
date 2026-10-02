@@ -5,7 +5,7 @@ import type { PtySession } from './pty';
 // TERMINAL_MODE=restricted: no real shell. A minimal line editor runs one allowlisted command at
 // a time with execFile-style argv (no shell, so `|`, `;`, `$(...)` are just literal characters),
 // cwd fixed to the Task directory, and any path argument checked to stay inside it. Used when the
-// runtime is reachable from anything but this machine (docs/plans/aura-code-cli-council.md D7).
+// runtime is reachable from anything but this machine.
 
 const ALLOWED: Record<string, (args: string[]) => string | null> = {
   aura: () => null,
@@ -65,7 +65,7 @@ export function startRestrictedShell(root: string, label: string, env: NodeJS.Pr
   let inEscape = false;
 
   const help = () =>
-    emit(crlf(`Restricted terminal - no shell. Allowed: ${Object.keys(ALLOWED).join(', ')}, clear, help, exit.\nFor a full shell, run AURA on your own machine (TERMINAL_MODE=full) or use the aura CLI locally.\n`));
+    emit(crlf(`Restricted terminal - no shell. Allowed: ${Object.keys(ALLOWED).join(', ')}, clear, help, exit.\nFor a full shell, run AURA on your own machine (TERMINAL_MODE=full) or use the AURA VS Code extension.\n`));
 
   const run = (commandLine: string) => {
     const argv = splitArgs(commandLine.trim());

@@ -51,7 +51,7 @@ export interface CouncilResult {
   transcriptPath: string | null;
 }
 
-// How much of the council runs (docs/plans/aura-code-cli-council.md section 7):
+// How much of the council runs:
 //   - lean: the Implementer plans inline as its first step, then checks -> review -> fix rounds.
 //           No separate Planner, so the project is read once instead of twice (~70-80% the cost).
 //   - full: Planner -> plan review -> Implementer -> checks -> review -> fix rounds.
@@ -68,8 +68,7 @@ const LIST_ITEM = /^\s*(?:[-*]|\d+[.)]|\[[ x]\])\s+\S/gm;
 export const LEAN_MAX_ITEMS = 6;
 export const LEAN_MAX_CHARS = 2500;
 
-// Deterministic, so the same Task always gets the same mode and the reason can be shown. Pass the
-// Task's own summary + description, not the full Gate 5 prompt with its fixed instructions.
+// Deterministic council mode from the Task's own summary and description, with the reason.
 export function chooseCouncilMode(setting: CouncilModeSetting, taskText: string): { mode: CouncilMode; reason: string } {
   if (setting !== 'auto') return { mode: setting, reason: `council mode set to ${setting}` };
   const risky = RISKY.exec(taskText);

@@ -2,14 +2,8 @@ import { readdir, readFile, stat } from 'node:fs/promises';
 import path from 'node:path';
 import { devWorkspaceDir } from './dev-workspace';
 
-// Gives the QA Agent (Gate 6) a real look at what Dev/Coding actually built, instead of writing
-// Playwright source blind from Story text alone (docs/ARCHITECTURE.md's own documented gap: QA
-// never read the scaffold). Best-effort and bounded: this is a text summary for a prompt, not a
-// full repository read - it walks each scaffolded discipline's directory (skipping
-// node_modules/.git/build output), and returns a capped excerpt of source files most likely to
-// carry real routes/selectors (pages, routes, controllers, components), so QA can prefer real
-// `data-testid`s and real URLs over guesses. Returns '' if nothing is scaffolded yet - QA still
-// works from Stories alone in that case, exactly as it did before this change.
+// Gives the QA Agent (Gate 6) a bounded excerpt of the scaffolded source (pages, routes,
+// controllers, components), so it prefers real selectors and URLs. Returns '' when nothing exists.
 
 const SKIP_DIRS = new Set(['node_modules', '.git', 'dist', 'build', '.next', 'coverage', 'test-results', 'playwright-report']);
 const RELEVANT_EXTENSIONS = new Set(['.tsx', '.ts', '.jsx', '.js']);
@@ -45,8 +39,7 @@ function priorityScore(filePath: string): number {
   return PRIORITY_HINTS.some((hint) => lower.includes(hint)) ? 0 : 1;
 }
 
-// Reads a bounded, prioritized excerpt of one discipline's scaffolded source, or null if that
-// discipline hasn't been scaffolded (or has no source) yet.
+// A bounded excerpt of one discipline's source, or null if not scaffolded.
 async function readDisciplineContext(epicKey: string, discipline: 'Frontend' | 'Backend'): Promise<string | null> {
   const dir = await devWorkspaceDir(epicKey, discipline);
   const files: string[] = [];
@@ -74,9 +67,7 @@ async function readDisciplineContext(epicKey: string, discipline: 'Frontend' | '
   return sections.length ? sections.join('\n\n') : null;
 }
 
-// Reads whatever of Frontend/Backend is scaffolded for this Epic, labelled by discipline, for
-// use as QA prompt context. Never throws - a read failure just means less context, not a
-// blocked test plan.
+// Scaffolded Frontend and Backend source as QA prompt context; never throws.
 export async function readScaffoldContext(epicKey: string): Promise<string> {
   const parts: string[] = [];
   for (const discipline of ['Frontend', 'Backend'] as const) {

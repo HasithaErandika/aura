@@ -11,14 +11,9 @@ import { VSCODE_AGENT_MODEL_ID } from './registry';
 import { loadSkillTool, projectContext } from './vscode-context';
 import { designDocsTool } from './vscode-design-docs';
 
-// The VS Code developer workspace (ADR-4, docs/plans/aura-vscode-agents.md): one agent whose
-// workspace is the folder open in the developer's VS Code. Files and commands are reached through
-// the AURA extension (bridge/), which applies the developer's permission mode and the project's
-// rules and hooks. V2: native grep, background processes, project memory (.aura/AURA.md) and
-// skills (vscode-context.ts). V4: a Task goes through Gate 4 (plan) and Gate 5 (review), with
-// coders and an Evaluator (tools/task-tools.ts).
-// The workspace is resolved per run from the request context apps/api sends, so each run reaches
-// the VS Code of the developer who started it.
+// The VS Code developer workspace (ADR-4): one agent whose workspace is the developer's open folder,
+// reached through the extension (bridge/) under their permission mode, rules and hooks. A Task goes
+// through Gate 4 (plan), Gate 5 (review) and Gate 6 (pull request) via tools/task-tools.ts.
 
 // Gate 4: while this conversation's Task plan waits for approval, the agent's own workspace is
 // read-only (the extension answers as in plan mode). Coders write only after the approval.

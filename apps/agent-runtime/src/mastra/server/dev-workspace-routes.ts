@@ -3,16 +3,9 @@ import { readdir, readFile, writeFile, stat, access } from 'node:fs/promises';
 import path from 'node:path';
 import { devWorkspaceRoot, findTaskWorktree, taskWorktreeDir } from '../workspace/dev-workspace';
 
-// Read/write file viewer for a discipline's base scaffold, or (with ?taskKey=) one Task's own
-// isolated git worktree ("Concurrent Task Execution" milestone - real code lives in worktrees
-// once a discipline has been scaffolded, not in the shared base). devWorkspaceDir/taskWorktreeDir
-// are plain host paths, not a Mastra Workspace/LocalFilesystem (workspace/dev-workspace.ts's own
-// comment - Docker bind-mounts them directly), so containment is checked by hand here the same
-// way workspace-routes.ts's writeWorkspaceFileRoute guards against escaping the Epic's own
-// workspace. The write route (writeDevWorkspaceFileRoute) is deliberately narrow, same shape as
-// the Architect's: it can only overwrite a file Gate 4/5 already created, never create a new one
-// or escape the resolved directory. apps/api gates who may call it (developer role only) and
-// audits every call; this route trusts that gate the same way the read routes already do.
+// Read/write viewer for a discipline's base scaffold or (with ?taskKey=) one Task's worktree.
+// Containment is checked by hand; the write route only overwrites files Gate 4/5 created.
+// apps/api decides who may call these routes (developer role) and audits every call.
 
 function segmentParam(raw: string | undefined, label: string): string {
   const value = raw?.trim();
@@ -22,22 +15,18 @@ function segmentParam(raw: string | undefined, label: string): string {
   return value;
 }
 
-// Resolves the base scaffold directory the same way devWorkspaceDir does, without creating it -
-// this route only ever reads.
+// The discipline's base scaffold directory, resolved without creating it.
 function baseDir(epicKey: string, discipline: string): string {
   return path.resolve(devWorkspaceRoot, epicKey, 'dev', discipline.toLowerCase());
 }
 
-// Resolves which directory to browse: a specific Task's worktree when taskKey is given, else the
-// shared base scaffold (kept for browsing the base itself, and for pre-worktree records).
+// A Task's worktree when taskKey is given, else the base scaffold.
 function taskDir(epicKey: string, discipline: string, taskKey: string | undefined): string {
   const base = baseDir(epicKey, discipline);
   return taskKey ? taskWorktreeDir(base, segmentParam(taskKey, 'taskKey').toUpperCase()) : base;
 }
 
-// Rejects `..`, an absolute path, or anything that resolves outside `base` - the same
-// containment guarantee LocalFilesystem gives the Architect/QA workspaces, reimplemented here
-// since devWorkspaceDir predates that abstraction (see the file's own header comment).
+// Joins a relative path, rejecting anything that resolves outside base.
 function safeJoin(base: string, relPath: string): string {
   const resolved = path.resolve(base, relPath);
   const relFromBase = path.relative(base, resolved);
@@ -124,10 +113,7 @@ export const writeDevWorkspaceFileRoute = registerApiRoute('/dev-workspace/:epic
   },
 });
 
-// Finds a Task's isolated worktree without the caller knowing its Epic or discipline - the
-// `aura` CLI and the VS Code extension only have a Task key (docs/plans/aura-code-cli-council.md
-// section 4.3). Returns the absolute path because the caller runs on the same machine and opens
-// it directly (local mode - remote mode is a later phase).
+// Finds a Task's server worktree from its key alone; returns the absolute path (local mode).
 export const findTaskWorktreeRoute = registerApiRoute('/dev-workspace/tasks/:taskKey', {
   method: 'GET',
   handler: async (c) => {

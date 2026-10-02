@@ -53,9 +53,7 @@ export function gitOn(bridge: BridgeCaller): Git {
   };
 }
 
-// On the Task branch, ready to work: stays if already there; otherwise checks it out, or creates
-// it from `development` (else the current commit). Switching needs a clean working tree, so the
-// developer's own uncommitted work is never carried or lost. Returns the commit to compare with.
+// Checks out or creates the Task branch from development; needs a clean tree. Returns the base commit.
 export async function ensureTaskBranch(git: Git, branch: string): Promise<{ base: string; created: boolean }> {
   const current = (await git.ok('git rev-parse --abbrev-ref HEAD')).trim();
   let created = false;
@@ -77,8 +75,7 @@ export function worktreePath(name: string): string {
   return `${WORKTREES}/${ref(name)}`;
 }
 
-// A fresh worktree for a part, on its sub-branch from `from`. node_modules is linked from the main
-// folder so the checks can run there (best effort; it is never committed).
+// A fresh worktree on a part's sub-branch, with node_modules linked from the main folder.
 export async function addWorktree(git: Git, bridge: BridgeCaller, name: string, branch: string, from: string): Promise<void> {
   await bridge.call('fs.mkdir', { path: WORKTREES, recursive: true });
   await bridge.call('fs.writeFile', { path: `${WORKTREES}/.gitignore`, content: '*\n', overwrite: true });
@@ -99,8 +96,7 @@ export async function commitWorktree(git: Git, name: string, message: string): P
 
 export type MergeResult = { clean: true } | { clean: false; conflicts: string[] };
 
-// Merges a part's sub-branch into the current (Task) branch. A conflict leaves the merge open
-// with the conflicting files listed; anything else that fails aborts it and throws.
+// Merges a part's sub-branch; a conflict stays open with its files listed, other failures abort.
 export async function mergeBranch(git: Git, branch: string, message: string): Promise<MergeResult> {
   const r = await git.run(`git merge --no-ff -m "${commitMessage(message)}" ${ref(branch)}`);
   if (r.exitCode === 0) return { clean: true };
@@ -135,8 +131,7 @@ export async function currentBranch(git: Git): Promise<string> {
   return (await git.ok('git rev-parse --abbrev-ref HEAD')).trim();
 }
 
-// Commits everything left in the working tree (the change accepted at Gate 5). The project's
-// beforeCommit hooks run in the extension first. False when there was nothing to commit.
+// Commits the accepted change after beforeCommit hooks run; false when there was nothing to commit.
 export async function commitAll(git: Git, message: string): Promise<boolean> {
   await git.ok('git add -A');
   if ((await git.run('git diff --cached --quiet')).exitCode === 0) return false;
@@ -157,8 +152,7 @@ export async function originUrl(git: Git): Promise<string | null> {
   return r.exitCode === 0 ? r.output.split('\n')[0]!.trim() : null;
 }
 
-// Opens the PR with the developer's own GitHub CLI. Null when gh is missing or not signed in, so
-// the caller can fall back to a compare link. An existing PR for the branch is returned as is.
+// Opens the PR with the developer's gh; null when gh is unavailable, existing PRs returned as is.
 export async function ghPrCreate(git: Git, bridge: BridgeCaller, input: { branch: string; base: string; title: string; body: string; reviewers: string[]; taskKey: string }): Promise<{ output: string; exitCode: number } | null> {
   if ((await git.run('gh --version')).exitCode !== 0) return null;
   if ((await git.run('gh auth status')).exitCode !== 0) return null;

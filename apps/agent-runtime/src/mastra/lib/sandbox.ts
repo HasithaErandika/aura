@@ -3,23 +3,10 @@ import { access, lstat, readFile, readlink, rm } from 'node:fs/promises';
 import path from 'node:path';
 import { runInContainer } from './docker-exec';
 
-// Project checks (typecheck/build/test/lint) the Coding Council may run against a Task's
-// worktree (docs/plans/aura-code-cli-council.md section 4.6). The model only ever picks a check
-// *id*; the argv behind each id is fixed here and resolved from the project's own package.json,
-// never from model output. Commands run via execFile (no shell) with the worktree as cwd, a
-// stripped environment, a timeout, and capped output.
-//
-// SANDBOX_MODE=host (default) runs them directly on this machine - no Docker needed, which is the
-// point of the council's design. SANDBOX_MODE=docker runs the same ids through the existing
-// runInContainer sandbox instead. Accepted residual risk in host mode: `npm run test` executes the
-// project's own scripts, which the Implementer can edit - acceptable for AURA's local, single-user
-// deployment, not for hosted use (set SANDBOX_MODE=docker there).
-//
-// Dependencies: a Task worktree starts with node_modules as a symlink to the discipline's base
-// repo (workspace/dev-workspace.ts) - fast, and correct while the Task uses only the scaffold's
-// dependencies. Once a Task changes package.json's dependencies, ensureTaskDependencies swaps the
-// symlink for the worktree's OWN node_modules and installs there before any check runs - never
-// in the base, so no other Task's dependencies change underneath it.
+// Project checks (typecheck/build/test/lint) the Coding Council may run in a Task's worktree. The
+// model picks a check id; the argv is fixed here from package.json and runs via execFile with a
+// stripped environment, timeout and capped output. SANDBOX_MODE=host (default) or docker.
+// A worktree links the base node_modules until its dependencies change; then it installs its own.
 
 export const CHECK_IDS = ['typecheck', 'build', 'test', 'lint'] as const;
 export type CheckId = (typeof CHECK_IDS)[number];
@@ -116,9 +103,7 @@ async function readPackage(dir: string) {
   return JSON.parse(await readFile(path.join(dir, 'package.json'), 'utf8')) as { dependencies?: Record<string, string>; devDependencies?: Record<string, string> };
 }
 
-// Gives a Task worktree its own installed dependencies when its package.json no longer matches
-// the base it symlinks to. No-op for a base repo, a worktree already on its own node_modules, or
-// a Task that did not touch dependencies. Returns what it did, for the check output.
+// Installs a worktree its own dependencies when its package.json differs from the base; returns what it did.
 export async function ensureTaskDependencies(dir: string): Promise<string | null> {
   const nm = path.join(dir, 'node_modules');
   let linkTarget: string;
@@ -176,8 +161,7 @@ export async function runCheck(dir: string, id: CheckId): Promise<CheckResult> {
   }
 }
 
-// Runs every check the project supports, in a fixed order, stopping at the first failure - a
-// failing typecheck makes the build/test output after it noise.
+// Runs every supported check in a fixed order, stopping at the first failure.
 export async function runAllChecks(dir: string): Promise<CheckResult[]> {
   const results: CheckResult[] = [];
   for (const check of await availableChecks(dir)) {

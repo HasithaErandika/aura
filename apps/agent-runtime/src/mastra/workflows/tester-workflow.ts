@@ -18,29 +18,10 @@ import { provenance } from '../tools/delegate-tools/shared';
 
 const execFileAsync = promisify(execFile);
 
-// Gate 7 as a bounded test -> diagnose -> route -> retest loop (docs/ARCHITECTURE.md section
-// 2.4/5.3), replacing the old one-shot delegate_to_test execute. What changed and why:
-//
-// The old design ran the QA-filed suite once, had a small model summarize the JSON result, and
-// stopped - a human had to notice a failure, ask a developer to fix it, then manually re-invoke
-// Gate 7 to retest. It also never distinguished "the app is broken" from "the test itself is
-// wrong" (QA never saw the real code when writing it - see workspace/read-scaffold-context.ts).
-//
-// This workflow instead: runs the real suite (unchanged - still Playwright's own JSON output,
-// never a model's claim), and on failure collects evidence (the real error, the exact test
-// source, the current git commit) and diagnoses each failure through an explicit hierarchy
-// before taking any action:
-//   infra failure? -> app startup failure? -> test/env problem? -> test implementation
-//   problem? -> application defect? -> requirements ambiguity?
-// Only two stages map to an automatic action: a test implementation problem routes back to QA
-// (revising ONLY that one failing scenario - reviseQaScenario, never the whole plan), and an
-// application defect routes to the Coding Agent (runCodingFix, against the same already-
-// scaffolded directory, never a fresh scaffold). Every other stage - including "the model isn't
-// confident" - routes to a human immediately; the loop never guesses on an unsure diagnosis.
-// A fix attempt is retried up to MAX_ITERATIONS times; hitting the cap (or an immediate "route
-// to human") halts the loop and the run is flagged HALTED_LOOP_GUARD (previously an unused
-// column - see docs/ARCHITECTURE.md section 5.3) for a human to pick up with the full attempt
-// history attached, not just the last failure.
+// Gate 7 as a bounded test -> diagnose -> route -> retest loop. Pass/fail always comes from
+// Playwright's JSON output. Each failure is diagnosed (infra, startup, env, test, app defect,
+// requirements); a test problem goes to QA (one scenario), an app defect to the Coding Agent, and
+// anything else or unsure to a human. After MAX_ITERATIONS the run halts with HALTED_LOOP_GUARD.
 
 export const MAX_ITERATIONS = 3;
 
@@ -96,8 +77,7 @@ interface RawFailure {
   file: string | null;
 }
 
-// Walks Playwright's JSON reporter shape (suites -> specs -> tests -> results), threading the
-// nearest `file` field down so each failure carries the spec file it came from.
+// Walks Playwright's JSON report, tagging each failure with its spec file.
 function extractFailures(raw: unknown): RawFailure[] {
   const failures: RawFailure[] = [];
   function walk(node: unknown, titlePath: string[], file: string | null): void {
@@ -295,8 +275,7 @@ const attemptStep = createStep({
     const anyCodeBug = diagnoses.some((d) => d.classification === 'code_bug');
     const allBadTest = diagnoses.length > 0 && diagnoses.every((d) => d.classification === 'bad_test');
 
-    // Never guess on an unsure diagnosis - route the whole attempt to a human immediately,
-    // consuming no further iterations, the moment any failure isn't confidently explained.
+    // An unsure diagnosis goes straight to a human, using no further iterations.
     if (lowConfidence) {
       const record: AttemptRecord = { attempt: state.attempt, commit, passed, failed, skipped, diagnoses, route: 'human', action: 'At least one failure could not be diagnosed with confidence - escalated rather than guessed.' };
       const history = [...state.history, record];
@@ -358,8 +337,7 @@ const attemptStep = createStep({
   },
 });
 
-// Persists cumulative loop state into the SAME test-run draft across every attempt (not a new
-// version per attempt - this is one continuous run's progress, not a distinct new artifact).
+// Saves cumulative loop state into the same test-run draft on every attempt.
 async function persistAttempt(state: AttemptState, latest: AttemptRecord, haltReason: AttemptState['haltReason'] | 'cap_reached' | null): Promise<void> {
   await draftStore.markFiled(state.testRunDraftId, {
     status: haltReason ? 'halted' : latest.route === 'none' ? 'done' : 'running',
@@ -375,8 +353,7 @@ async function persistAttempt(state: AttemptState, latest: AttemptRecord, haltRe
   });
 }
 
-// Fetches (or reconstructs) the coding-task draft runCodingFix needs to know provider/targetDir
-// for this Task - reuses the most recent one filed for it, since Gate 5 always creates one.
+// The Task's most recent coding draft, which runCodingFix needs.
 async function requireTaskDraft(taskKey: string, epicKey: string, targetDir: string, discipline: 'Frontend' | 'Backend'): Promise<DraftRecord<CodingTaskDraft>> {
   const candidates = await draftStore.listByEpic<CodingTaskDraft>('coding-task', epicKey, 50);
   const match = candidates.find((r) => r.content.taskKey === taskKey);
@@ -390,8 +367,7 @@ async function requireTaskDraft(taskKey: string, epicKey: string, targetDir: str
   });
 }
 
-// Creates one Jira Bug the first time a code_bug diagnosis routes to Dev, then only comments on
-// it for every later attempt against the same failure - never a new Bug per retry.
+// Files one Bug on the first code_bug routing, then only comments on it.
 async function fileOrUpdateBug(state: AttemptState, existingBugKey: string | null, failures: FailureDiagnosis[], feedback: string, commit: string | null): Promise<string | null> {
   const body = [
     `Attempt ${state.attempt} for Task ${state.taskKey} (Epic ${state.epicKey}), diagnosed as application defect(s) by the Tester Agent loop:`,

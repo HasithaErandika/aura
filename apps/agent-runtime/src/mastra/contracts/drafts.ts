@@ -326,9 +326,7 @@ export function architectureDocuments(draft: ArchitectureDraft): DesignDocWrite[
   ];
 }
 
-// Renders the Jira comment pointing at the Epic's design documents in the web app. Posted on
-// every Epic the design covers (relatedEpicKeys), not just the primary one that holds the
-// filed Tasks and the documents, so a human reading any of the combined Epics finds it.
+// Jira comment linking the Epic's design documents, posted on every Epic the design covers.
 export function architectureFiledComment(draft: ArchitectureDraft, docs: DesignDocLink[], stamp: string): string {
   const scopeNote = draft.relatedEpicKeys.length > 1 ? ` This is a shared design across ${draft.relatedEpicKeys.join(', ')}; Tasks are filed under ${draft.epicKey}.` : '';
   return [

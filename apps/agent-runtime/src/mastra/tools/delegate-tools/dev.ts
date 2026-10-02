@@ -43,10 +43,7 @@ export const CI_STEPS: Record<'Frontend' | 'Backend', { name: string; run: strin
   ],
 };
 
-// Joins a discipline's CI_STEPS into one shell script for delegate_to_ci to run locally in a
-// single container - `set -e` makes any failing step abort the script (matching a normal CI
-// job's own "any step fails -> job fails" semantics) so the container's own exit code is
-// meaningful.
+// Joins a discipline's CI steps into one set -e script so the exit code is meaningful.
 export function ciStepsToShellScript(discipline: 'Frontend' | 'Backend'): string {
   return ['set -e', ...CI_STEPS[discipline].map((s) => s.run)].join('\n');
 }
@@ -81,17 +78,7 @@ function renderCiWorkflow(discipline: 'Frontend' | 'Backend'): string {
 
 const DEFAULT_GITIGNORE = ['node_modules/', 'dist/', 'build/', '.env', 'test-results/', 'playwright-report/', ''].join('\n');
 
-// Best-effort, non-blocking finishing touches after a real scaffold succeeds: the CI workflow
-// file (so `.github/workflows/<discipline>-ci.yaml` exists from the start, not bolted on later),
-// a `.gitignore` if the scaffold tool didn't already write one (NestJS's `--skip-git` skips it
-// too), and an initial "chore: scaffold" commit. Committing here, not just `git init`, matters:
-// without a baseline commit, `git diff`/`status` (delegate_to_git's read ops) show every file in
-// the scaffold as untracked once the Coding Agent (Gate 5) starts editing, so there is no way to
-// see what it actually changed versus what the scaffold tool generated. A committed baseline
-// makes that diff real. The human still owns every commit *after* this one, via the gated
-// delegate_to_git `commit` op. None of this touches Jira, and none of it can fail the scaffold
-// itself - a problem here is swallowed, never surfacing as a Gate 4 failure, since the scaffold
-// on disk is what actually matters.
+// Best-effort finishing after a scaffold: CI workflow, .gitignore and a baseline commit; never fails the scaffold.
 async function finishScaffold(targetDir: string, discipline: 'Frontend' | 'Backend'): Promise<void> {
   try {
     const workflowsDir = path.join(targetDir, '.github', 'workflows');
@@ -121,10 +108,7 @@ async function finishScaffold(targetDir: string, discipline: 'Frontend' | 'Backe
   }
 }
 
-// The current NestJS template's e2e test imports `supertest/types` without an extension, which
-// does not resolve under the template's own `moduleResolution: "nodenext"` - so a fresh scaffold
-// fails `tsc --noEmit`, and with it every Task's typecheck (the Coding Council's first check).
-// Fixed before the baseline commit so the base scaffold typechecks from the start.
+// Fixes the NestJS template's supertest import so a fresh scaffold typechecks.
 async function fixNestScaffoldTypes(targetDir: string): Promise<void> {
   const file = path.join(targetDir, 'test', 'app.e2e-spec.ts');
   try {
@@ -141,15 +125,8 @@ interface ScaffoldEntry {
   description: string;
 }
 
-// Fixed, code-defined scaffold commands per discipline - never chosen or written by a model
-// (docs/adr/0001-dev-agent-scaffold-and-template-strategy.md). Verified working (real Docker
-// run, exit 0, files on disk): Frontend, Backend/NestJS. Not yet implemented - each fails
-// clearly rather than silently doing nothing when asked for: Backend/Spring Boot (needs a JDK
-// image and Spring Initializr network access, neither exercised yet), Data (the ADR's open
-// sub-decision on Postgres provisioning is still open), AI, Integration, and "Security" (not a
-// discipline architecture Tasks carry at all - security is the Architect's securityDesign
-// section, implemented as part of whichever Task addresses it, not a separate scaffold; ask if
-// something more specific is meant here before one is invented).
+// Fixed scaffold commands per discipline, never chosen by a model (ADR-0001). Implemented: Frontend
+// and Backend/NestJS; other disciplines fail clearly.
 const SCAFFOLD_COMMANDS: Partial<Record<Exclude<(typeof scaffoldDisciplines)[number], 'Backend'>, ScaffoldEntry>> = {
   Frontend: {
     image: 'node:22-slim',
@@ -163,22 +140,15 @@ const SCAFFOLD_COMMANDS: Partial<Record<Exclude<(typeof scaffoldDisciplines)[num
 const BACKEND_SCAFFOLDS: Partial<Record<'Spring Boot' | 'NestJS', ScaffoldEntry>> = {
   NestJS: {
     image: 'node:22-slim',
-    // Root cause of the "Cannot read properties of null (reading 'edgesOut')" crash: it's
-    // node:22-slim's bundled npm 10.9.8 arborist itself - reproduces on a plain `npm install`
-    // in a freshly scaffolded project, npx not involved. Fixed by upgrading npm before
-    // scaffolding. The container runs as the host UID (docker-exec.ts), so a plain
-    // `npm install -g` would fail with EACCES against the root-owned default prefix
-    // (/usr/local/lib/node_modules) - point the global prefix at a writable path first.
-    // Verified with two real Docker runs, exit 0, dependencies installed, files on disk.
+    // node:22-slim's bundled npm crashes on install, so upgrade npm first, into a writable prefix
+    // because the container runs as the host user.
     command:
       'npm config set prefix /tmp/npm-global && export PATH=/tmp/npm-global/bin:$PATH && npm install -g npm@latest @nestjs/cli --silent && nest new . --package-manager npm --skip-git --language TS',
     description: 'NestJS starter (@nestjs/cli new), TypeScript, npm - the backend framework chosen at Gate 3.',
   },
 };
 
-// Resolves the fixed scaffold for a Task's discipline, reading the Epic's stored tech-stack
-// choice for Backend. Returns an error string, never throws - draft mode turns it into a
-// plain devFail() the same way any other input problem is reported.
+// The fixed scaffold for a discipline; returns an error string, never throws.
 async function resolveScaffold(discipline: (typeof scaffoldDisciplines)[number], epicKey: string): Promise<{ entry: ScaffoldEntry } | { error: string }> {
   if (discipline === 'Backend') {
     // Must be the latest *filed* architecture draft, not merely the latest created one - an
@@ -323,8 +293,7 @@ export const delegateToDevTool = createTool({
             // Best-effort; proceed regardless.
           }
 
-          // Already scaffolded by an earlier Task of this discipline - no scaffold command runs
-          // again, this Task only gets its own isolated git worktree off the existing base repo.
+          // Already scaffolded: this Task only gets its own worktree off the base repo.
           if (record.content.alreadyScaffolded) {
             const worktree = await ensureTaskWorktree(record.content.baseDir, record.content.taskKey);
             await draftStore.markFiled(record.id, { status: 'done', exitCode: '0' });
@@ -381,10 +350,7 @@ export const delegateToDevTool = createTool({
             };
           }
 
-          // Scaffold succeeded in the base repo: finish it (CI workflow, .gitignore, git init +
-          // chore commit - all committed to the base's default branch) BEFORE branching this
-          // first Task's own worktree off it, so the worktree inherits that baseline commit
-          // rather than branching off an empty/uncommitted repo.
+          // Finish the base scaffold before branching the first worktree, so it inherits the baseline commit.
           if (record.content.discipline === 'Frontend' || record.content.discipline === 'Backend') {
             await finishScaffold(record.content.baseDir, record.content.discipline);
           }

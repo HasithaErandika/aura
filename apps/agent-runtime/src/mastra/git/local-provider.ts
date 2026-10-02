@@ -61,8 +61,7 @@ export class LocalGitProvider implements GitProvider {
     return dir;
   }
 
-  // Creates the bare repository if it doesn't exist yet. Not part of GitProvider: on GitHub the
-  // repository is created by a human, and AURA only registers it.
+  // Creates the bare repository if missing; not part of GitProvider, since GitHub repositories are created by humans.
   async ensureRepository(repo: RepoRef): Promise<string> {
     const dir = this.repoDir(repo);
     const exists = await this.git(dir, 'rev-parse', '--is-bare-repository').then(
@@ -257,8 +256,7 @@ export class LocalGitProvider implements GitProvider {
     );
   }
 
-  // --git-dir pins every call to this bare repository. With only a cwd, git would walk up the
-  // parent directories and could end up reading some other repository.
+  // --git-dir pins every call to this bare repository, so git never walks up to another one.
   private async git(dir: string, ...args: string[]): Promise<string> {
     const { stdout } = await execFileAsync('git', ['--git-dir', dir, ...args]);
     return stdout.trim();

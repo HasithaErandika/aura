@@ -3,14 +3,9 @@ import { z } from 'zod';
 import { adrSchema, architectureDraftSchema, architectureTaskSchema } from '../contracts/drafts';
 import { generateObject } from '../lib/generate-object';
 
-// The Architect's design work as a Mastra Workflow instead of one single-shot agent call
-// (docs/ARCHITECTURE.md section 6.3): each section gets its own narrow, validated LLM call
-// (higher quality per section than one call doing everything), independent sections run in
-// .parallel(), and the step sequence is decided by this code, never by a model - matching
-// principle 1 ("agents propose, deterministic systems decide"). Shared read-only context
-// (epicKey/epicSummary/storiesText and the sections already written) flows through workflow
-// `state`; the six parallel specialists (frontend, API, integration, data, security, AI) return their own section as their *output* instead of
-// writing to `state`, since concurrent setState calls on shared state would race.
+// The Architect's design as a Mastra Workflow: one validated model call per section, independent
+// sections in .parallel(), the step order decided by code. Parallel specialists return their section
+// as output rather than writing shared state, which would race.
 
 const ready = z.object({ ready: z.literal(true) });
 

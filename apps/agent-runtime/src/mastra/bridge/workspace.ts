@@ -31,8 +31,7 @@ function toText(content: FileContent): { content: string; encoding: 'utf8' | 'ba
   return { content: Buffer.from(content).toString('base64'), encoding: 'base64' };
 }
 
-// Mastra's workspace tools rely on its own error classes (a write checks for a missing file
-// first, a refusal must read as a permission error). Bridge error codes map onto them.
+// Maps bridge error codes onto Mastra's workspace error classes.
 function mastraError(path: string, operation: string, kind: 'file' | 'directory' = 'file') {
   return (error: unknown): never => {
     if (error instanceof BridgeCallError) {
@@ -111,8 +110,7 @@ export class BridgeFilesystem implements WorkspaceFilesystem {
     return (await this.bridge.call('fs.exists', { path }).catch(mastraError(path, 'read'))).exists;
   }
 
-  // Searched on the developer's machine in one call, instead of Mastra reading every file over
-  // the bridge.
+  // Searches on the developer's machine in one call.
   async grep(options: FilesystemGrepOptions): Promise<FilesystemGrepResult[]> {
     const r = await this.bridge
       .call('fs.grep', {
@@ -137,9 +135,7 @@ export class BridgeFilesystem implements WorkspaceFilesystem {
 // How often a waiting background process is polled for new output.
 const POLL_MS = 1000;
 
-// A background process running on the developer's machine. Output is fetched when someone looks
-// (get_process_output) or waits, never polled in the background, so an idle dev server costs no
-// bridge calls.
+// A background process on the developer's machine; output is fetched on demand, never polled.
 export class BridgeProcessHandle extends ProcessHandle {
   exitCode: number | undefined;
   private stdoutOffset = 0;

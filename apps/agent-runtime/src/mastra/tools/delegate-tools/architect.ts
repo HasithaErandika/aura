@@ -247,8 +247,7 @@ export const delegateToArchitectTool = createTool({
               break;
             }
           }
-          // Links each filed Task to the Stories it implements. Best-effort and once per Task: a
-          // Story key the model got wrong must not block filing.
+          // Links each filed Task to its Stories, best effort, so a wrong Story key never blocks filing.
           for (let i = 0; i < record.content.tasks.length; i += 1) {
             const taskKey = filed[String(i)];
             if (!taskKey || filed[`links:${i}`]) continue;

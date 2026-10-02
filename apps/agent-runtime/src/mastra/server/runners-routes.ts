@@ -87,8 +87,7 @@ function bytes(value: string | undefined): number | null {
   return Math.round(Number(match[1]) * base ** power);
 }
 
-// Where a directory sits under the workspace root: "<EPIC>/dev/<discipline>" (a base repo) or
-// "<EPIC>/dev/.worktrees/<discipline>/<TASK>" (a Task worktree - workspace/dev-workspace.ts).
+// Where a directory sits under the workspace root: a base repo or a Task worktree.
 function locate(dir: string): { epicKey: string | null; discipline: string | null; taskKey: string | null; label: string } {
   const rel = path.relative(path.resolve(devWorkspaceRoot), dir);
   const parts = rel.split(path.sep);
