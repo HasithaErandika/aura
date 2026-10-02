@@ -1,7 +1,6 @@
 import { badRequest, conflict, notFound } from "../../lib/http/errors.js";
 import type { AuthedUser } from "../../middleware/auth.js";
-import { gitIdentityFor, profilesById } from "../identity/profiles.service.js";
-import type { RuntimeApprover } from "../runtime/runtime.types.js";
+import { profilesById } from "../identity/profiles.service.js";
 import { canDecide, gateInfoForPause, resolveApprover } from "../policy/policy.js";
 import { runsRepository } from "../runs/runs.repository.js";
 import { approvalsRepository } from "./approvals.repository.js";
@@ -122,15 +121,6 @@ export interface DecideInput {
 export interface DecideResult {
   approval: ApprovalRow;
   resumeData: string;
-  // Set on approve only: the human the runtime commits as for work this approval starts.
-  approver: RuntimeApprover | null;
-}
-
-// Resolved here, server-side, from the deciding user's own profile - never from the request - and
-// pinned at decision time, so a later profile edit cannot change who a running step commits as.
-async function approverFor(user: AuthedUser): Promise<RuntimeApprover> {
-  const git = await gitIdentityFor(user.id);
-  return { userId: user.id, role: user.role, name: user.fullName, email: user.email, gitName: git.name, gitEmail: git.email };
 }
 
 // Records the decision and locks the approval. Resuming the runtime happens in the router so
@@ -162,8 +152,6 @@ export async function decide(input: DecideInput): Promise<DecideResult> {
     throw badRequest("An answer is required");
   }
 
-  const approver = input.decision === "approve" ? await approverFor(input.user) : null;
-
   const locked = await approvalsRepository.transition(approval.id, "PENDING", STATUS_FOR_DECISION[input.decision]);
   if (!locked) throw conflict("Someone else decided this request first");
 
@@ -188,10 +176,8 @@ export async function decide(input: DecideInput): Promise<DecideResult> {
       runId: approval.run_id,
       producingAgent: approval.producing_agent,
       snapshotHash: approval.snapshot_hash,
-      // Whose name server-side commits started by this approval carry (ADR-3).
-      ...(approver ? { commitAuthor: approver.gitName && approver.gitEmail ? `${approver.gitName} <${approver.gitEmail}>` : "AURA (no git identity on profile)" } : {}),
     },
   });
 
-  return { approval: locked, resumeData: buildResumeData(approval, input.decision, input.answer, input.reason), approver };
+  return { approval: locked, resumeData: buildResumeData(approval, input.decision, input.answer, input.reason) };
 }

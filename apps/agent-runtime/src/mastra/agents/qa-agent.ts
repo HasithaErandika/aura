@@ -35,7 +35,7 @@ Then write each scenario:
   and never hardcode a different origin. Assume nothing about internals you were not given; base
   selectors and payloads only on what the Story's acceptance criteria actually describe.
 Never claim a test would pass - you are writing the test, not running it; whether it passes is
-decided later, for real, by actually executing it (Gate 7's Tester Agent), never by this agent.
+decided later, for real, by CI on the Task's pull request, never by this agent.
 
 Return only the JSON object the caller's schema describes. No prose outside it.
 When revising, apply the feedback and keep every other field unchanged unless the feedback asks

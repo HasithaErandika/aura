@@ -4,7 +4,7 @@ import { errorMessage, logger } from "../../lib/logger.js";
 import type { AuthedUser } from "../../middleware/auth.js";
 import { expireOverdue } from "../approvals/approvals.service.js";
 import { runsRepository } from "../runs/runs.repository.js";
-import type { RuntimeApprover, RuntimeDecision } from "../runtime/runtime.types.js";
+import type { RuntimeDecision } from "../runtime/runtime.types.js";
 import { RunEventWriter } from "./run-events.js";
 import { resumeTurn, startTurn } from "./run-stream.service.js";
 
@@ -30,7 +30,6 @@ export type TurnJob =
       runtimeRunId: string;
       toolCallId: string;
       resumeData: string;
-      approver: RuntimeApprover | null;
       decision: RuntimeDecision;
       requestId: string;
       user: JobUser;
@@ -82,7 +81,6 @@ export async function runTurnJob(job: TurnJob): Promise<void> {
         runtimeRunId: job.runtimeRunId,
         toolCallId: job.toolCallId,
         resumeData: job.resumeData,
-        approver: job.approver,
         decision: job.decision,
         requestId: job.requestId,
         writer,

@@ -212,9 +212,7 @@ export const jira = {
     return toDetail(raw);
   },
 
-  // Stories, Tasks, and Bugs are all parented directly to their Epic (delegate-tools.ts
-  // `parentKey: epicKey` for Stories/Tasks; the Tester Agent's Gate 7 file-defect mode for
-  // Bugs), so one JQL query covers all three.
+  // Stories, Tasks and Bugs are all parented to the Epic, so one JQL query covers them.
   async getEpicChildren(epicKey: string): Promise<{ stories: JiraIssueSummary[]; tasks: JiraIssueSummary[]; bugs: JiraIssueSummary[] }> {
     const jql = `parent = ${jqlString(epicKey)} ORDER BY created ASC`;
     const issues = await search(jql, SUMMARY_FIELDS, 200);

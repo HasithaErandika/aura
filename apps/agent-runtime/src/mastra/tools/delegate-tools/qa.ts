@@ -1,15 +1,12 @@
 import { createTool } from '@mastra/core/tools';
 import { z } from 'zod';
-import { qaDocuments, qaDraftSchema, qaFiledComment, renderTestPlan, type QaDraft, type TestScenario } from '../../contracts/qa-drafts';
+import { qaDocuments, qaDraftSchema, qaFiledComment, renderTestPlan, type QaDraft } from '../../contracts/qa-drafts';
 import type { DesignDocLink } from '../../contracts/drafts';
 import { designDocs } from '../../lib/design-docs-client';
-import { draftStore, type DraftRecord } from '../../store/draft-store';
+import { draftStore } from '../../store/draft-store';
 import { jira } from '../../mcp/jira-client';
 import { QA_MODEL_ID } from '../../agents/registry';
 import { generateObject, type MastraLike } from '../../lib/generate-object';
-import { qaWorkspace } from '../../workspace/qa-workspace';
-import { readScaffoldContext } from '../../workspace/read-scaffold-context';
-import type { WorkspaceRegistry } from '../../workspace/architect-workspace';
 import { provenance, buildProvenance, type ProvenanceStamp, type ToolWriterLike } from './shared';
 import { untrusted, untrustedInline } from '../../gateway/untrusted';
 
@@ -23,7 +20,7 @@ interface QaWorkflowRun {
 interface QaWorkflowLike {
   createRun: () => Promise<QaWorkflowRun>;
 }
-type QaMastra = (MastraLike & { getWorkflow?: (id: string) => QaWorkflowLike } & Partial<WorkspaceRegistry>) | undefined;
+type QaMastra = (MastraLike & { getWorkflow?: (id: string) => QaWorkflowLike }) | undefined;
 
 // Runs the QA workflow, relaying each step into this tool's stream.
 async function runQaWorkflow(mastra: QaMastra, input: { epicKey: string; epicSummary: string; storiesText: string; codeContext: string }, writer: ToolWriterLike | undefined): Promise<QaDraft> {
@@ -44,14 +41,10 @@ async function runQaWorkflow(mastra: QaMastra, input: { epicKey: string; epicSum
 
 const qaInputSchema = z
   .object({
-    mode: z.enum(['draft', 'revise', 'revise-scenario', 'file']),
+    mode: z.enum(['draft', 'revise', 'file']),
     epicKey: z.string().optional().describe('draft: the Epic whose approved Stories to write a test plan for'),
-    draftId: z.string().optional().describe('revise, revise-scenario, and file: the draftId returned earlier'),
-    feedback: z.string().optional().describe('revise and revise-scenario: the feedback (human wording, or real test-failure evidence), verbatim'),
-    fileName: z
-      .string()
-      .optional()
-      .describe('revise-scenario only: the kebab-case fileName (no extension) of the ONE scenario to regenerate - every other scenario is left byte-identical'),
+    draftId: z.string().optional().describe('revise and file: the draftId returned earlier'),
+    feedback: z.string().optional().describe('revise: the human\'s feedback, verbatim'),
     approved: z.boolean().optional().describe('file: must be true; set only after ask_user returned an approval'),
   })
   .strict();
@@ -62,7 +55,6 @@ const qaOutputSchema = z.object({
   markdown: z.string().optional().describe('draft/revise: the human-readable draft, show it verbatim. file: where the test plan and specs were filed - show it.'),
   epicKey: z.string().optional(),
   scenarioCount: z.number().optional(),
-  revisedFile: z.string().optional().describe('revise-scenario: which .spec.ts file was regenerated'),
   error: z.string().optional(),
   provenance: z.custom<ProvenanceStamp>().optional(),
 });
@@ -71,72 +63,10 @@ function qaFail(error: unknown): z.infer<typeof qaOutputSchema> {
   return { ok: false, error: error instanceof Error ? error.message : String(error) };
 }
 
-// The QA workspace (<root>/<EPIC>/qa/) is the ONLY home of the test plan and Playwright specs:
-// Gate 7 runs them from there (mounted read-only), and developers read them next to the code on
-// Project Files. They are deliberately not copied into the app repos any more - a copy under
-// dev/backend/test/e2e/ was picked up by the backend's own unit-test runner (vitest's
-// "**/*.spec.ts"), broke `npm test` and the Coding Council's test check, and left the shared base
-// repo dirty for every Task.
-
-export interface QaScenarioRevision {
-  record: DraftRecord<QaDraft>;
-  scenario: TestScenario;
-}
-
-// Regenerates one failing scenario from evidence, leaving the others unchanged.
-export async function reviseQaScenario(mastra: MastraLike, previous: DraftRecord<QaDraft>, fileName: string, feedback: string): Promise<QaScenarioRevision> {
-  const target = previous.content.scenarios.find((s) => s.fileName === fileName);
-  if (!target) throw new Error(`no scenario named "${fileName}" in draft ${previous.id}`);
-
-  const prompt = [
-    `This Playwright test is failing for real, against the actual application. Fix ONLY this test file - do not change its intent (same Story/Stories, same title/type) unless the evidence below shows the Story itself is being tested against the wrong thing.`,
-    '',
-    `Scenario: ${target.title} (${target.type})`,
-    `Tests Story/Stories: ${target.storyKeys.join(', ')}`,
-    '',
-    'Current source:',
-    target.playwrightSource,
-    '',
-    'Failure evidence:',
-    feedback,
-    '',
-    'Return only the JSON the schema describes - one field, playwrightSource, containing the complete corrected file content (imports included).',
-  ].join('\n');
-  const { playwrightSource } = await generateObject(mastra, 'qa', prompt, z.object({ playwrightSource: z.string().min(20) }));
-
-  const revisedScenario: TestScenario = { ...target, playwrightSource, revision: target.revision + 1, revisionNote: feedback };
-  const content: QaDraft = { ...previous.content, scenarios: previous.content.scenarios.map((s) => (s.fileName === fileName ? revisedScenario : s)) };
-  const record = await draftStore.create({ kind: 'qa-plan', content, threadId: previous.threadId, epicKey: previous.epicKey, parentId: previous.id });
-  // Every other scenario's Jira-workspace file is already correct on disk (untouched) - carry the
-  // previous filed markers forward so `file`-equivalent bookkeeping doesn't think nothing is filed.
-  await draftStore.markFiled(record.id, { ...previous.filed });
-
-  if (previous.epicKey) {
-    try {
-      const workspaceRegistry = mastra as QaMastra;
-      const fs = workspaceRegistry?.listWorkspaces && workspaceRegistry.addWorkspace ? qaWorkspace(workspaceRegistry as WorkspaceRegistry, previous.epicKey).filesystem : null;
-      if (fs) await fs.writeFile(`tests/${fileName}.spec.ts`, playwrightSource, { recursive: true, overwrite: true });
-    } catch {
-      // Best-effort; the draft record keeps the revised source either way.
-    }
-    // A filed plan's documents get a new version showing the revision; a plan never filed has none.
-    if (previous.filed.workspaceWritten) {
-      try {
-        const docs = qaDocuments(content).filter((d) => d.kind === 'qa-plan' || d.title === revisedScenario.title);
-        for (const doc of docs) await designDocs.save(previous.epicKey, doc, { agent: 'qa-agent', draftId: record.id });
-      } catch {
-        // Best-effort, like the spec file above.
-      }
-    }
-  }
-
-  return { record, scenario: revisedScenario };
-}
-
 export const delegateToQaTool = createTool({
   id: 'delegate_to_qa',
   description:
-    "QA Agent (Gate 6). draft: epicKey -> test plan + real Playwright specs from the approved Stories (and the real code if it exists). revise: draftId + feedback -> regenerates the plan. revise-scenario: draftId + fileName + feedback -> regenerates only that scenario (used by the Tester loop). file: draftId + approved -> saves the plan and scenarios as QA documents, writes the specs to the QA workspace and comments the Epic (returns scenarioCount). Needs filed Stories.",
+    "QA Agent (test plan). draft: epicKey -> test plan and scenarios from the approved Stories. revise: draftId + feedback -> regenerates the plan. file: draftId + approved -> saves the plan and scenarios as QA documents and comments the Epic (returns scenarioCount). Needs filed Stories.",
   inputSchema: qaInputSchema,
   outputSchema: qaOutputSchema,
   execute: async (input, { mastra, agent, writer }) => {
@@ -152,8 +82,7 @@ export const delegateToQaTool = createTool({
           const storyIssues = stories.filter((s) => s.issueType.toLowerCase() === 'story');
           if (!storyIssues.length) return qaFail(`${epicKey} has no Stories yet - run delegate_to_ba and file Stories before drafting a test plan`);
           const storiesText = untrusted(`jira:${epicKey} stories`, storyIssues.map((s) => `- ${s.key}: ${s.summary}\n${s.description || '(no description)'}`).join('\n\n'));
-          const codeContext = await readScaffoldContext(epicKey);
-          const content = await runQaWorkflow(mastra as QaMastra, { epicKey, epicSummary: untrustedInline(`jira:${epicKey} summary`, epic.summary), storiesText, codeContext }, writer);
+          const content = await runQaWorkflow(mastra as QaMastra, { epicKey, epicSummary: untrustedInline(`jira:${epicKey} summary`, epic.summary), storiesText, codeContext: '' }, writer);
           const record = await draftStore.create({ kind: 'qa-plan', content, threadId, epicKey });
           return { ok: true, draftId: record.id, markdown: renderTestPlan(content), epicKey, scenarioCount: content.scenarios.length };
         }
@@ -167,20 +96,6 @@ export const delegateToQaTool = createTool({
           const record = await draftStore.create({ kind: 'qa-plan', content, threadId, epicKey: previous.epicKey, parentId: previous.id });
           return { ok: true, draftId: record.id, markdown: renderTestPlan(content), epicKey: previous.content.epicKey, scenarioCount: content.scenarios.length };
         }
-        case 'revise-scenario': {
-          if (!input.draftId || !input.fileName?.trim() || !input.feedback?.trim()) return qaFail('revise-scenario needs draftId, fileName, and feedback');
-          const previous = await draftStore.get<QaDraft>(input.draftId);
-          if (!previous || previous.kind !== 'qa-plan') return qaFail(`unknown QA draft ${input.draftId}`);
-          const { record, scenario } = await reviseQaScenario(mastra as MastraLike, previous, input.fileName.trim(), input.feedback.trim());
-          return {
-            ok: true,
-            draftId: record.id,
-            markdown: `Regenerated only \`tests/${scenario.fileName}.spec.ts\` (revision ${scenario.revision}). Every other scenario is unchanged.`,
-            epicKey: record.epicKey ?? undefined,
-            scenarioCount: record.content.scenarios.length,
-            revisedFile: scenario.fileName,
-          };
-        }
         case 'file': {
           if (!input.draftId) return qaFail('file needs draftId');
           if (input.approved !== true) return qaFail('file requires approved=true, which is only set after the human approved via ask_user');
@@ -189,22 +104,10 @@ export const delegateToQaTool = createTool({
           const epicKey = record.content.epicKey;
           const filed = { ...record.filed };
 
-          // The plan and scenarios go to apps/api as documents QA reads and edits. The Playwright
-          // files stay in the QA workspace until specs move into the developer's repo (V6), because
-          // the Tester loop (test.ts) runs them from there.
           const docLinks: DesignDocLink[] = [];
-          if (!filed.workspaceWritten || !filed.comment) {
+          if (!filed.workspaceWritten) {
             for (const doc of qaDocuments(record.content)) {
               docLinks.push(await designDocs.save(epicKey, doc, { agent: 'qa-agent', draftId: record.id }));
-            }
-          }
-          if (!filed.workspaceWritten) {
-            const workspaceRegistry = mastra as QaMastra;
-            if (!workspaceRegistry?.listWorkspaces || !workspaceRegistry.addWorkspace) throw new Error('Mastra workspace registry is not available');
-            const fs = qaWorkspace(workspaceRegistry as WorkspaceRegistry, epicKey).filesystem;
-            if (!fs) throw new Error('QA workspace filesystem is not available');
-            for (const scenario of record.content.scenarios) {
-              await fs.writeFile(`tests/${scenario.fileName}.spec.ts`, scenario.playwrightSource, { recursive: true, overwrite: true });
             }
             filed.workspaceWritten = 'done';
             await draftStore.markFiled(record.id, filed);
@@ -217,7 +120,7 @@ export const delegateToQaTool = createTool({
               filed.comment = 'done';
               await draftStore.markFiled(record.id, filed);
             } catch {
-              // The comment is informational; the documents and spec files are what matters.
+              // Informational only; the saved documents are what matters.
             }
           }
           return {
@@ -225,7 +128,7 @@ export const delegateToQaTool = createTool({
             draftId: record.id,
             epicKey,
             scenarioCount: record.content.scenarios.length,
-            markdown: `Test plan and ${record.content.scenarios.length} scenario(s) saved to the QA page; the Playwright specs are in the QA workspace (qa/tests/), where Gate 7 runs them.`,
+            markdown: `Test plan and ${record.content.scenarios.length} scenario(s) saved to the QA page. Developers turn them into tests on each Task branch; CI runs them on the PR.`,
             provenance: buildProvenance('qa-agent', QA_MODEL_ID, record, `${epicKey} (Epic)`),
           };
         }

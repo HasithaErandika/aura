@@ -46,7 +46,7 @@ export interface ApprovalView {
   threadId: string;
   agentId: string;
   producingAgent: string | null;
-  gate: { number: number; name: string; outcome: string } | null;
+  gate: { number: number | null; name: string; outcome: string } | null;
   requiredRole: Role | null;
   requestedBy: string;
   requester?: { fullName: string | null; email: string } | null;

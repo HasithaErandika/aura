@@ -9,7 +9,6 @@ const TABLES: Record<string, string[]> = {
   aura_drafts: ['id'],
   aura_approval_uses: ['approval_id'],
   aura_token_usage: ['day', 'agent', 'model'],
-  aura_model_usage: ['day', 'model'],
 };
 
 export interface MigrateResult {
@@ -24,8 +23,7 @@ export async function migrateState(source: Client, target: RuntimeDb): Promise<M
   const { draftStore } = await import('./draft-store');
   const { claimApproval } = await import('../gateway/approval-ledger');
   const { tokenReport } = await import('./token-ledger');
-  const { usageToday } = await import('./usage-store');
-  await Promise.all([draftStore.get('none'), tokenReport(1), usageToday()]);
+  await Promise.all([draftStore.get('none'), tokenReport(1)]);
   await claimApproval('__migrate_probe__', '__probe__', '__probe__', null);
   await target.execute('delete from aura_approval_uses where approval_id = ?', ['__migrate_probe__']);
 

@@ -75,7 +75,7 @@ approvalsRouter.post(
     const approvalId = uuidParam(req.params.id, "Approval request");
     const body = parseOrThrow(decideSchema, req.body);
 
-    const { approval, resumeData, approver } = await decide({
+    const { approval, resumeData } = await decide({
       approvalId,
       user,
       decision: body.decision,
@@ -102,7 +102,6 @@ approvalsRouter.post(
       runtimeRunId: approval.runtime_run_id,
       toolCallId: approval.tool_call_id,
       resumeData,
-      approver,
       decision: { approvalId: approval.id, decision: body.decision, userId: user.id, role: user.role, decidedAt: approval.decided_at ?? new Date().toISOString() },
       requestId: req.requestId,
       user: jobUser(user),

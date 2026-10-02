@@ -25,9 +25,7 @@ export interface JiraEpicDetail {
   epic: JiraIssueDetail;
   stories: JiraIssueSummary[];
   tasks: JiraIssueSummary[];
-  // Real Jira Bug issues (e.g. filed by the Tester Agent's Gate 7 file-defect mode) parented
-  // to this Epic, alongside Stories/Tasks - kept as its own bucket rather than folded into
-  // tasks so the UI can show it distinctly.
+  // Bugs filed under the Epic, kept apart so the UI can show them distinctly.
   bugs: JiraIssueSummary[];
 }
 

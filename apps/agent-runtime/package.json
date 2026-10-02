@@ -31,7 +31,6 @@
     "@mastra/observability": "1.17.8",
     "@mastra/pg": "1.25.0",
     "pg": "^8.23.1",
-    "ws": "^8.21.3",
     "zod": "^4.4.3"
   },
   "devDependencies": {
@@ -39,7 +38,6 @@
     "@electric-sql/pglite": "^0.5.8",
     "@types/node": "latest",
     "@types/pg": "^8.23.1",
-    "@types/ws": "^8.18.1",
     "mastra": "1.30.0",
     "typescript": "^6.0.3",
     "vitest": "^5.0.2"

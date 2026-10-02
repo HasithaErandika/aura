@@ -7,7 +7,7 @@ import { parseOrThrow } from "../../lib/http/validate.js";
 import { logger } from "../../lib/logger.js";
 import { currentUser } from "../../middleware/auth.js";
 import { writeAudit } from "../audit/audit.service.js";
-import { canViewQaWorkspace } from "../policy/policy.js";
+import { canViewTaskPrs } from "../policy/policy.js";
 import { runsRepository } from "../runs/runs.repository.js";
 import { listNotifications, markRead } from "./notifications.service.js";
 import { OidcError, verifyGithubOidc } from "./oidc.js";
@@ -22,7 +22,7 @@ export const taskPrsRouter = Router();
 taskPrsRouter.get(
   "/",
   asyncHandler(async (req, res) => {
-    if (!canViewQaWorkspace(currentUser(req).role)) throw forbidden("You cannot view Task pull requests");
+    if (!canViewTaskPrs(currentUser(req).role)) throw forbidden("You cannot view Task pull requests");
     res.json({ taskPrs: await listTaskPrs(parseOrThrow(listQuerySchema, req.query)) });
   }),
 );

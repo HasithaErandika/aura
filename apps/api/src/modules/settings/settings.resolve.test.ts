@@ -30,59 +30,61 @@ describe("settings registry", () => {
 describe("resolveSettings", () => {
   it("falls back to defaults when nothing is stored", () => {
     const eff = resolveSettings([], { projectId: PROJECT, userId: USER });
-    expect(eff["council.maxRounds"]).toEqual({ value: 2, source: "default" });
+    expect(eff["vscode.evaluatorRounds"]).toEqual({ value: 3, source: "default" });
   });
 
   it("prefers user over project over global", () => {
-    const rows = [row("global", null, "council.mode", "full"), row("project", PROJECT, "council.mode", "lean"), row("user", USER, "council.mode", "auto")];
-    expect(resolveSettings(rows, { projectId: PROJECT, userId: USER })["council.mode"]).toEqual({ value: "auto", source: "user" });
-    expect(resolveSettings(rows, { projectId: PROJECT, userId: null })["council.mode"]).toEqual({ value: "lean", source: "project" });
-    expect(resolveSettings(rows, { projectId: OTHER_PROJECT, userId: null })["council.mode"]).toEqual({ value: "full", source: "global" });
+    const key = "vscode.evaluatorRounds";
+    const rows = [row("global", null, key, 5), row("project", PROJECT, key, 4), row("user", USER, key, 2)];
+    expect(resolveSettings(rows, { projectId: PROJECT, userId: USER })[key]).toEqual({ value: 2, source: "user" });
+    expect(resolveSettings(rows, { projectId: PROJECT, userId: null })[key]).toEqual({ value: 4, source: "project" });
+    expect(resolveSettings(rows, { projectId: OTHER_PROJECT, userId: null })[key]).toEqual({ value: 5, source: "global" });
   });
 
   it("ignores another project's and another user's rows", () => {
-    const rows = [row("project", OTHER_PROJECT, "council.maxRounds", 4), row("user", "someone-else", "council.mode", "lean")];
+    const rows = [row("project", OTHER_PROJECT, "governance.injectionPolicy", "block"), row("user", "someone-else", "vscode.evaluatorRounds", 1)];
     const eff = resolveSettings(rows, { projectId: PROJECT, userId: USER });
-    expect(eff["council.maxRounds"]?.source).toBe("default");
-    expect(eff["council.mode"]?.source).toBe("default");
+    expect(eff["governance.injectionPolicy"]?.source).toBe("default");
+    expect(eff["vscode.evaluatorRounds"]?.source).toBe("default");
   });
 
   it("ignores stored values that are out of bounds", () => {
-    const eff = resolveSettings([row("global", null, "council.maxRounds", 99)], { projectId: null, userId: null });
-    expect(eff["council.maxRounds"]).toEqual({ value: 2, source: "default" });
+    const eff = resolveSettings([row("global", null, "vscode.evaluatorRounds", 99)], { projectId: null, userId: null });
+    expect(eff["vscode.evaluatorRounds"]).toEqual({ value: 3, source: "default" });
   });
 
   it("ignores a value stored at a scope the key doesn't allow", () => {
-    const eff = resolveSettings([row("user", USER, "council.maxRounds", 4)], { projectId: null, userId: USER });
-    expect(eff["council.maxRounds"]?.source).toBe("default");
+    const eff = resolveSettings([row("user", USER, "governance.injectionPolicy", "block")], { projectId: null, userId: USER });
+    expect(eff["governance.injectionPolicy"]?.source).toBe("default");
   });
 
   it("clamps a capped user value to the project value", () => {
-    const rows = [row("project", PROJECT, "council.tokenBudget", 100_000), row("user", USER, "council.tokenBudget", 400_000)];
-    expect(resolveSettings(rows, { projectId: PROJECT, userId: USER })["council.tokenBudget"]).toEqual({ value: 100_000, source: "project" });
-    const lower = [row("project", PROJECT, "council.tokenBudget", 100_000), row("user", USER, "council.tokenBudget", 50_000)];
-    expect(resolveSettings(lower, { projectId: PROJECT, userId: USER })["council.tokenBudget"]).toEqual({ value: 50_000, source: "user" });
+    const key = "vscode.evaluatorRounds";
+    const rows = [row("project", PROJECT, key, 2), row("user", USER, key, 4)];
+    expect(resolveSettings(rows, { projectId: PROJECT, userId: USER })[key]).toEqual({ value: 2, source: "project" });
+    const lower = [row("project", PROJECT, key, 4), row("user", USER, key, 1)];
+    expect(resolveSettings(lower, { projectId: PROJECT, userId: USER })[key]).toEqual({ value: 1, source: "user" });
   });
 });
 
 describe("runtimeSettings", () => {
   it("sends only runtime-owned values that were set", () => {
-    const rows = [row("global", null, "council.maxRounds", 3), row("global", null, "governance.approvalSlaHours", 24)];
-    expect(runtimeSettings(resolveSettings(rows, { projectId: null, userId: null }))).toEqual({ "council.maxRounds": 3 });
+    const rows = [row("global", null, "vscode.evaluatorRounds", 2), row("global", null, "governance.approvalSlaHours", 24)];
+    expect(runtimeSettings(resolveSettings(rows, { projectId: null, userId: null }))).toEqual({ "vscode.evaluatorRounds": 2 });
   });
 });
 
 describe("capFor", () => {
   it("returns the shared limit for capped keys only", () => {
-    const eff = resolveSettings([row("global", null, "council.tokenBudget", 200_000)], { projectId: null, userId: null });
-    expect(capFor(settingDefinition("council.tokenBudget")!, eff)).toBe(200_000);
-    expect(capFor(settingDefinition("council.maxRounds")!, eff)).toBeNull();
+    const eff = resolveSettings([row("global", null, "vscode.evaluatorRounds", 4)], { projectId: null, userId: null });
+    expect(capFor(settingDefinition("vscode.evaluatorRounds")!, eff)).toBe(4);
+    expect(capFor(settingDefinition("governance.injectionPolicy")!, eff)).toBeNull();
   });
 });
 
 describe("authorizeTarget", () => {
-  const mode = settingDefinition("council.mode")!;
-  const rounds = settingDefinition("council.maxRounds")!;
+  const mode = settingDefinition("vscode.evaluatorRounds")!;
+  const rounds = settingDefinition("governance.injectionPolicy")!;
 
   it("lets any user set their own preference, never someone else's", () => {
     expect(authorizeTarget(mode, { scope: "user", scopeId: "someone-else" }, user("developer"))).toEqual({ scope: "user", scopeId: USER });

@@ -10,7 +10,7 @@ import { runsRepository } from "../runs/runs.repository.js";
 import type { RunRow, RunStatus } from "../runs/runs.types.js";
 import { runtimeClient } from "../runtime/runtime.client.js";
 import { turnSettings, type TurnSettings } from "../settings/settings.service.js";
-import { APPROVER_CONTEXT_KEY, DECISION_CONTEXT_KEY, RUN_CONTEXT_KEY, SETTINGS_CONTEXT_KEY, type AskUserSuspendPayload, type RuntimeApprover, type RuntimeChunk, type RuntimeDecision, type RuntimeRunContext } from "../runtime/runtime.types.js";
+import { DECISION_CONTEXT_KEY, RUN_CONTEXT_KEY, SETTINGS_CONTEXT_KEY, type AskUserSuspendPayload, type RuntimeChunk, type RuntimeDecision, type RuntimeRunContext } from "../runtime/runtime.types.js";
 
 // Observes one runtime stream (a fresh turn or a resumed one) and mirrors what the
 // Orchestrator decides to do into AURA's governance records:
@@ -131,26 +131,6 @@ export async function pipeRuntimeStream(context: StreamContext, stream: AsyncGen
           await step("tool-result", { toolName, toolCallId, payload: { result: preview(result) } });
           writer.send("tool", { phase: "result", toolName, toolCallId, result: preview(result), agent: delegatedAgentFromTool(toolName) });
 
-          // The Tester Agent's bounded retry loop (agent-runtime/workflows/tester-workflow.ts)
-          // flags its own tool result when it stopped without passing - the attempt cap was hit,
-          // or a failure couldn't be diagnosed with confidence. This is a flag, not a stream-
-          // ending action: the Orchestrator is expected to follow up with ask_user (the tool's
-          // own description tells it to), and that suspension's SUSPENDED_FOR_APPROVAL status is
-          // free to supersede this one right after - HALTED_LOOP_GUARD's job is only to make sure
-          // the run is never left looking like a plain SUCCEEDED/FAILED if that follow-up doesn't
-          // happen for some reason, and to record the forensic detail in the audit trail either way.
-          if (toolName === "delegate_to_test" && result && typeof result === "object" && (result as Record<string, unknown>).haltedLoopGuard === true) {
-            run = await runsRepository.update(run.id, { status: "HALTED_LOOP_GUARD", last_error: null });
-            await writeAudit({
-              actorId: null,
-              actorRole: null,
-              action: "run.halted_loop_guard",
-              entityType: "workflow_run",
-              entityId: run.id,
-              requestId: context.requestId,
-              metadata: { toolCallId, result: preview(result) },
-            });
-          }
           break;
         }
 
@@ -253,28 +233,6 @@ export async function pipeRuntimeStream(context: StreamContext, stream: AsyncGen
           break;
         }
 
-        // The Dev agent's Docker run, the Coding agent's CLI run, Gate 7's real test run, and
-        // delegate_to_ci's local CI run all relay their live stdout/stderr the same way
-        // (writer.custom(), delegate-tools/*.ts) - each chunk is `{ chunk: string }`. Mirrored
-        // into run_steps and the live stream exactly like architect-step progress above, so a
-        // human watching any of these execute sees real output instead of silence for however
-        // many minutes the container runs.
-        case "data-dev-output":
-        case "data-code-output":
-        case "data-test-output":
-        case "data-ci-output": {
-          const source = chunk.type === "data-dev-output" ? "dev" : chunk.type === "data-code-output" ? "code" : chunk.type === "data-test-output" ? "test" : "ci";
-          const data = (chunk as unknown as { data?: Record<string, unknown> }).data ?? {};
-          await step("progress", { payload: { source, ...data } });
-          writer.send("progress", { source, ...data });
-          break;
-        }
-
-        // The Coding Council (agent-runtime workflows/coding-council.ts) streams one chunk per
-        // agent turn - who spoke, in which round/phase, what they said, the Reviewer's verdict,
-        // check results. Mirrored as a progress step (source "council") so the Run Console keeps
-        // the whole discussion, and forwarded as its own SSE event so clients (the aura CLI, the
-        // web Council panel) can render it as a conversation rather than raw output.
         // A Task session in VS Code (agent-runtime tools/task-tools.ts): the Gate 4 plan, each
         // coder and Evaluator step, and the Gate 5 review. Clients render the plan and review
         // views from it; the run keeps it as progress steps.
@@ -282,13 +240,6 @@ export async function pipeRuntimeStream(context: StreamContext, stream: AsyncGen
           const data = (chunk as unknown as { data?: Record<string, unknown> }).data ?? {};
           await step("progress", { payload: { source: "task", ...data } });
           writer.send("progress", { source: "task", ...data });
-          break;
-        }
-
-        case "data-council-turn": {
-          const data = (chunk as unknown as { data?: Record<string, unknown> }).data ?? {};
-          await step("progress", { payload: { source: "council", ...data } });
-          writer.send("council", data);
           break;
         }
 
@@ -481,7 +432,6 @@ export async function resumeTurn(input: {
   runtimeRunId: string;
   toolCallId: string;
   resumeData: string;
-  approver?: RuntimeApprover | null;
   decision: RuntimeDecision;
   requestId: string;
   writer: EventSink;
@@ -506,8 +456,6 @@ export async function resumeTurn(input: {
           [RUN_CONTEXT_KEY]: runContext(run, input.requestId, input.user),
           // Read by the runtime's tool gateway: a gated step needs this decision, once.
           [DECISION_CONTEXT_KEY]: input.decision,
-          // Read by delegate tools as the commit author (agent-runtime tools/delegate-tools/shared.ts).
-          ...(input.approver ? { [APPROVER_CONTEXT_KEY]: input.approver } : {}),
           [SETTINGS_CONTEXT_KEY]: settings.runtime,
         },
       },

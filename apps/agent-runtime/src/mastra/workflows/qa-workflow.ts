@@ -3,12 +3,7 @@ import { z } from 'zod';
 import { coverageRowSchema, qaDraftSchema, scenarioTypes } from '../contracts/qa-drafts';
 import { generateObject } from '../lib/generate-object';
 
-// The QA Agent's work as a Mastra Workflow (mirrors workflows/architect-workflow.ts): the
-// step sequence is fixed by code, never a model. Step 1 decides coverage and scenario shape;
-// step 2 writes each scenario's actual Playwright source as its own narrow, validated call - one
-// generation per file keeps each call's output focused and reviewable, the same reasoning
-// architect-workflow.ts gives for splitting sections instead of one giant call.
-
+// The QA Agent as a workflow: step 1 plans coverage and scenarios, step 2 writes each scenario's spec.
 const scenarioPlanSchema = z.object({
   title: z.string().min(3).max(200),
   type: z.enum(scenarioTypes),
@@ -17,11 +12,7 @@ const scenarioPlanSchema = z.object({
   fileName: z.string().min(3).max(120),
 });
 
-// codeContext (workspace/read-scaffold-context.ts) is whatever of Frontend/Backend is already
-// scaffolded/implemented for this Epic, or '' if nothing is yet - fixes the documented gap where
-// QA wrote Playwright source blind from Story text alone, with no idea what selectors/routes the
-// real app actually uses (docs/ARCHITECTURE.md). When present, both steps below are told to
-// prefer real routes/data-testid attributes they can see over guessing.
+// codeContext is optional source excerpts; when present, steps prefer real routes and data-testid attributes.
 const qaInputSchema = z.object({ epicKey: z.string(), epicSummary: z.string(), storiesText: z.string(), codeContext: z.string().default('') });
 
 function codeContextInstruction(codeContext: string): string {

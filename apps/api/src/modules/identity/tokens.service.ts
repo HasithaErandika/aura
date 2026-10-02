@@ -53,14 +53,12 @@ export function isAccessToken(token: string): boolean {
   return token.startsWith(TOKEN_PREFIX);
 }
 
-export type TokenKind = "personal" | "terminal";
-
-export async function createToken(userId: string, name: string, lifetimeMs: number, kind: TokenKind = "personal"): Promise<{ token: string; view: TokenView }> {
+export async function createToken(userId: string, name: string, lifetimeMs: number): Promise<{ token: string; view: TokenView }> {
   const token = `${TOKEN_PREFIX}${randomBytes(32).toString("base64url")}`;
   const expiresAt = new Date(Date.now() + lifetimeMs).toISOString();
   const { data, error } = await supabaseAdmin
     .from("access_tokens")
-    .insert({ user_id: userId, name, token_hash: sha256(token), prefix: token.slice(0, DISPLAY_PREFIX_CHARS), expires_at: expiresAt, kind })
+    .insert({ user_id: userId, name, token_hash: sha256(token), prefix: token.slice(0, DISPLAY_PREFIX_CHARS), expires_at: expiresAt, kind: "personal" })
     .select("id, user_id, name, prefix, created_at, last_used_at, expires_at, revoked_at")
     .single();
   if (error || !data) throw new Error(`could not create access token: ${error?.message ?? "no row returned"}`);

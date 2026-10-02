@@ -1,11 +1,7 @@
 import { runtimeDb } from './runtime-db';
 import { metrics } from '../lib/metrics';
 
-// Token accounting for every model call AURA makes: the Orchestrator's turns, every helper agent's
-// structured call (lib/generate-object.ts), the Coding Council and the single coding agent. One
-// row per day x agent x model, in the same libSQL database as the drafts, plus Prometheus counters.
-// GET /usage/tokens reports it (server/usage-routes.ts); docs/ARCHITECTURE.md §8 explains the
-// numbers. Recording never fails a call: errors are logged and dropped.
+// Token accounting per day, agent and model, plus Prometheus counters; recording never fails a call.
 
 export interface TokenUsage {
   inputTokens?: number;

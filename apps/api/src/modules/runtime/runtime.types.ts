@@ -83,19 +83,6 @@ export interface AskUserSuspendPayload {
   selectionMode?: "single_select" | "multi_select";
 }
 
-// apps/agent-runtime server/runners-routes.ts - only the parts the API itself touches are typed
-// closely; the rest is passed through to the web client as-is.
-export interface RunnersSnapshot {
-  generatedAt: string;
-  epicKey: string | null;
-  host: Record<string, unknown>;
-  docker: Record<string, unknown>;
-  sandboxMode: "host" | "docker";
-  councils: Record<string, unknown>[];
-  checks: Record<string, unknown>[];
-  terminals: { id: number; userId: string; label: string; mode: string; startedAt: string }[];
-}
-
 // Every turn: the AURA run the runtime's tool gateway tags its spans, metrics and events with
 // (agent-runtime gateway/context.ts RUN_CONTEXT_KEY).
 export const RUN_CONTEXT_KEY = "auraRun";
@@ -122,22 +109,7 @@ export interface RuntimeDecision {
   decidedAt: string;
 }
 
-// The human whose approval resumed a run, sent to the runtime as requestContext[APPROVER_CONTEXT_KEY]
-// (mirrors agent-runtime tools/delegate-tools/shared.ts Approver).
-export const APPROVER_CONTEXT_KEY = "auraApprover";
-
-export interface RuntimeApprover {
-  userId: string;
-  role: string;
-  name: string | null;
-  email: string | null;
-  gitName: string | null;
-  gitEmail: string | null;
-}
-
-// Every turn: dashboard settings for the runtime (Coding Council limits, injection policy), only
-// the ones set in the dashboard; the runtime's .env covers the rest and the runtime re-checks
-// every bound (agent-runtime gateway/context.ts SETTINGS_CONTEXT_KEY, apps/api modules/settings).
+// Dashboard settings sent with every turn; the runtime re-checks every bound.
 export const SETTINGS_CONTEXT_KEY = "auraSettings";
 
 // GET /usage/tokens on the runtime (agent-runtime store/token-ledger.ts TokenReport).

@@ -92,7 +92,7 @@ export const architectureDraftSchema = z.object({
 });
 export type ArchitectureDraft = z.infer<typeof architectureDraftSchema>;
 
-export type DraftKind = 'epic' | 'stories' | 'architecture' | 'dev-scaffold' | 'coding-task' | 'qa-plan' | 'test-run' | 'deploy-plan' | 'git-op' | 'ci-run' | 'task-plan' | 'task-review' | 'task-pr';
+export type DraftKind = 'epic' | 'stories' | 'architecture' | 'qa-plan' | 'deploy-plan' | 'task-plan' | 'task-review' | 'task-pr';
 
 // Renders a bullet list, or a placeholder line when empty.
 const PO_PERSPECTIVE = '*Drafted by the AURA PO Agent, from a product-ownership perspective: business value, scope, and stakeholder impact.*';

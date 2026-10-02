@@ -23,12 +23,5 @@ export function withGeminiFallback(groqModelId: string, groqProviderOptions?: Pr
   return modelChain([groqModelId, GEMINI_FALLBACK_MODEL], groqProviderOptions);
 }
 
-// Known free-tier daily request ceilings, shown next to the day's usage (GET /council/usage). Only
-// what this codebase has verified (see GEMINI_FALLBACK_MODEL's note); unknown models show no limit.
-export const KNOWN_DAILY_REQUEST_LIMITS: Record<string, number> = {
-  [GEMINI_FALLBACK_MODEL]: 500,
-  'google/gemini-3.5-flash': 20,
-};
-
 // Adding Claude later: a third entry behind Groq and Gemini (Sonnet for heavy, Haiku for light),
 // with prompt caching on each agent's instructions.
