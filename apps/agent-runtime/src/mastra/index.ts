@@ -18,6 +18,7 @@ import { qaAgent } from './agents/qa-agent';
 import { testerAgent } from './agents/tester-agent';
 import { deployerAgent } from './agents/deployer-agent';
 import { vscodeAgent } from './agents/vscode-agent';
+import { coderAgents, evaluatorAgent } from './agents/coders';
 import { architectWorkflow } from './workflows/architect-workflow';
 import { qaWorkflow } from './workflows/qa-workflow';
 import { testerWorkflow } from './workflows/tester-workflow';
@@ -72,6 +73,10 @@ printManifest({
   'git-tool': [],
   'ci-tool': [],
   'vscode-agent': vscodeTools,
+  // Deterministic: the plan is the VS Code agent's structured input, validated and routed by code.
+  'task-planner': [],
+  coder: [...new Set((await Promise.all(Object.values(coderAgents).map((a) => a.listTools()))).flatMap((t) => Object.keys(t)))],
+  evaluator: [],
 } satisfies Record<AgentId, readonly string[]>);
 
 // AURA_MODE=server refuses loopback-only settings before anything starts listening.
@@ -85,7 +90,7 @@ export const mastra = new Mastra({
   bundler: {
     externals: ['@duckdb/node-bindings'],
   },
-  agents: { orchestrator, po: poAgent, ba: baAgent, architect: architectAgent, dev: devAgent, qa: qaAgent, tester: testerAgent, deployer: deployerAgent, 'vscode-agent': vscodeAgent },
+  agents: { orchestrator, po: poAgent, ba: baAgent, architect: architectAgent, dev: devAgent, qa: qaAgent, tester: testerAgent, deployer: deployerAgent, 'vscode-agent': vscodeAgent, ...coderAgents, evaluator: evaluatorAgent },
   // Registration key must match the id delegate-tools.ts requests via mastra.getWorkflow() -
   // Mastra resolves getWorkflow() by this key, not by the workflow's own internal `id` field.
   workflows: { 'architect-workflow': architectWorkflow, 'qa-workflow': qaWorkflow, 'tester-workflow': testerWorkflow },

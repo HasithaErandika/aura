@@ -142,6 +142,8 @@ export interface JiraIssueSummary {
   status: string;
   issueType: string;
   url: string | null;
+  labels?: string[];
+  parentKey?: string | null;
 }
 
 // Extracts a normalized issue summary from a raw Jira/MCP response shape.
@@ -157,6 +159,8 @@ function pickIssue(raw: Record<string, unknown>): JiraIssueSummary {
     description: typeof fields.description === 'string' ? fields.description : '',
     status: typeof status === 'string' ? status : String((status as Record<string, unknown> | undefined)?.name ?? ''),
     issueType: typeof type === 'string' ? type : String((type as Record<string, unknown> | undefined)?.name ?? ''),
+    labels: Array.isArray(fields.labels) ? fields.labels.filter((l): l is string => typeof l === 'string') : [],
+    parentKey: typeof fields.parent === 'string' ? fields.parent : typeof (fields.parent as Record<string, unknown> | undefined)?.key === 'string' ? String((fields.parent as Record<string, unknown>).key) : null,
     url: typeof issue.url === 'string' ? issue.url : typeof raw.url === 'string' ? raw.url : jiraIssueUrl(key),
   };
 }
@@ -174,7 +178,7 @@ export const jira = {
   // Fetches a single Jira issue by key.
   async getIssue(key: string): Promise<JiraIssueSummary> {
     const execute = findTool('_get_issue');
-    const raw = asObject(await execute({ issue_key: key, fields: 'summary,description,status,issuetype', comment_limit: 0 }, {}));
+    const raw = asObject(await execute({ issue_key: key, fields: 'summary,description,status,issuetype,labels,parent', comment_limit: 0 }, {}));
     const issue = pickIssue(raw);
     if (!issue.key) throw new Error(`Jira returned no issue for ${key}`);
     return issue;

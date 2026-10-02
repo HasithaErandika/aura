@@ -135,7 +135,10 @@ export class PermissionPolicy {
     return invalid;
   }
 
-  decide<O extends BridgeOp>(op: O, args: BridgeArgs<O>): Decision {
+  // `override` is AURA's plan lock (a Task's plan waiting for Gate 4): the call is decided as in
+  // plan mode whatever mode the developer picked. It can only make a decision stricter.
+  decide<O extends BridgeOp>(op: O, args: BridgeArgs<O>, override?: "plan"): Decision {
+    const mode: Mode = override ?? this.mode;
     const matches = (list: ParsedRule[]) => list.some((r) => ruleMatches(r, op, args));
 
     if (READ_ONLY_OPS.includes(op)) {
@@ -151,7 +154,7 @@ export class PermissionPolicy {
       if (denied) return { kind: "deny", reason: denied.reason };
       if (matches(this.rules.deny)) return { kind: "deny", reason: "the project's rules don't allow this command" };
       const builtIn = !SHELL_META.test(line) && ALLOW.some((p) => p.test(line));
-      if (this.mode === "plan") return builtIn ? { kind: "allow", reason: "read-only command or project check" } : { kind: "deny", reason: "plan mode is read-only: propose the change in your plan instead" };
+      if (mode === "plan") return builtIn ? { kind: "allow", reason: "read-only command or project check" } : { kind: "deny", reason: override ? "the Task's plan isn't approved yet (Gate 4): propose the change in the plan instead" : "plan mode is read-only: propose the change in your plan instead" };
       if (this.sessionCommands.has(line)) return { kind: "allow", reason: "allowed for this session" };
       if (matches(this.rules.ask)) return { kind: "ask", reason: "the project's rules ask for this command" };
       if (matches(this.rules.allow)) return { kind: "allow", reason: "allowed by the project's rules" };
@@ -160,11 +163,11 @@ export class PermissionPolicy {
     }
 
     if (matches(this.rules.deny)) return { kind: "deny", reason: "the project's rules don't allow changing this file" };
-    if (this.mode === "plan") return { kind: "deny", reason: "plan mode is read-only: propose the change in your plan instead" };
+    if (mode === "plan") return { kind: "deny", reason: override ? "the Task's plan isn't approved yet (Gate 4): propose the change in the plan instead" : "plan mode is read-only: propose the change in your plan instead" };
     if (targetPaths(op, args).every((p) => this.sessionWrites.has(p))) return { kind: "allow", reason: "allowed for this session" };
     if (matches(this.rules.ask)) return { kind: "ask", reason: "the project's rules ask for this file" };
     if (matches(this.rules.allow)) return { kind: "allow", reason: "allowed by the project's rules" };
-    if (this.mode === "acceptEdits") return { kind: "allow", reason: "accept-edits mode" };
+    if (mode === "acceptEdits") return { kind: "allow", reason: "accept-edits mode" };
     return { kind: "ask", reason: "changes files" };
   }
 

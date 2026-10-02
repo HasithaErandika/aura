@@ -143,6 +143,9 @@ export interface ToolRequestMessage<O extends BridgeOp = BridgeOp> {
   op: O;
   args: BridgeArgs<O>;
   timeoutMs: number;
+  // Set by AURA while a Task's plan waits for Gate 4: the extension answers as in plan mode
+  // (reads and read-only commands only), whatever mode the developer picked.
+  readOnly?: boolean;
 }
 
 export interface CancelMessage {

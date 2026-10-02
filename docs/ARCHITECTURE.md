@@ -319,7 +319,14 @@ single-use ticket (`POST /bridge/tickets`, developers only). Every change it mak
 
 The agent gets Mastra's workspace tools on this bridge (files, `grep` run on the developer's
 machine, commands, background processes), `load_skill`, and `design_docs` (reads the Epic's
-design documents, fenced as untrusted). Each turn starts with the project's
+design documents, fenced as untrusted).
+
+A Jira Task runs through three gates in VS Code (plan §12.5): the agent proposes a plan
+(`delegate_to_planner`, Gate 4; its workspace is read-only until then), a coder chosen by code
+(`task/router.ts`) implements it while code runs the checks and an Evaluator reviews the real diff
+(`delegate_to_coder`, up to *VS Code review rounds*), and the developer accepts the review
+(`delegate_to_review`, Gate 5). The extension shows the plan, the changed files (diff editor) and
+a card for each decision; notes typed meanwhile reach the coders (`run_notes`). Each turn starts with the project's
 `.aura/AURA.md` and the list of skills (AURA's library and `.aura/skills/`). The extension applies
 the developer's permission mode, the project's rules and hooks (`.aura/settings.json`) and the
 built-in refusals before anything runs.

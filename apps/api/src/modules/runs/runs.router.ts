@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { z } from "zod";
 import { asyncHandler } from "../../lib/http/async-handler.js";
-import { forbidden, notFound } from "../../lib/http/errors.js";
+import { conflict, forbidden, notFound } from "../../lib/http/errors.js";
 import { enumList, parseOrThrow, uuidParam } from "../../lib/http/validate.js";
 import { currentUser } from "../../middleware/auth.js";
 import { profilesById } from "../identity/profiles.service.js";
@@ -12,7 +12,9 @@ import { streamRunEvents } from "../orchestration/follow-http.js";
 import { supabaseRunEventStore } from "../orchestration/run-events.js";
 import { stopRun } from "../orchestration/stop-run.js";
 import { runsRepository } from "./runs.repository.js";
-import { RUN_STATUSES, toRunStepView, toRunView, type RunRow } from "./runs.types.js";
+import { runNotes } from "./run-notes.js";
+import { writeAudit } from "../audit/audit.service.js";
+import { ACTIVE_RUN_STATUSES, RUN_STATUSES, toRunStepView, toRunView, type RunRow } from "./runs.types.js";
 
 export const runsRouter = Router();
 
@@ -90,5 +92,24 @@ runsRouter.post(
     if (!run) throw notFound("Run");
     if (!canStopRun(user, { requestedBy: run.requested_by })) throw forbidden("Only the developer who started this run can stop it");
     res.status(202).json({ result: await stopRun(run, user, req.requestId) });
+  }),
+);
+
+const noteSchema = z.object({ text: z.string().trim().min(1).max(4000) }).strict();
+
+// POST /runs/:id/notes: the developer types while their Task runs (VS Code). The coders read
+// the note at their next step; it does not interrupt the step in progress.
+runsRouter.post(
+  "/:id/notes",
+  asyncHandler(async (req, res) => {
+    const user = currentUser(req);
+    const run = await runsRepository.findById(uuidParam(req.params.id, "Run"));
+    if (!run) throw notFound("Run");
+    if (run.requested_by !== user.id) throw forbidden("Only the developer who started this run can add notes to it");
+    if (!ACTIVE_RUN_STATUSES.includes(run.status)) throw conflict("This run has finished; send a message instead");
+    const { text } = parseOrThrow(noteSchema, req.body);
+    const note = await runNotes.add(run.id, user.id, text);
+    await writeAudit({ actorId: user.id, actorRole: user.role, action: "run.note_added", entityType: "workflow_run", entityId: run.id, requestId: req.requestId, metadata: { chars: text.length } });
+    res.status(201).json({ note });
   }),
 );

@@ -32,6 +32,16 @@
           "name": "Tasks"
         },
         {
+          "id": "aura.plan",
+          "name": "Plan",
+          "when": "aura.hasPlan"
+        },
+        {
+          "id": "aura.review",
+          "name": "Review",
+          "when": "aura.hasReview"
+        },
+        {
           "type": "webview",
           "id": "aura.chat",
           "name": "Chat"
@@ -137,6 +147,11 @@
         "command": "aura.initializeProject",
         "title": "Initialize Project",
         "category": "AURA"
+      },
+      {
+        "command": "aura.openDiff",
+        "title": "Open Diff",
+        "category": "AURA"
       }
     ],
     "menus": {
@@ -186,6 +201,10 @@
         {
           "command": "aura.stop",
           "when": "aura.running"
+        },
+        {
+          "command": "aura.openDiff",
+          "when": "false"
         }
       ]
     },

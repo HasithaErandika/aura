@@ -14,6 +14,7 @@ import {
   canonicalAgentId,
   delegatedAgentFromTool,
   gateInfoFor,
+  gateInfoForPause,
   resolveApprover,
   rolesWithAccess,
 } from "./policy.js";
@@ -125,5 +126,18 @@ describe("canStopRun", () => {
     expect(canStopRun({ id: "a1", role: "admin" }, { requestedBy: "u1" })).toBe(true);
     expect(canStopRun({ id: "u2", role: "developer" }, { requestedBy: "u1" })).toBe(false);
     expect(canStopRun({ id: "q1", role: "qa_engineer" }, { requestedBy: "u1" })).toBe(false);
+  });
+});
+
+describe("Task gates in VS Code (V4)", () => {
+  it("names the gate of each Task tool, and lets the developer who started the run decide", () => {
+    expect(delegatedAgentFromTool("delegate_to_planner")).toBe("task-planner");
+    expect(delegatedAgentFromTool("delegate_to_review")).toBe("coder");
+    expect(gateInfoForPause("task-planner", [{ label: "Approve" }, { label: "Revise" }])).toMatchObject({ gate: 4 });
+    expect(gateInfoForPause("coder", [{ label: "Approve" }])).toMatchObject({ gate: 5 });
+    const scope = resolveApprover("task-planner", "dev-1");
+    expect(scope.requiredRole).toBeNull();
+    expect(canDecide({ id: "dev-1", role: "developer" }, scope)).toBe(true);
+    expect(canDecide({ id: "dev-2", role: "developer" }, scope)).toBe(false);
   });
 });

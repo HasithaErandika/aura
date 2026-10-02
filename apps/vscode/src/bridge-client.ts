@@ -156,7 +156,7 @@ export async function executeRequest(
   const op = request.op as BridgeOp;
   const args = request.args as BridgeArgs<BridgeOp>;
   const question = describeRequest(op, args);
-  const decision = options.policy.decide(op, args);
+  const decision = options.policy.decide(op, args, request.readOnly ? "plan" : undefined);
 
   if (decision.kind === "deny") {
     options.log(`✗ Refused: ${question} (${decision.reason})`);

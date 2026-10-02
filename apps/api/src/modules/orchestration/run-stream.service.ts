@@ -58,8 +58,8 @@ function runtimeErrorMessage(payload: Record<string, unknown> | undefined): stri
   return errorMessage(inner ?? "runtime error");
 }
 
-function runContext(runId: string, requestId: string, user: AuthedUser): RuntimeRunContext {
-  return { runId, requestId, userId: user.id, role: user.role };
+function runContext(run: { id: string; thread_id: string | null }, requestId: string, user: AuthedUser): RuntimeRunContext {
+  return { runId: run.id, threadId: run.thread_id, requestId, userId: user.id, role: user.role };
 }
 
 function isAskUserSuspension(chunk: RuntimeChunk): boolean {
@@ -275,6 +275,16 @@ export async function pipeRuntimeStream(context: StreamContext, stream: AsyncGen
         // check results. Mirrored as a progress step (source "council") so the Run Console keeps
         // the whole discussion, and forwarded as its own SSE event so clients (the aura CLI, the
         // web Council panel) can render it as a conversation rather than raw output.
+        // A Task session in VS Code (agent-runtime tools/task-tools.ts): the Gate 4 plan, each
+        // coder and Evaluator step, and the Gate 5 review. Clients render the plan and review
+        // views from it; the run keeps it as progress steps.
+        case "data-task": {
+          const data = (chunk as unknown as { data?: Record<string, unknown> }).data ?? {};
+          await step("progress", { payload: { source: "task", ...data } });
+          writer.send("progress", { source: "task", ...data });
+          break;
+        }
+
         case "data-council-turn": {
           const data = (chunk as unknown as { data?: Record<string, unknown> }).data ?? {};
           await step("progress", { payload: { source: "council", ...data } });
@@ -445,7 +455,7 @@ export async function startTurn(input: { run: RunRow; user: AuthedUser; message:
       {
         messages: [{ role: "user", content: input.message }],
         memory: { thread: run.thread_id, resource: input.user.id },
-        requestContext: { [RUN_CONTEXT_KEY]: runContext(run.id, input.requestId, input.user), [SETTINGS_CONTEXT_KEY]: settings.runtime },
+        requestContext: { [RUN_CONTEXT_KEY]: runContext(run, input.requestId, input.user), [SETTINGS_CONTEXT_KEY]: settings.runtime },
       },
       signal,
     );
@@ -493,7 +503,7 @@ export async function resumeTurn(input: {
         resumeData: input.resumeData,
         memory: { thread: run.thread_id, resource: run.requested_by },
         requestContext: {
-          [RUN_CONTEXT_KEY]: runContext(run.id, input.requestId, input.user),
+          [RUN_CONTEXT_KEY]: runContext(run, input.requestId, input.user),
           // Read by the runtime's tool gateway: a gated step needs this decision, once.
           [DECISION_CONTEXT_KEY]: input.decision,
           // Read by delegate tools as the commit author (agent-runtime tools/delegate-tools/shared.ts).

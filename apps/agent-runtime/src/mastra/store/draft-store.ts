@@ -56,6 +56,8 @@ const ID_PREFIX: Record<DraftKind, string> = {
   'deploy-plan': 'DEPLOY',
   'git-op': 'GIT',
   'ci-run': 'CI',
+  'task-plan': 'PLAN',
+  'task-review': 'REVIEW',
 };
 
 // Generates a short random id prefixed by the draft kind.
@@ -131,6 +133,15 @@ export const draftStore = {
   async latestByEpic<T>(kind: DraftKind, epicKey: string): Promise<DraftRecord<T> | null> {
     const c = await db();
     const result = await c.execute('select * from aura_drafts where kind = ? and epic_key = ? order by created_at desc limit 1', [kind, epicKey]);
+    const row = result.rows[0];
+    return row ? rowToRecord<T>(row) : null;
+  },
+
+  // The most recent draft of this kind in a conversation - e.g. whether a Task's plan in this
+  // VS Code conversation still waits for Gate 4 (tools/task-tools.ts planLocked).
+  async latestByThread<T>(kind: DraftKind, threadId: string): Promise<DraftRecord<T> | null> {
+    const c = await db();
+    const result = await c.execute('select * from aura_drafts where kind = ? and thread_id = ? order by created_at desc limit 1', [kind, threadId]);
     const row = result.rows[0];
     return row ? rowToRecord<T>(row) : null;
   },

@@ -79,6 +79,16 @@ export const SETTING_DEFINITIONS: readonly SettingDefinition[] = [
     fallback: () => 2,
   },
   {
+    key: "vscode.evaluatorRounds",
+    group: "agents",
+    label: "VS Code review rounds",
+    description: "In VS Code, how many coder → Evaluator rounds a Task gets before the code goes to you for review anyway.",
+    owner: "runtime",
+    scopes: SHARED,
+    ...integer(1, 5),
+    fallback: () => 3,
+  },
+  {
     key: "council.implementerSteps",
     group: "agents",
     label: "Implementer steps",

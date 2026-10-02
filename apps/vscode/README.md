@@ -93,6 +93,16 @@ The agent also reads the Task's Epic design documents (architecture plan, ADRs, 
 and scenarios) from AURA with its `design_docs` tool. It never changes them; the Architect and QA
 edit them on the web.
 
+### Task gates
+
+When you start a Task, the agent drafts a plan (Gate 4) and shows it in the **Plan** view and as
+a card in the chat. While the plan waits for you, the agent can only read the folder. Approve,
+Revise (with feedback) or Reject it on the card. After approval a coder for the Task's route
+writes the change; your checks run and the Evaluator reviews it, for up to
+`vscode.evaluatorRounds` rounds. The **Review** view then lists the changed files (click one for a
+diff against the last commit), the check results and the Evaluator's findings (Gate 5). Type in
+the chat while the agent works to send it a note it reads before its next round.
+
 Commands run through your shell in the folder, with secrets (tokens, keys, passwords) removed
 from their environment. Output is capped at 30,000 characters.
 
@@ -107,6 +117,7 @@ from their environment. Output is capped at 30,000 characters.
 | `src/permissions.ts` | Modes, built-in and project allow / ask / deny rules |
 | `src/project-settings.ts`, `src/governance.ts` | `.aura/settings*.json`, modes allowed by the admin |
 | `src/hooks.ts` | `afterEdit` and `beforeCommit` hooks |
+| `src/task-board.ts`, `src/task-views.ts` | Task state from runtime events, Plan and Review views, diffs |
 | `src/executor.ts` | File operations, search, commands and background processes inside the folder |
 
 Protocol: [`packages/aura-bridge`](../../packages/aura-bridge/src/index.ts).

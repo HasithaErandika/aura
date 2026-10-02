@@ -89,7 +89,7 @@ export class BridgeHub {
     return c ? { connected: true, workspace: c.workspace, client: c.client, since: c.connectedAt } : { connected: false };
   }
 
-  call(userId: string, runId: string, op: BridgeOp, args: Record<string, unknown>, timeoutMs = DEFAULT_TIMEOUT_MS): Promise<CallOutcome> {
+  call(userId: string, runId: string, op: BridgeOp, args: Record<string, unknown>, timeoutMs = DEFAULT_TIMEOUT_MS, options: { readOnly?: boolean } = {}): Promise<CallOutcome> {
     if (this.stopped.has(runId)) return Promise.resolve({ ok: false, error: { code: "cancelled", message: STOPPED_MESSAGE }, durationMs: 0 });
     const connection = this.byUser.get(userId);
     if (!connection) {
@@ -103,7 +103,7 @@ export class BridgeHub {
         this.settle(callId, { ok: false, error: { code: "timeout", message: `VS Code did not answer within ${Math.round(limit / 1000)} s` } });
       }, limit);
       this.pending.set(callId, { connectionId: connection.id, runId, resolve, timer, startedAt: Date.now() });
-      this.send(connection, { type: "tool.request", callId, runId, op, args, timeoutMs: limit } as ServerMessage);
+      this.send(connection, { type: "tool.request", callId, runId, op, args, timeoutMs: limit, ...(options.readOnly ? { readOnly: true } : {}) } as ServerMessage);
     });
   }
 

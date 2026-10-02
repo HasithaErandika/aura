@@ -130,6 +130,8 @@ export function createAuraClient(options: AuraClientOptions) {
       follow: (runId: string, signal?: AbortSignal) => stream(`/runs/${encodeURIComponent(runId)}/events?after=turn`, undefined, signal, runId, "GET"),
       // Stops a running turn (VS Code Stop). Its stream then ends with an INTERRUPTED "done".
       stop: (runId: string) => request<{ result: "stopped" | "dequeued" }>("POST", `/runs/${encodeURIComponent(runId)}/stop`).then((r) => r.result),
+      // A note to a running Task: the coders read it at their next step.
+      note: (runId: string, text: string) => request<{ note: { id: string; text: string; createdAt: string } }>("POST", `/runs/${encodeURIComponent(runId)}/notes`, { text }).then((r) => r.note),
     },
 
     projects: {

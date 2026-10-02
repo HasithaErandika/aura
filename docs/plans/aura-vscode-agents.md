@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | **Approved 2026-10-02** · Parts B, C, V0, V1, V2 and V3 built (live checks pending) · V4 next |
+| **Status** | **Approved 2026-10-02** · Parts B, C, V0–V4 built (live checks pending) · V5 next |
 | **Target** | AI agent harness for a leading Sri Lankan technology company |
 | **Date** | 2026-10-02 |
 | **Needs** | ADR-4 (supersedes ADR-1, ADR-2 D1–D2/D5, ADR-3 D2/D8) |
@@ -329,7 +329,7 @@ flowchart LR
 | V1 | Extension base: device-flow sign-in, Tasks view, AURA panel with streaming, Stop / Resume / Open Run in Web, status bar with the active run, Initialize / Connect Repository | 🟡 Built and unit-tested (§12.2); live check in VS Code pending. Tasks are linked to their Stories in Jira since V3 |
 | V2 | Full tool set, permission engine, modes, hooks, `.aura/AURA.md`, skills | 🟡 Built and unit-tested (§12.3); the end-to-end Task with a live model is pending |
 | V3 | Design docs, ADRs, SRS, QA plans in Postgres; Architect specialists; Design documents and QA web pages (Markdown editor, no CodeMirror) | 🟡 Built and unit-tested (§12.4); Gate 3 writes nothing to disk; Project Files removed. Live Gate 3 / Gate 6 run pending |
-| V4 | Router, coder specialists, Evaluator loop, Plan and Review views | A Bug goes to issue-solver; Gate 5 review in the diff editor |
+| V4 | Router, coder specialists, Evaluator loop, Plan and Review views | 🟡 Built and unit-tested (§12.5): a Bug goes to issue-solver; Gate 5 review in the diff editor. Live Task run pending |
 | V5 | Task Planner, parallel sub-branches, merge step | A two-scope Task runs as `_s1` + `_s2` and merges |
 | V6 | Git agent, PR view, CI lane; QA page with PR and CI status per Task; notifications | PR to `development` with reviewers; QA notified of the CI result |
 | V7 | Removal (§13) and docs | No code path touches `.workspaces`, Docker or a server shell |
@@ -377,8 +377,8 @@ Postgres). The agent turn with a live model and the VS Code UI itself are verifi
 | Status bar | ✅ Connection, project, and the Task the agent is working on (click to stop) |
 | Initialize Project, Connect Repository | ✅ |
 | Permission prompt | ✅ Allow once · Allow for this session · Allow for this project (V2) · Deny |
-| Typing while the agent works | ⏳ V4, with the Evaluator loop (notes to a running turn) |
-| Plan, Review, PR views | ⏳ V4, V6 |
+| Typing while the agent works | ✅ V4: a note to the running Task, read by the coders at their next step |
+| Plan, Review, PR views | ✅ Plan, Review (V4); ⏳ PR (V6) |
 
 ### 12.3 V2 scope as built
 
@@ -406,6 +406,41 @@ Postgres). The agent turn with a live model and the VS Code UI itself are verifi
 | Web | ✅ **Design documents** and **QA** pages: Epic picker, documents by kind, Markdown preview, editor with side-by-side preview, version history. Project Files, the terminal and runners panels, CodeMirror and xterm are removed; old links redirect |
 | Existing documents | ✅ `pnpm --filter api import-design-docs [--epic KAN-36] [--dry-run]` loads `.workspaces/<EPIC>/architecture` and `qa/test-plan.md` |
 | QA per Task: PR, CI, notifications | ⏳ V6 |
+
+### 12.5 V4 scope as built
+
+```mermaid
+sequenceDiagram
+    actor D as Developer
+    participant A as vscode-agent
+    participant C as coder (routed by code)
+    participant E as Evaluator
+    A->>A: read Task, design docs, code (workspace read-only)
+    A->>D: delegate_to_planner → plan → Gate 4 card
+    D->>A: Approve
+    loop up to vscode.evaluatorRounds
+        A->>C: delegate_to_coder: plan (+ findings, notes)
+        C->>C: edit files, run checks (bridge)
+        A->>A: code runs the checks, reads git diff
+        A->>E: diff + real check output
+        E-->>A: verdict; code decides pass
+    end
+    A->>D: review → Gate 5 card, Review view, diff editor
+    D->>A: Approve → delegate_to_review accept
+```
+
+| Plan item (§3, §4, §7) | Built |
+|---|---|
+| Router | ✅ In code (`task/router.ts`): Bug → `issue-solver`; test labels → `test-writer`; Frontend → `frontend-react`; Backend, Data, AI, Integration → `backend-nestjs` or `backend-spring` from the Epic's Gate 3 stack; otherwise `issue-solver` |
+| Coders | ✅ `frontend-react`, `backend-nestjs`, `backend-spring`, `issue-solver`, `test-writer`: one Mastra agent each on the bridge workspace, with their library skills in the prompt and `design_docs`; they never commit or push |
+| Evaluator loop | ✅ Code runs the checks (`.aura/settings.json` `checks`, else the plan's) and reads `git diff`; the Evaluator (no tools, a different model family) reviews; a round passes only with green checks and no blocker or major finding. Rounds: Admin → Settings → *VS Code review rounds* (default 3) |
+| Gate 4 | ✅ `delegate_to_planner`: the agent proposes the plan as structured input; code routes and stores it; until it is approved the conversation's workspace is read-only (the extension answers as in plan mode, whatever the developer's mode) |
+| Gate 5 | ✅ `delegate_to_coder execute` needs the Gate 4 approval (tool gateway, once); `revise` re-runs the same plan with the developer's feedback; `delegate_to_review accept` records Gate 5 and comments the Jira Task |
+| Who decides | The developer who started the run (no other role can answer these gates) |
+| Plan view | ✅ The plan as a checklist (steps, files, checks, risks), the coder, and the loop's live activity |
+| Review view | ✅ Changed files open in VS Code's diff editor (last commit ↔ working tree), check results, Evaluator findings |
+| Gate cards | ✅ In the chat: Approve · Revise · Reject, with feedback |
+| Notes | ✅ Typing while a Task runs sends a note (`POST /runs/:id/notes`, migration `0011`); the coders read it at their next step |
 
 ## 13. Removed
 

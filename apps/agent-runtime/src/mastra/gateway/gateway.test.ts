@@ -62,8 +62,8 @@ const fakeTool = (id: string, result: (input: Record<string, unknown>) => unknow
 
 describe('risk table', () => {
   it('covers every mode of every delegate tool, and nothing else', async () => {
-    const tools = await import('../tools/delegate-tools');
-    const all = Object.values(tools) as unknown as { id: string; inputSchema: { shape: { mode: { options: string[] } } } }[];
+    const tools = { ...(await import('../tools/delegate-tools')), ...(await import('../tools/task-tools')) };
+    const all = (Object.values(tools) as unknown as { id?: string; inputSchema: { shape: { mode: { options: string[] } } } }[]).filter((t): t is { id: string; inputSchema: { shape: { mode: { options: string[] } } } } => typeof t === 'object' && typeof t.id === 'string');
     expect(all.map((t) => t.id).sort()).toEqual(Object.keys(TOOL_RISK).sort());
     for (const tool of all) {
       expect(Object.keys(TOOL_RISK[tool.id]!.modes).sort(), tool.id).toEqual([...tool.inputSchema.shape.mode.options].sort());

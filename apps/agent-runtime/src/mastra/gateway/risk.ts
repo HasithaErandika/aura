@@ -26,6 +26,12 @@ export const TOOL_RISK: Record<string, ToolRisk> = {
   // `run` executes the project's own CI steps in a sandboxed container and changes nothing
   // outside it, so it stays low, as delegate_to_ci's own description promises.
   delegate_to_ci: { agentId: 'ci-tool', modes: { run: 'low', 'file-defect': 'medium' } },
+  // A Task in VS Code (tools/task-tools.ts). A plan changes nothing. execute writes code after
+  // Gate 4; revise is another pass of that same approved plan, still under the developer's own
+  // permission prompts, after they asked for it at Gate 5; accept records Gate 5.
+  delegate_to_planner: { agentId: 'task-planner', modes: { draft: 'low', revise: 'low' } },
+  delegate_to_coder: { agentId: 'coder', modes: { execute: 'medium', revise: 'low' } },
+  delegate_to_review: { agentId: 'coder', modes: { accept: 'medium' } },
 };
 
 export function riskOf(toolId: string, mode: unknown): { agentId: AgentId; tier: RiskTier } | null {

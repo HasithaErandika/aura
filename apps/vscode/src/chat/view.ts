@@ -2,7 +2,9 @@ import { randomBytes } from "node:crypto";
 import * as vscode from "vscode";
 import type { TurnEvent } from "@aura/client";
 import type { Session } from "../session.js";
-import { addUserMessage, applyEvent, emptyChat, fromHistory, markStopping, type ChatState } from "./model.js";
+import type { Decision } from "@aura/client";
+import type { TaskBoard } from "../task-board.js";
+import { addNote, addUserMessage, applyEvent, emptyChat, fromHistory, markDecided, markStopping, type ChatState } from "./model.js";
 
 // The AURA chat panel: one conversation per Task (and one general one per folder) with the VS Code
 // agent. Streams the turn live, shows each file and command the agent uses, and picks a running
@@ -11,6 +13,7 @@ import { addUserMessage, applyEvent, emptyChat, fromHistory, markStopping, type 
 const AGENT_ID = "vscode-agent";
 const CONVERSATIONS_KEY = "aura.conversations";
 const CURRENT_KEY = "aura.currentConversation";
+const BOARDS_KEY = "aura.taskBoards";
 
 interface Conversation {
   key: string; // "general" or a Task key
@@ -18,7 +21,12 @@ interface Conversation {
   threadId: string | null;
 }
 
-type FromWebview = { type: "send"; text: string } | { type: "ready" } | { type: "new" } | { type: "stop" };
+type FromWebview =
+  | { type: "send"; text: string }
+  | { type: "ready" }
+  | { type: "new" }
+  | { type: "stop" }
+  | { type: "decide"; approvalId: string; decision: Decision; reason?: string };
 
 // What the status bar shows about the chat.
 export interface ChatActivity {
@@ -37,6 +45,10 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
   private following: AbortController | null = null;
   private readonly activity = new vscode.EventEmitter<ChatActivity>();
   readonly onDidChangeActivity = this.activity.event;
+  private readonly taskChanged = new vscode.EventEmitter<TaskBoard | null>();
+  // The Plan and Review views follow the Task of the current conversation.
+  readonly onDidChangeTask = this.taskChanged.event;
+  private lastTask: TaskBoard | null = null;
 
   constructor(
     private readonly context: vscode.ExtensionContext,
@@ -57,7 +69,27 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       if (m.type === "send") void this.send(m.text);
       if (m.type === "new") void this.newChat();
       if (m.type === "stop") void this.stop();
+      if (m.type === "decide") void this.decide(m.approvalId, m.decision, m.reason);
     });
+  }
+
+  get task(): TaskBoard | null {
+    return this.state.task;
+  }
+
+  // A gate card's button (Gate 4 plan, Gate 5 review, Gate 6 pull request): records the decision
+  // and follows the run as it continues.
+  async decide(approvalId: string, decision: Decision, reason?: string): Promise<void> {
+    if (this.state.busy) return;
+    if ((decision === "revise" || decision === "reject") && !reason?.trim()) return void vscode.window.showWarningMessage("AURA: say what to change (or why you reject it) first.");
+    try {
+      this.state = markDecided(this.state, approvalId, decision);
+      this.post();
+      await this.follow(this.session.client().approvals.decide(approvalId, { decision, ...(reason?.trim() ? { reason: reason.trim() } : {}) }, this.abortable()));
+    } catch (error) {
+      this.state = markDecided(this.state, approvalId, "");
+      this.notice(error);
+    }
   }
 
   get current(): ChatActivity {
@@ -104,7 +136,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       [
         `Work on Jira Task ${task.key} (Epic ${task.epicKey}): ${task.summary}`,
         description ? `\nTask description:\n${description}` : "",
-        "\nStart by reading the relevant code in this workspace, then propose a short plan before changing anything.",
+        "\nWork on it through AURA's gates: read the Task, its Epic's design documents and the relevant code, then propose the plan with delegate_to_planner.",
       ].join("\n"),
     );
   }
@@ -126,7 +158,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
   private async switchTo(conversation: Conversation): Promise<void> {
     this.following?.abort();
     await this.remember(conversation);
-    this.state = emptyChat(conversation.title);
+    this.state = emptyChat(conversation.title, this.boards()[conversation.key] ?? null);
     this.post();
     await this.load();
   }
@@ -134,13 +166,13 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
   // History of the current conversation, then follow its turn if one is still running.
   private async load(): Promise<void> {
     if (!this.conversation.threadId || !(await this.session.token())) {
-      this.state = { ...emptyChat(this.conversation.title), busy: false };
+      this.state = { ...emptyChat(this.conversation.title, this.boards()[this.conversation.key] ?? null), busy: false };
       this.post();
       return;
     }
     try {
       const history = await this.session.client().threads.history(this.conversation.threadId, AGENT_ID);
-      this.state = fromHistory(history.messages, this.conversation.title, history.latestRun?.id ?? null);
+      this.state = fromHistory(history.messages, this.conversation.title, history.latestRun?.id ?? null, this.boards()[this.conversation.key] ?? null);
       this.post();
       const run = history.latestRun;
       if (run && (run.status === "PENDING" || run.status === "RUNNING")) await this.follow(this.session.client().runs.follow(run.id, this.abortable()));
@@ -149,8 +181,26 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     }
   }
 
+  private boards(): Record<string, TaskBoard> {
+    return this.context.workspaceState.get<Record<string, TaskBoard>>(BOARDS_KEY) ?? {};
+  }
+
+  // Typing while the agent works (plan §3): a note the coders read at their next step.
+  private async note(text: string): Promise<void> {
+    const runId = this.state.runId;
+    if (!runId) return;
+    try {
+      await this.session.client().runs.note(runId, text);
+      this.state = addNote(this.state, text);
+      this.post();
+    } catch (error) {
+      this.notice(error, true);
+    }
+  }
+
   private async send(text: string): Promise<void> {
-    if (!text.trim() || this.state.busy) return;
+    if (!text.trim()) return;
+    if (this.state.busy) return void (this.state.stopping ? undefined : this.note(text.trim()));
     if (!(await this.session.token())) return void vscode.commands.executeCommand("aura.signIn");
     if (!(await this.ensureConnected())) return;
     try {
@@ -197,6 +247,11 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
   private post(): void {
     void this.view?.webview.postMessage({ type: "state", state: this.state });
     this.activity.fire(this.current);
+    if (this.state.task !== this.lastTask) {
+      this.lastTask = this.state.task;
+      if (this.state.task) void this.context.workspaceState.update(BOARDS_KEY, { ...this.boards(), [this.conversation.key]: this.state.task });
+      this.taskChanged.fire(this.state.task);
+    }
   }
 }
 
@@ -230,13 +285,21 @@ function html(nonce: string): string {
   textarea { flex: 1; resize: none; min-height: 38px; max-height: 160px; font-family: inherit; font-size: inherit; color: var(--vscode-input-foreground); background: var(--vscode-input-background); border: 1px solid var(--vscode-input-border, transparent); border-radius: 4px; padding: 6px; }
   button { color: var(--vscode-button-foreground); background: var(--vscode-button-background); border: 0; border-radius: 4px; padding: 0 12px; cursor: pointer; }
   button:disabled { opacity: 0.5; cursor: default; }
+  button.secondary { color: var(--vscode-button-secondaryForeground); background: var(--vscode-button-secondaryBackground); }
+  .note { align-self: flex-end; max-width: 90%; font-size: 12px; font-style: italic; color: var(--vscode-descriptionForeground); }
+  .gate { border: 1px solid var(--vscode-focusBorder); border-radius: 6px; padding: 8px 10px; display: flex; flex-direction: column; gap: 6px; }
+  .gate .gtitle { font-weight: 600; }
+  .gate .row { display: flex; gap: 6px; }
+  .gate .row button { padding: 4px 10px; }
+  .gate textarea { min-height: 32px; }
+  .gate .muted { color: var(--vscode-descriptionForeground); font-size: 12px; }
 </style>
 </head>
 <body>
 <div id="wrap">
   <header><span class="title" id="title">AURA</span><span class="busy" id="busy"></span></header>
   <div id="log"></div>
-  <form id="form"><textarea id="input" rows="2" placeholder="Ask the agent… (Enter to send, Shift+Enter for a new line, Esc to stop)"></textarea><button id="send" type="submit">Send</button></form>
+  <form id="form"><textarea id="input" rows="2" placeholder="Ask the agent… (Enter to send, Shift+Enter for a new line, Esc to stop)"></textarea><button id="send" type="submit">Send</button><button id="stop" type="button" class="secondary" hidden>Stop</button></form>
 </div>
 <script nonce="${nonce}">
   const vscode = acquireVsCodeApi();
@@ -245,15 +308,39 @@ function html(nonce: string): string {
   const send = document.getElementById('send');
   const icons = { running: '●', done: '✓', error: '✗' };
   let busy = false;
+  const stopBtn = document.getElementById('stop');
   function stop() { vscode.postMessage({ type: 'stop' }); }
+  stopBtn.addEventListener('click', stop);
+  // A gate decision: Approve, Revise (with feedback) or Reject (with a reason).
+  function gateCard(item, busy) {
+    const box = el('div', 'gate');
+    box.appendChild(el('div', 'gtitle', item.title));
+    box.appendChild(el('div', '', item.question));
+    if (item.decided) { box.appendChild(el('div', 'muted', 'Decided: ' + item.decided)); return box; }
+    if (!item.canDecide) { box.appendChild(el('div', 'muted', 'Waiting for a decision by the approver.')); return box; }
+    const feedback = el('textarea');
+    feedback.placeholder = 'Feedback for Revise, or a reason for Reject';
+    box.appendChild(feedback);
+    const row = el('div', 'row');
+    for (const [decision, label, cls] of [['approve', 'Approve', ''], ['revise', 'Revise', 'secondary'], ['reject', 'Reject', 'secondary']]) {
+      const b = el('button', cls, label);
+      b.type = 'button';
+      b.disabled = busy;
+      b.addEventListener('click', () => vscode.postMessage({ type: 'decide', approvalId: item.approvalId, decision, reason: feedback.value }));
+      row.appendChild(b);
+    }
+    box.appendChild(row);
+    return box;
+  }
   function el(tag, cls, text) { const e = document.createElement(tag); if (cls) e.className = cls; if (text !== undefined) e.textContent = text; return e; }
   function render(state) {
     document.getElementById('title').textContent = state.title || 'AURA';
     busy = state.busy;
     document.getElementById('busy').textContent = state.stopping ? 'stopping…' : state.busy ? 'working…' : '';
-    send.textContent = state.busy ? 'Stop' : 'Send';
     send.disabled = state.stopping;
-    input.disabled = state.busy;
+    stopBtn.hidden = !state.busy;
+    stopBtn.disabled = state.stopping;
+    input.placeholder = state.busy ? 'Add a note for the agents (they read it at their next step)…' : 'Ask the agent… (Enter to send, Shift+Enter for a new line, Esc to stop)';
     const atBottom = log.scrollHeight - log.scrollTop - log.clientHeight < 40;
     log.replaceChildren();
     if (!state.items.length) log.appendChild(el('div', 'empty', 'Pick a Task in the Tasks view, or ask the agent about this workspace.'));
@@ -261,6 +348,8 @@ function html(nonce: string): string {
       if (item.kind === 'user') log.appendChild(el('div', 'user', item.text));
       else if (item.kind === 'assistant') log.appendChild(el('div', 'assistant', item.text));
       else if (item.kind === 'notice') log.appendChild(el('div', 'notice' + (item.tone === 'error' ? ' error' : ''), item.text));
+      else if (item.kind === 'note') log.appendChild(el('div', 'note', 'Note: ' + item.text));
+      else if (item.kind === 'gate') log.appendChild(gateCard(item, state.busy));
       else if (item.kind === 'tool') {
         const box = el('details', 'tool');
         const summary = el('summary');
@@ -276,13 +365,12 @@ function html(nonce: string): string {
   window.addEventListener('message', (e) => { if (e.data && e.data.type === 'state') render(e.data.state); });
   document.getElementById('form').addEventListener('submit', (e) => {
     e.preventDefault();
-    if (busy) return stop();
     const text = input.value.trim();
     if (!text || send.disabled) return;
     vscode.postMessage({ type: 'send', text });
     input.value = '';
   });
-  input.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey && !busy) { e.preventDefault(); document.getElementById('form').requestSubmit(); } });
+  input.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); document.getElementById('form').requestSubmit(); } });
   window.addEventListener('keydown', (e) => { if (e.key === 'Escape' && busy) { e.preventDefault(); stop(); } });
   vscode.postMessage({ type: 'ready' });
 </script>

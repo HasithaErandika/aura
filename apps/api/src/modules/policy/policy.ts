@@ -26,6 +26,12 @@ export const AGENT_ALIASES: Record<string, string> = {
   test: "tester-agent",
   deploy: "deployer-agent",
   git: "git-tool",
+  // A Task in VS Code (docs/plans/aura-vscode-agents.md §7): the plan (Gate 4), the coders and
+  // the Evaluator (Gate 5), and the Git agent's pull request (Gate 6).
+  planner: "task-planner",
+  coder: "coder",
+  review: "coder",
+  pr: "git-agent",
 };
 
 export function canonicalAgentId(agentId: string): string {
@@ -50,6 +56,9 @@ export const ROLE_AGENT_GRANTS: Record<Role, Record<string, AgentAccess>> = {
     "deployer-agent": "read",
     "git-tool": "read",
     "vscode-agent": "read",
+    "task-planner": "read",
+    coder: "read",
+    "git-agent": "read",
   },
   // "Architect (read)" on Dev/Coding/QA/Tester/Deployer output matches the RACI table in
   // docs/ARCHITECTURE.md section 4.2 (Architect has oversight, not ownership, past Gate 3).
@@ -112,6 +121,10 @@ export const AGENT_GATE_INFO: Record<string, { gate: number; name: string; outco
   "qa-agent": { gate: 6, name: "QA test plan approval", outcome: "Test plan and Playwright source filed to the QA workspace, Epic commented" },
   "tester-agent": { gate: 7, name: "Test result verification", outcome: "Real Playwright suite executed in a sandbox, Task commented with the real result and AI interpretation" },
   "deployer-agent": { gate: 8, name: "Release plan approval", outcome: "Release notes, change plan, and rollback plan commented on the Epic - a human executes the release" },
+  // A Task in VS Code. Not in AGENT_APPROVER_ROLE: the developer who started the run decides.
+  "task-planner": { gate: 4, name: "Task plan approval", outcome: "The coders implement the approved plan in your workspace" },
+  coder: { gate: 5, name: "Code review", outcome: "The change is accepted and the Task is ready for a pull request" },
+  "git-agent": { gate: 6, name: "Pull request", outcome: "The branch is pushed and a pull request to development is opened" },
 };
 
 const DELEGATE_TOOL_PREFIX = "delegate_to_";

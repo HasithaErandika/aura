@@ -1,5 +1,7 @@
 import * as vscode from "vscode";
 import { BridgeClient, type Approval, type BridgeState } from "./bridge-client.js";
+import { GIT_SCHEME, GitShowProvider, PlanView, ReviewView, openDiff } from "./task-views.js";
+import type { TaskBoard } from "./task-board.js";
 import { ChatViewProvider, type ChatActivity } from "./chat/view.js";
 import { WorkspaceExecutor } from "./executor.js";
 import { Governance } from "./governance.js";
@@ -103,6 +105,26 @@ export function activate(context: vscode.ExtensionContext) {
     const killed = bridge?.cancelRun(runId) ?? 0;
     log(`■ Stopped by you${killed ? ` (cancelled ${killed} running call${killed === 1 ? "" : "s"})` : ""}.`);
   });
+  const planView = new PlanView();
+  const reviewView = new ReviewView();
+  const syncTask = (board: TaskBoard | null) => {
+    planView.update(board);
+    reviewView.update(board);
+    void vscode.commands.executeCommand("setContext", "aura.hasPlan", Boolean(board?.plan));
+    void vscode.commands.executeCommand("setContext", "aura.hasReview", Boolean(board?.review));
+  };
+  syncTask(chat.task);
+  const workspaceRoot = () => vscode.workspace.workspaceFolders?.[0]?.uri ?? null;
+  context.subscriptions.push(
+    vscode.window.registerTreeDataProvider("aura.plan", planView),
+    vscode.window.registerTreeDataProvider("aura.review", reviewView),
+    chat.onDidChangeTask(syncTask),
+    vscode.workspace.registerTextDocumentContentProvider(GIT_SCHEME, new GitShowProvider(() => workspaceRoot()?.fsPath ?? null)),
+    vscode.commands.registerCommand("aura.openDiff", async (path: string, status: string) => {
+      const root = workspaceRoot();
+      if (root && typeof path === "string") await openDiff(root, path, status);
+    }),
+  );
   context.subscriptions.push(
     vscode.window.registerTreeDataProvider("aura.tasks", tasks),
     vscode.window.registerWebviewViewProvider("aura.chat", chat, { webviewOptions: { retainContextWhenHidden: true } }),

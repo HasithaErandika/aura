@@ -13,6 +13,8 @@ export interface DashboardSettings {
   councilMode?: CouncilModeSetting;
   council: Partial<CouncilSettings>;
   injectionPolicy?: InjectionPolicy;
+  // VS Code Task: coder → Evaluator rounds before Gate 5 (tools/task-tools.ts).
+  evaluatorRounds?: number;
 }
 
 interface RequestContextLike {
@@ -36,6 +38,8 @@ export function parseDashboardSettings(raw: unknown): DashboardSettings {
       if (inCouncilBounds(councilKey, value)) result.council[councilKey] = value;
     } else if (key === 'council.mode') {
       if (typeof value === 'string' && (councilModeSettings as readonly string[]).includes(value)) result.councilMode = value as CouncilModeSetting;
+    } else if (key === 'vscode.evaluatorRounds') {
+      if (typeof value === 'number' && Number.isInteger(value) && value >= 1 && value <= 5) result.evaluatorRounds = value;
     } else if (key === 'governance.injectionPolicy') {
       if (value === 'warn' || value === 'block') result.injectionPolicy = value;
     }

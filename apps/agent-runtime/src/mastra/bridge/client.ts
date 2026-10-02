@@ -25,17 +25,19 @@ function apiUrl(): string {
   return (process.env.AURA_API_URL || 'http://localhost:4000').replace(/\/+$/, '');
 }
 
-// A caller bound to one AURA run, so apps/api knows whose VS Code to use.
-export function bridgeCaller(runId: string, fetchImpl: typeof fetch = fetch): BridgeCaller {
+// A caller bound to one AURA run, so apps/api knows whose VS Code to use. `readOnly`, checked on
+// every call, makes the extension answer as in plan mode (a Task's plan waiting for Gate 4).
+export function bridgeCaller(runId: string, fetchImpl: typeof fetch = fetch, options: { readOnly?: () => Promise<boolean> } = {}): BridgeCaller {
   return {
     async call(op, args, timeoutMs) {
       const token = process.env.MASTRA_RUNTIME_TOKEN?.trim();
+      const readOnly = (await options.readOnly?.().catch(() => false)) === true;
       let res: Response;
       try {
         res = await fetchImpl(`${apiUrl()}/internal/bridge/calls`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
-          body: JSON.stringify({ runId, op, args, ...(timeoutMs ? { timeoutMs } : {}) }),
+          body: JSON.stringify({ runId, op, args, ...(timeoutMs ? { timeoutMs } : {}), ...(readOnly ? { readOnly: true } : {}) }),
         });
       } catch (error) {
         throw new BridgeCallError('not_connected', `AURA API unreachable from the runtime (${error instanceof Error ? error.message : String(error)})`);

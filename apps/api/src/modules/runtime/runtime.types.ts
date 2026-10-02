@@ -102,6 +102,8 @@ export const RUN_CONTEXT_KEY = "auraRun";
 
 export interface RuntimeRunContext {
   runId: string;
+  // The conversation the run belongs to (a Task's plan lock is per conversation).
+  threadId: string | null;
   requestId: string | null;
   userId: string;
   role: string;

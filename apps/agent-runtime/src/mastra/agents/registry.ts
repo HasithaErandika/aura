@@ -25,6 +25,10 @@ export const QA_MODEL_ID = 'groq/openai/gpt-oss-120b'; // heavy - writes real Pl
 export const TESTER_MODEL_ID = 'groq/qwen/qwen3.8-27b'; // light - interprets an already-real result, no tools
 export const DEPLOYER_MODEL_ID = 'groq/openai/gpt-oss-120b'; // heavy
 export const VSCODE_AGENT_MODEL_ID = 'groq/openai/gpt-oss-120b'; // heavy - holds workspace tools (ADR-4)
+export const CODER_MODEL_ID = 'groq/openai/gpt-oss-120b'; // heavy - VS Code coder specialists, hold workspace tools
+// No tools, structured verdict only - a different model family from the coders, like the
+// Council's Reviewer, since two copies of one model tend to agree with each other.
+export const EVALUATOR_MODEL_ID = GEMINI_FALLBACK_MODEL;
 
 // Coding Council (workflows/coding-council.ts, agents/council-agents.ts) - an ordered fallback
 // chain per role rather than one id: each later model is tried only when the one before it
@@ -38,7 +42,7 @@ export const COUNCIL_PLANNER_MODEL_IDS = ['groq/openai/gpt-oss-120b', GEMINI_FAL
 export const COUNCIL_IMPLEMENTER_MODEL_IDS = ['groq/openai/gpt-oss-120b', GEMINI_FALLBACK_MODEL] as const; // heavy - holds write/edit/check tools
 export const COUNCIL_REVIEWER_MODEL_IDS = [GEMINI_FALLBACK_MODEL, 'groq/qwen/qwen3.8-27b'] as const; // no tools - structured verdict only
 
-export type AgentId = 'orchestrator' | 'po-agent' | 'ba-agent' | 'architect-agent' | 'dev-agent' | 'coding-agent' | 'coding-council' | 'qa-agent' | 'tester-agent' | 'deployer-agent' | 'git-tool' | 'ci-tool' | 'vscode-agent';
+export type AgentId = 'orchestrator' | 'po-agent' | 'ba-agent' | 'architect-agent' | 'dev-agent' | 'coding-agent' | 'coding-council' | 'qa-agent' | 'tester-agent' | 'deployer-agent' | 'git-tool' | 'ci-tool' | 'vscode-agent' | 'task-planner' | 'coder' | 'evaluator';
 
 export interface AgentManifestEntry {
   modelId: string;
@@ -153,9 +157,33 @@ export const AGENT_MANIFEST: Record<AgentId, AgentManifestEntry> = {
     label: 'VS Code Agent',
     modelId: VSCODE_AGENT_MODEL_ID,
     delegatesTo: [],
-    note: "The VS Code developer workspace (ADR-4): a Mastra Workspace whose filesystem and sandbox are the folder open in the developer's VS Code, reached through apps/api and the AURA extension (bridge/). The extension applies the developer's permission mode and the project's rules and hooks before every write and command. V2 adds native grep, background processes, project memory (.aura/AURA.md) and skills (load_skill). V3 adds design_docs (read an Epic's design documents from Postgres). Developers run it directly; it has no gates of its own.",
-    agentVersion: '0.3.0', // V3: design_docs
-    promptVersion: '2.1.0', // read the Epic's design documents before building
+    note: "The VS Code developer workspace (ADR-4): a Mastra Workspace whose filesystem and sandbox are the folder open in the developer's VS Code, reached through apps/api and the AURA extension (bridge/). The extension applies the developer's permission mode and the project's rules and hooks before every write and command. V2 adds native grep, background processes, project memory (.aura/AURA.md) and skills (load_skill). V3 adds design_docs (read an Epic's design documents from Postgres). V4 runs a Task through gates: it proposes the plan (delegate_to_planner, Gate 4; its own writes are read-only until then), the routed coder and the Evaluator implement it (delegate_to_coder), and the developer accepts the review (delegate_to_review, Gate 5).",
+    agentVersion: '0.4.0', // V4: Task gates (planner, coder, review), ask_user
+    promptVersion: '3.0.0', // Task flow: plan → Gate 4 → coder loop → Gate 5
+  },
+  'task-planner': {
+    label: 'Task Planner',
+    modelId: VSCODE_AGENT_MODEL_ID,
+    delegatesTo: [],
+    note: 'The Gate 4 plan of a Task in VS Code, invoked through delegate_to_planner. The VS Code agent reads the code and proposes the plan as structured input; code validates it, routes the Task to a coder (task/router.ts) and stores it as a draft. No Mastra Agent object backs this entry.',
+    agentVersion: '1.0.0',
+    promptVersion: '1.0.0',
+  },
+  coder: {
+    label: 'Coders and Evaluator',
+    modelId: `coders ${CODER_MODEL_ID}; Evaluator ${EVALUATOR_MODEL_ID}`,
+    delegatesTo: ['evaluator'],
+    note: 'Implements an approved Task plan in the developer\'s VS Code, invoked through delegate_to_coder (execute after Gate 4; revise after a Gate 5 "Revise"). The router picks one of frontend-react, backend-nestjs, backend-spring, issue-solver, test-writer (agents/coders.ts); code runs the checks and reads the diff; the Evaluator reviews; code decides whether a round passed (task/loop.ts), up to vscode.evaluatorRounds rounds. delegate_to_review accept records Gate 5.',
+    agentVersion: '1.0.0',
+    promptVersion: '1.0.0',
+  },
+  evaluator: {
+    label: 'Evaluator',
+    modelId: EVALUATOR_MODEL_ID,
+    delegatesTo: [],
+    note: 'Reviews a coder\'s real diff and check output against the approved plan; no tools, structured verdict only (agents/coders.ts). Its approval alone never passes a round: failing checks or a blocker/major finding fail it in code.',
+    agentVersion: '1.0.0',
+    promptVersion: '1.0.0',
   },
   'ci-tool': {
     label: 'CI (delegate_to_ci, local run)',

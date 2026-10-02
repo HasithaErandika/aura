@@ -5,7 +5,8 @@ import { BRIDGE_OPS, READ_ONLY_OPS } from "@aura/bridge";
 import { env } from "../../config/env.js";
 import { asyncHandler } from "../../lib/http/async-handler.js";
 import { forbidden, notFound, unauthenticated } from "../../lib/http/errors.js";
-import { parseOrThrow } from "../../lib/http/validate.js";
+import { parseOrThrow, uuidParam } from "../../lib/http/validate.js";
+import { runNotes } from "../runs/run-notes.js";
 import { logger } from "../../lib/logger.js";
 import { writeAudit } from "../audit/audit.service.js";
 import { runsRepository } from "../runs/runs.repository.js";
@@ -43,6 +44,7 @@ const callSchema = z
     op: z.enum(BRIDGE_OPS),
     args: z.record(z.string(), z.unknown()),
     timeoutMs: z.number().int().min(1000).max(30 * 60_000).optional(),
+    readOnly: z.boolean().optional(),
   })
   .strict();
 
@@ -53,7 +55,7 @@ internalRouter.post(
     const body = parseOrThrow(callSchema, req.body);
     const run = await runsRepository.findById(body.runId);
     if (!run) throw notFound("Run");
-    const outcome = await bridgeHub.call(run.requested_by, run.id, body.op, body.args, body.timeoutMs);
+    const outcome = await bridgeHub.call(run.requested_by, run.id, body.op, body.args, body.timeoutMs, { readOnly: body.readOnly });
 
     // Every change made on a developer's machine is in the audit log; reads only in the server log.
     const changes = !READ_ONLY_OPS.includes(body.op);
@@ -71,5 +73,16 @@ internalRouter.post(
       });
     }
     res.json(outcome);
+  }),
+);
+
+// GET /internal/runs/:id/notes: the notes the developer typed since the last read, marked
+// delivered (V4: the coders read them between steps).
+internalRouter.get(
+  "/runs/:id/notes",
+  asyncHandler(async (req, res) => {
+    const run = await runsRepository.findById(uuidParam(req.params.id, "Run"));
+    if (!run) throw notFound("Run");
+    res.json({ notes: await runNotes.take(run.id) });
   }),
 );

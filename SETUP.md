@@ -31,7 +31,7 @@ Run `make doctor` to check all of these.
 ## 2. Database
 
 Run every file in `apps/api/supabase/migrations/` **in order** in the Supabase SQL editor
-(`0001` → `0010`).
+(`0001` → `0011`).
 
 ---
 
