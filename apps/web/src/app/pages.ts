@@ -17,3 +17,4 @@ export const AuditPage = lazy(() => import("../features/audit/AuditPage.tsx").th
 export const UsersPage = lazy(() => import("../features/admin/users/UsersPage.tsx").then((m) => ({ default: m.UsersPage })));
 export const ProjectsPage = lazy(() => import("../features/admin/projects/ProjectsPage.tsx").then((m) => ({ default: m.ProjectsPage })));
 export const AiUsagePage = lazy(() => import("../features/admin/ai-usage/AiUsagePage.tsx").then((m) => ({ default: m.AiUsagePage })));
+export const SettingsPage = lazy(() => import("../features/admin/settings/SettingsPage.tsx").then((m) => ({ default: m.SettingsPage })));

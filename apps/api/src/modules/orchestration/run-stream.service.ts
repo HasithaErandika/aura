@@ -9,7 +9,8 @@ import { canDecide, delegatedAgentFromTool, gateInfoForPause, resolveApprover } 
 import { runsRepository } from "../runs/runs.repository.js";
 import type { RunRow, RunStatus } from "../runs/runs.types.js";
 import { runtimeClient } from "../runtime/runtime.client.js";
-import { APPROVER_CONTEXT_KEY, DECISION_CONTEXT_KEY, RUN_CONTEXT_KEY, type AskUserSuspendPayload, type RuntimeApprover, type RuntimeChunk, type RuntimeDecision, type RuntimeRunContext } from "../runtime/runtime.types.js";
+import { turnSettings, type TurnSettings } from "../settings/settings.service.js";
+import { APPROVER_CONTEXT_KEY, DECISION_CONTEXT_KEY, RUN_CONTEXT_KEY, SETTINGS_CONTEXT_KEY, type AskUserSuspendPayload, type RuntimeApprover, type RuntimeChunk, type RuntimeDecision, type RuntimeRunContext } from "../runtime/runtime.types.js";
 
 // Observes one runtime stream (a fresh turn or a resumed one) and mirrors what the
 // Orchestrator decides to do into AURA's governance records:
@@ -26,6 +27,7 @@ interface StreamContext {
   viewer: AuthedUser;
   writer: SseWriter;
   requestId: string;
+  settings: TurnSettings;
 }
 
 export interface TurnOutcome {
@@ -174,7 +176,7 @@ export async function pipeRuntimeStream(context: StreamContext, stream: AsyncGen
           const scope = resolveApprover(currentAgent, run.requested_by);
           const snapshot = assistantText.trim() || null;
           const snapshotHash = sha256(`${snapshot ?? ""}\n${suspend.question}\n${JSON.stringify(suspend.options ?? [])}`);
-          const expiresAt = new Date(Date.now() + env.approvalSlaHours * 3_600_000).toISOString();
+          const expiresAt = new Date(Date.now() + context.settings.approvalSlaHours * 3_600_000).toISOString();
           const approval = await approvalsRepository.create({
             runId: run.id,
             threadId: run.thread_id,
@@ -364,7 +366,7 @@ export async function pipeRuntimeStream(context: StreamContext, stream: AsyncGen
       }
     }
   } catch (error) {
-    const message = error instanceof Error && error.name === "AbortError" ? `Turn exceeded ${Math.round(env.runTurnTimeoutMs / 60_000)} minutes and was stopped` : errorMessage(error);
+    const message = error instanceof Error && error.name === "AbortError" ? `Turn exceeded ${Math.round(context.settings.turnTimeoutMs / 60_000)} minutes and was stopped` : errorMessage(error);
     logger.error("runtime stream failed", { runId: run.id, message });
     try {
       await step("error", { payload: { message } });
@@ -420,8 +422,10 @@ export async function startTurn(input: {
   });
   input.writer.send("run", { runId: run.id, runtimeRunId: null, status: run.status });
 
+  // Dashboard settings for this requester and project (modules/settings).
+  const settings = await turnSettings(input.user.id);
   const turn = new AbortController();
-  const turnTimer = setTimeout(() => turn.abort(), env.runTurnTimeoutMs);
+  const turnTimer = setTimeout(() => turn.abort(), settings.turnTimeoutMs);
   let stream: AsyncGenerator<RuntimeChunk>;
   try {
     stream = await runtimeClient.stream(
@@ -429,7 +433,7 @@ export async function startTurn(input: {
       {
         messages: [{ role: "user", content: input.message }],
         memory: { thread: input.threadId, resource: input.user.id },
-        requestContext: { [RUN_CONTEXT_KEY]: runContext(run.id, input.requestId, input.user) },
+        requestContext: { [RUN_CONTEXT_KEY]: runContext(run.id, input.requestId, input.user), [SETTINGS_CONTEXT_KEY]: settings.runtime },
       },
       turn.signal,
     );
@@ -443,7 +447,7 @@ export async function startTurn(input: {
   }
 
   try {
-    return await pipeRuntimeStream({ run, viewer: input.user, writer: input.writer, requestId: input.requestId }, stream);
+    return await pipeRuntimeStream({ run, viewer: input.user, writer: input.writer, requestId: input.requestId, settings }, stream);
   } finally {
     clearTimeout(turnTimer);
   }
@@ -461,8 +465,10 @@ export async function resumeTurn(input: {
   writer: SseWriter;
 }): Promise<TurnOutcome> {
   let run = input.run;
+  // The requester's settings, not the approver's: the run is still the requester's work.
+  const settings = await turnSettings(run.requested_by);
   const turn = new AbortController();
-  const turnTimer = setTimeout(() => turn.abort(), env.runTurnTimeoutMs);
+  const turnTimer = setTimeout(() => turn.abort(), settings.turnTimeoutMs);
   let stream: AsyncGenerator<RuntimeChunk>;
   try {
     stream = await runtimeClient.resumeStream(
@@ -478,6 +484,7 @@ export async function resumeTurn(input: {
           [DECISION_CONTEXT_KEY]: input.decision,
           // Read by delegate tools as the commit author (agent-runtime tools/delegate-tools/shared.ts).
           ...(input.approver ? { [APPROVER_CONTEXT_KEY]: input.approver } : {}),
+          [SETTINGS_CONTEXT_KEY]: settings.runtime,
         },
       },
       turn.signal,
@@ -503,7 +510,7 @@ export async function resumeTurn(input: {
   input.writer.send("run", { runId: run.id, runtimeRunId: input.runtimeRunId, status: "RUNNING" });
 
   try {
-    return await pipeRuntimeStream({ run, viewer: input.user, writer: input.writer, requestId: input.requestId }, stream);
+    return await pipeRuntimeStream({ run, viewer: input.user, writer: input.writer, requestId: input.requestId, settings }, stream);
   } finally {
     clearTimeout(turnTimer);
   }

@@ -5,7 +5,8 @@ import { draftStore, type DraftRecord } from '../../store/draft-store';
 import { jira } from '../../mcp/jira-client';
 import { createCodingAgent } from '../../agents/mastra-coding-agent';
 import { runCodingCouncil } from '../../workflows/coding-council';
-import { chooseCouncilMode, councilModeSetting, councilModeSettings } from '../../contracts/council';
+import { chooseCouncilMode, councilModeSetting, councilModeSettings, councilSettings } from '../../contracts/council';
+import { settingsFrom } from '../../config/settings';
 import { devWorkspaceDir, taskWorktreeDir } from '../../workspace/dev-workspace';
 import { access } from 'node:fs/promises';
 import path from 'node:path';
@@ -19,7 +20,7 @@ const codingInputSchema = z
     epicKey: z.string().optional().describe('draft: the Epic this Task belongs to'),
     taskKey: z.string().optional().describe('draft: the Jira Task key to implement (must already be scaffolded via delegate_to_dev)'),
     provider: z.enum(codingProviders).optional().describe('draft: which coding agent to use. Omit it - the default is "council" (AURA Coding Council). Pass "mastra" (single agent, no review) only when the human explicitly asked for it.'),
-    councilMode: z.enum(councilModeSettings).optional().describe('draft, council only: "lean", "full" or "auto". Omit it unless the human asked for one - the default comes from COUNCIL_MODE (auto picks per Task).'),
+    councilMode: z.enum(councilModeSettings).optional().describe('draft, council only: "lean", "full" or "auto". Omit it unless the human asked for one - the default comes from the dashboard settings or COUNCIL_MODE (auto picks per Task).'),
     draftId: z.string().optional().describe('execute: the draftId returned by draft'),
     approved: z.boolean().optional().describe('execute: must be true; set only after ask_user returned an approval'),
   })
@@ -54,7 +55,7 @@ function codeFail(error: unknown): z.infer<typeof codingOutputSchema> {
 async function runCodingProviderPrompt(content: CodingTaskDraft, prompt: string, draftId: string, writer: ToolWriterLike | undefined, approver: Approver | null): Promise<{ exitCode: number; output: string; approved?: boolean }> {
   if (content.provider === 'council') {
     try {
-      const result = await runCodingCouncil({ draftId, taskKey: content.taskKey, targetDir: content.targetDir, taskPrompt: prompt, mode: content.councilMode, approver, writer });
+      const result = await runCodingCouncil({ draftId, taskKey: content.taskKey, targetDir: content.targetDir, taskPrompt: prompt, mode: content.councilMode, settings: content.councilSettings, approver, writer });
       const lines = [result.summary, `Mode: ${result.mode} · rounds: ${result.rounds} · tokens: ${result.totalTokens.toLocaleString()}`];
       if (result.transcriptPath) lines.push(`Transcript: ${result.transcriptPath}`);
       return { exitCode: 0, output: lines.join('\n'), approved: result.approved };
@@ -169,8 +170,19 @@ export const delegateToCodeTool = createTool({
 
           // Lean or full, decided here from the Task itself so the plan the human approves says
           // which one runs (contracts/council.ts chooseCouncilMode).
-          const council = provider === 'council' ? chooseCouncilMode(input.councilMode ?? councilModeSetting(), `${task.summary}\n${task.description ?? ''}`) : null;
-          const content: CodingTaskDraft = { epicKey, taskKey, discipline, targetDir, provider, prompt, ...(council ? { councilMode: council.mode, councilModeReason: council.reason } : {}) };
+          // The mode and limits come from the dashboard settings apps/api sent with this turn,
+          // else this runtime's .env (config/settings.ts), and are recorded in the draft.
+          const dashboard = settingsFrom(requestContext);
+          const council = provider === 'council' ? chooseCouncilMode(input.councilMode ?? dashboard.councilMode ?? councilModeSetting(), `${task.summary}\n${task.description ?? ''}`) : null;
+          const content: CodingTaskDraft = {
+            epicKey,
+            taskKey,
+            discipline,
+            targetDir,
+            provider,
+            prompt,
+            ...(council ? { councilMode: council.mode, councilModeReason: council.reason, councilSettings: councilSettings(dashboard.council) } : {}),
+          };
           const record = await draftStore.create({ kind: 'coding-task', content, threadId, epicKey });
           return { ok: true, draftId: record.id, markdown: renderCodingPlan(content), epicKey, taskKey };
         }

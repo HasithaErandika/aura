@@ -18,6 +18,7 @@ import { councilRouter } from "../modules/council/council.router.js";
 import { terminalRouter } from "../modules/terminal/terminal.router.js";
 import { runnersRouter } from "../modules/runners/runners.router.js";
 import { projectsRouter } from "../modules/projects/projects.router.js";
+import { settingsRouter } from "../modules/settings/settings.router.js";
 import { requireAuth } from "../middleware/auth.js";
 import { perUserLimit } from "../middleware/limits.js";
 
@@ -29,6 +30,7 @@ apiRouter.use(requireAuth, perUserLimit);
 apiRouter.use("/me", meRouter);
 apiRouter.use("/users", usersRouter);
 apiRouter.use("/projects", projectsRouter);
+apiRouter.use("/settings", settingsRouter);
 apiRouter.use("/agents", agentsRouter);
 apiRouter.use("/threads", threadsRouter);
 apiRouter.use("/runs", runsRouter);
