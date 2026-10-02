@@ -5,6 +5,9 @@ import pkg from "./package.json" with { type: "json" };
 
 export default defineConfig({
   plugins: [react(), tailwindcss()],
+  resolve: {
+    alias: [{ find: /^@\//, replacement: "/src/" }],
+  },
   define: {
     __APP_VERSION__: JSON.stringify(pkg.version),
   },

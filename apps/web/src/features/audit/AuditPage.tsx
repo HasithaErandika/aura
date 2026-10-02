@@ -1,21 +1,23 @@
 import { useState } from "react";
-import { useAsync } from "../../shared/hooks/useAsync.ts";
+import { useAsync } from "@/shared/hooks/useAsync.ts";
 import { auditApi } from "./api.ts";
-import { PageHeader } from "../../shared/ui/PageHeader.tsx";
-import { Card } from "../../shared/ui/Card.tsx";
-import { Alert } from "../../shared/ui/Alert.tsx";
-import { Button } from "../../shared/ui/Button.tsx";
-import { Field, Input, Select } from "../../shared/ui/Field.tsx";
-import { EmptyState } from "../../shared/ui/EmptyState.tsx";
-import { SkeletonRows } from "../../shared/ui/Skeleton.tsx";
-import { Table, TBody, TD, TH, THead, TR } from "../../shared/ui/Table.tsx";
-import { Badge } from "../../shared/ui/Badge.tsx";
-import { AuditIcon } from "../../shared/icons/index.tsx";
-import { formatDateTime } from "../../shared/lib/format.ts";
-import { roleLabel } from "../../shared/lib/roles.ts";
-import type { AuditEntry } from "../../types/api.ts";
+import { PageHeader } from "@/shared/ui/PageHeader.tsx";
+import { Card } from "@/shared/ui/Card.tsx";
+import { Alert } from "@/shared/ui/Alert.tsx";
+import { Button } from "@/shared/ui/Button.tsx";
+import { Field } from "@/shared/ui/Field.tsx";
+import { Input } from "@/shared/ui/Input.tsx";
+import { Select } from "@/shared/ui/Select.tsx";
+import { EmptyState } from "@/shared/ui/EmptyState.tsx";
+import { SkeletonRows } from "@/shared/ui/SkeletonRows.tsx";
+import { Table, TBody, TD, TH, THead, TR } from "@/shared/ui/Table.tsx";
+import { Badge } from "@/shared/ui/Badge.tsx";
+import { AuditIcon } from "@/shared/icons/index.tsx";
+import { formatDateTime } from "@/shared/lib/format.ts";
+import { roleLabel } from "@/shared/lib/roles.ts";
+import type { AuditEntry } from "./types.ts";
 
-const ENTITY_TYPES = ["", "workflow_run", "approval_request", "thread", "user"];
+const ENTITY_TYPES = ["", "workflow_run", "approval_request", "thread", "user", "design_document", "project", "setting", "access_token", "jira_issue"];
 
 function MetadataCell({ entry }: { entry: AuditEntry }) {
   const [open, setOpen] = useState(false);
@@ -30,15 +32,15 @@ function MetadataCell({ entry }: { entry: AuditEntry }) {
 export function AuditPage() {
   const [filters, setFilters] = useState({ action: "", entityType: "", entityId: "" });
   const [applied, setApplied] = useState(filters);
-  const [pages, setPages] = useState<AuditEntry[][]>([]);
+  const [pages, setPages] = useState<Record<string, AuditEntry[]>>({});
   const [cursor, setCursor] = useState<string | null>(null);
   const state = useAsync(async () => {
     const result = await auditApi.list({ ...applied, before: cursor ?? undefined });
-    setPages((prev) => (cursor ? [...prev, result.entries] : [result.entries]));
+    setPages((prev) => ({ ...(cursor ? prev : {}), [cursor ?? "first"]: result.entries }));
     return result;
   }, [applied, cursor]);
 
-  const entries = pages.flat();
+  const entries = Object.values(pages).flat();
 
   return (
     <>
@@ -49,7 +51,7 @@ export function AuditPage() {
           onSubmit={(e) => {
             e.preventDefault();
             setCursor(null);
-            setPages([]);
+            setPages({});
             setApplied(filters);
           }}
         >

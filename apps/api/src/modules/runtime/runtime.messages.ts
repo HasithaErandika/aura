@@ -1,7 +1,4 @@
-// Normalizes Mastra's stored message format into the compact shape the web renders. The
-// runtime stores MastraDBMessage rows whose `content.parts` mix text and tool invocations.
-
-export interface ChatToolActivity {
+interface ChatToolActivity {
   toolCallId: string;
   toolName: string;
   state: string;
@@ -29,12 +26,10 @@ interface RawPart {
     result?: unknown;
     isError?: boolean;
   };
-  // AI SDK v5 style tool parts: type "tool-<name>"
   toolCallId?: string;
   state?: string;
   input?: unknown;
   output?: unknown;
-  // data-* parts (e.g. data-draft from the runtime's gateway)
   data?: { markdown?: unknown };
 }
 
@@ -89,7 +84,6 @@ function collectParts(parts: RawPart[], textParts: string[], tools: ChatToolActi
       textParts.push(part.text);
       continue;
     }
-    // Drafts the gateway showed the human directly (they never enter the model's context).
     if (part.type === "data-draft" && typeof part.data?.markdown === "string") {
       textParts.push(`${part.data.markdown}\n\n`);
       continue;

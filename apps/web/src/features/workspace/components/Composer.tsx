@@ -1,20 +1,17 @@
 import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
-import { Button } from "../../../shared/ui/Button.tsx";
-import { SendIcon, SparkleIcon } from "../../../shared/icons/index.tsx";
+import { SendIcon } from "@/shared/icons/index.tsx";
+import { Button } from "@/shared/ui/Button.tsx";
 
-export function Composer({
-  disabled,
-  busy,
-  placeholder,
-  onSend,
-  onCancel,
-}: {
+interface ComposerProps {
   disabled: boolean;
   busy: boolean;
+  stopping: boolean;
   placeholder: string;
   onSend: (text: string) => void;
-  onCancel: () => void;
-}) {
+  onStop: () => void;
+}
+
+export function Composer({ disabled, busy, stopping, placeholder, onSend, onStop }: ComposerProps) {
   const [value, setValue] = useState("");
   const ref = useRef<HTMLTextAreaElement>(null);
 
@@ -34,44 +31,37 @@ export function Composer({
   }
 
   function onKeyDown(e: KeyboardEvent<HTMLTextAreaElement>) {
-    if (e.key === "Enter" && !e.shiftKey) {
+    if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
       e.preventDefault();
       submit();
     }
   }
 
   return (
-    <form
-      onSubmit={submit}
-      className="relative rounded-2xl border border-line-strong bg-surface p-3 shadow-xs transition-all duration-200 focus-within:border-ink-600 focus-within:ring-2 focus-within:ring-ink-500/10 focus-within:shadow-sm"
-    >
+    <form onSubmit={submit} className="rounded-2xl border border-line-strong bg-surface p-3 shadow-xs focus-within:border-ink-500 focus-within:ring-2 focus-within:ring-ink-200">
+      <label htmlFor="composer" className="sr-only">
+        Message
+      </label>
       <textarea
+        id="composer"
         ref={ref}
         rows={1}
+        maxLength={20000}
         value={value}
         onChange={(e) => setValue(e.target.value)}
         onKeyDown={onKeyDown}
-        disabled={disabled || busy}
+        disabled={disabled}
         placeholder={placeholder}
-        className="scroll-quiet block w-full resize-none bg-transparent px-1 text-sm text-ink-900 placeholder:text-ink-400 focus:outline-none disabled:text-ink-400 disabled:placeholder:text-ink-300"
+        className="scroll-quiet block w-full resize-none bg-transparent px-1 text-sm text-ink-900 placeholder:text-ink-400 focus:outline-none disabled:text-ink-400"
       />
-      <div className="mt-2.5 flex items-center justify-between border-t border-line/50 pt-2 px-1">
-        <div className="flex items-center gap-1.5 text-[11px] text-ink-400 font-medium">
-          <SparkleIcon className="size-3 text-ink-400" />
-          <span>Press <kbd className="rounded border border-line px-1 py-0.5 text-[10px] font-sans bg-surface-subtle">Enter</kbd> to send, <kbd className="rounded border border-line px-1 py-0.5 text-[10px] font-sans bg-surface-subtle">Shift+Enter</kbd> for line break</span>
-        </div>
+      <div className="mt-2.5 flex items-center justify-between gap-3 border-t border-line/60 px-1 pt-2">
+        <p className="hidden text-[11px] text-ink-400 sm:block">Enter to send, Shift+Enter for a new line</p>
         {busy ? (
-          <Button size="sm" variant="secondary" onClick={onCancel} className="text-rose-600 hover:text-rose-700 hover:bg-rose-50 border-rose-200">
-            Stop Generating
+          <Button size="sm" variant="danger" onClick={onStop} loading={stopping} className="ml-auto">
+            Stop
           </Button>
         ) : (
-          <Button
-            size="sm"
-            variant="primary"
-            type="submit"
-            disabled={disabled || !value.trim()}
-            icon={<SendIcon className="size-3.5" />}
-          >
+          <Button size="sm" variant="primary" type="submit" disabled={disabled || !value.trim()} icon={<SendIcon className="size-3.5" />} className="ml-auto">
             Send
           </Button>
         )}

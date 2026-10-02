@@ -2,17 +2,16 @@
 
 | | |
 |---|---|
-| **Status** | Approved 2026-10-02 · Parts A, B and C built · Part D next |
+| **Status** | Approved 2026-10-02 · Parts A–C **completed** · Parts D–G planned (Roadmap Phases 3–4) |
 | **Date** | 2026-10-02 |
 | **Moves** | Automation L2 → L3 (part L4) · company reliability ~30 → ~60 |
-| **Covers** | Roadmap Phase 2 (durable execution), part of Phase 3 (RLS, budgets), stages A1–A3, dashboard settings |
+| **Covers** | Durable execution (done), RLS and budgets (roadmap Phase 3), stages A1–A3, dashboard settings |
 
 **Today:**
 - A person starts every step.
-- Each turn lives inside one HTTP request, so a restart or a closed browser loses it.
-- Runtime state is in local libSQL files.
+- Turns run as queued jobs and runtime state is in Postgres (Parts A–C, completed).
 - The API reads every table with the service role, so RLS never applies to it.
-- Spending is only limited per Coding Council run.
+- Spending is limited only by capped Evaluator rounds and rate limits.
 
 **After this plan:**
 - Turns run as queued jobs on Postgres and survive restarts.
@@ -41,7 +40,7 @@ capped from their first day. Each part works on its own and ships with tests.
 | D3 | Runtime state | **Postgres** when `DATABASE_URL` is set; libSQL stays for plain local mode | Postgres only |
 | D4 | Live updates | `GET /runs/:id/events`: replay `run_steps`, then live tail (`LISTEN/NOTIFY`) | Keep one request open per turn |
 | D5 | RLS enforcement | API **reads with a user-scoped client** (user JWT); service role only for system jobs and audit writes | Keep service role + code checks only |
-| D6 | Token users and RLS | API mints a **short-lived Supabase JWT** (5 min) for the token's owner, signed with `SUPABASE_JWT_SECRET` | Skip RLS for CLI calls |
+| D6 | Token users and RLS | API mints a **short-lived Supabase JWT** (5 min) for the token's owner, signed with `SUPABASE_JWT_SECRET` | Skip RLS for token (extension) calls |
 | D7 | Budget currency | **USD**, from a model price table in Settings; tokens still recorded | Tokens only |
 | D8 | Budget breach | Warn at 80%; **hard stop** at 100% → run `HALTED_BUDGET`; admin can raise | Warn only |
 | D9 | Event source | **Jira webhook** + **polling fallback** (60 s) for local use | Webhook only |
@@ -52,96 +51,20 @@ capped from their first day. Each part works on its own and ships with tests.
 
 ---
 
-## 2. Part A — Settings in the dashboard
+## 2. Parts A–C — Completed
 
-```mermaid
-flowchart LR
-    U["User preference"] --> P["Project setting"] --> G["Global setting"] --> E[".env fallback"] --> C["Code default"]
-```
+Built and unit-tested on 2026-10-02. How they work now is in [ARCHITECTURE.md](../ARCHITECTURE.md).
 
-The first value found wins. A user value can never exceed its project's limit.
-
-| Scope | Page | Settings |
+| Part | Result | Where |
 |---|---|---|
-| Global / project | Admin → Settings → **Agents** | `COUNCIL_MODE`, `COUNCIL_PLAN_ROUNDS`, `COUNCIL_MAX_ROUNDS`, `COUNCIL_IMPLEMENTER_STEPS`, `COUNCIL_FIX_STEPS`, `COUNCIL_TOKEN_BUDGET` |
-| Global / project | Admin → Settings → **Governance** | `APPROVAL_SLA_HOURS`, `INJECTION_POLICY`, loop-guard thresholds, Tester max attempts |
-| Global / project | Admin → Settings → **Limits & budgets** | Job time ceiling, rate limits, budgets and model prices (Part E) |
-| Project | Admin → Settings → **Automation** | Triggers (Part F), auto-approval rules (Part G) |
-| User | Profile → **Preferences** | Default council mode, personal daily budget (≤ project's) |
+| A · Settings | `settings` table (migration 0008), registry with bounds, `GET/PUT /settings`, Admin → Settings, Profile → Preferences; values sent with each turn | ARCHITECTURE §7.1 |
+| B · Postgres state | `PostgresStore` (`@mastra/pg` 1.25.0) and `RuntimeDb` on Postgres when `DATABASE_URL` is set; `migrate-state` | ARCHITECTURE §7 |
+| C · Queued turns | pg-boss turn jobs, `run_events` (migration 0009), `GET /runs/:id/events`, heartbeat and `INTERRUPTED` sweep | ARCHITECTURE §2 |
 
-**Stays in `.env`:** secrets, URLs, ports, `AURA_MODE`, `SANDBOX_MODE`, `TERMINAL_MODE`,
-`MASTRA_RUNTIME_TOKEN`, `TERMINAL_TICKET_SECRET`, LLM keys. `TOOLSETS` is removed from
-`.env.example` (the code default `all` stays).
-
-| Step | Change | Done when |
-|---|---|---|
-| A1 | Migration `0008_settings.sql`: `settings (scope, scope_id, key, value jsonb, updated_by, updated_at)` | 🟢 RLS on; writes via the API only |
-| A2 | Settings registry: one Zod schema per key with bounds, scopes and edit roles | 🟢 Unit tests per key |
-| A3 | `GET/PUT /settings`, `GET /settings/effective?project=`; audit `settings.updated` | 🟢 Bad values refused; every change audited |
-| A4 | API sends the effective settings in each turn's request context (like the approval decision); runtime falls back to `.env` | 🟢 Council uses dashboard values; only the API calls the runtime |
-| A5 | Gate 5 draft stores the effective council settings and shows them on the gate card | 🟢 Approver sees the exact limits |
-| A6 | Web: Admin → Settings and Profile → Preferences | 🟢 A UI change applies to the next run |
-
----
-
-## 3. Part B — Runtime state in Postgres
-
-```mermaid
-flowchart LR
-    subgraph NOW["Today: local files"]
-        L1["mastra.db"]
-        L2["aura-drafts.db"]
-        L3["council notes (memory)"]
-    end
-    subgraph NEXT["Supabase Postgres"]
-        P1["schema mastra<br/>memory · threads · suspended runs"]
-        P2["schema aura_runtime<br/>drafts · approval_uses · token_ledger · usage · council_notes"]
-    end
-    L1 --> P1
-    L2 --> P2
-    L3 --> P2
-```
-
-| Step | Change | Done when |
-|---|---|---|
-| B1 | `DATABASE_URL` (direct, session mode) in the runtime's `.env.example` (the API's comes with Part C); `make doctor` checks it; required in server mode | 🟢 Documented |
-| B2 | Mastra storage → `PostgresStore` (`@mastra/pg` 1.25.0, the last release for core 1.67) when `DATABASE_URL` is set | 🟡 Built; restart test against a real database pending |
-| B3 | `RuntimeDb` interface for AURA's tables: libSQL and Postgres implementations | 🟢 Store tests pass on both (Postgres via PGlite) |
-| B4 | Council notes move to a table | ⚪ Dropped: the Coding Council is replaced ([ADR-4](../adr/0004-vscode-developer-workspace.md)) |
-| B5 | `pnpm --filter agent-runtime migrate-state` copies libSQL data to Postgres | 🟢 Tested against PGlite; run it once against Supabase |
-
----
-
-## 4. Part C — Turns as queued jobs
-
-```mermaid
-sequenceDiagram
-    actor U as User (web / VS Code)
-    participant API as apps/api
-    participant Q as pg-boss
-    participant W as Worker
-    participant RT as agent-runtime
-    U->>API: POST /threads/:id/messages
-    API->>Q: enqueue turn job
-    API-->>U: 202 { runId }
-    U->>API: GET /runs/:id/events (SSE)
-    Q->>W: job
-    W->>RT: stream / resumeStream
-    RT-->>W: chunks
-    W->>API: run_steps + NOTIFY
-    API-->>U: replay + live events
-```
-
-| Step | Change | Done when |
-|---|---|---|
-| C1 | pg-boss 12 in `apps/api` (`aura-turn` with dead-letter `aura-turn-failed`, `aura-maintenance`); in-process when `DATABASE_URL` is empty | 🟢 Verified against Postgres (PGlite): queues, groups, schedule, jobs processed |
-| C2 | Turns run as jobs. The POST endpoints record the run, queue the job and follow its events, so existing clients keep working | 🟢 Closing the browser does not stop a run |
-| C3 | `run_events` table (migration 0009); `GET /runs/:id/events?after=<id\|turn>`: replay then live; SSE `id:` on every event | 🟢 Unit-tested replay, live delivery and stop at `done` |
-| C4 | Web chat reconnects from the last event id and re-attaches to a running turn after a reload; the VS Code extension uses the same endpoint (V1) | 🟢 Web done |
-| C5 | Turn jobs are never retried (`retryLimit: 0`); failed jobs go to the dead-letter queue; gated steps stay single-use in the gateway | 🟢 A gate step never runs twice |
-| C6 | Running turns heartbeat every 30 s; a run silent for 3 minutes becomes `INTERRUPTED` with an explanation; the user continues with a new message | 🟢 Unit-tested |
-| C7 | `TURN_CONCURRENCY` per process, `TURN_CONCURRENCY_PER_USER` across processes (pg-boss groups), max 5 queued or running turns per user | 🟡 Per project and per model provider not built |
-| C8 | Maintenance every minute: approval expiry and the stale-run sweep | 🟢 Runs without a page load |
+| Still open from A–C | Where it is tracked |
+|---|---|
+| Restart test of `PostgresStore` and `migrate-state` against the real Supabase | Roadmap, live checks |
+| Turn concurrency per project and per model provider (C7) | Roadmap, Phase 5 |
 
 ---
 
@@ -185,7 +108,7 @@ flowchart TD
 
 | Budget | Scope | Checked |
 |---|---|---|
-| Per run | One turn or council run | Before each model call |
+| Per run | One turn or Task loop | Before each model call |
 | Per user per day | Developer, BA, … | Before a job starts and before each model call |
 | Per project per month | Whole team | Same |
 | Automation share | Event-started runs per project per day | Before a triggered job is queued |
@@ -194,7 +117,7 @@ flowchart TD
 |---|---|---|
 | E1 | Token ledger gains `project_id`, `user_id`, `run_id` (from the request context) | Usage page filters by project and user |
 | E2 | Model price table in Settings (USD per 1M input / output / cached tokens) | Cost shown next to tokens |
-| E3 | `budget.ts` in the runtime: one check function used by the gateway, the council loop and every structured call | Unit tests at 79%, 80%, 100% |
+| E3 | `budget.ts` in the runtime: one check function used by the gateway, the coder ↔ Evaluator loop and every structured call | Unit tests at 79%, 80%, 100% |
 | E4 | Worker refuses to start a job when a budget is spent; run → `HALTED_BUDGET` | Breach stops work before it starts |
 | E5 | Warnings at 80% (in-app, Slack if set); audit `budget.warning` / `budget.exceeded` | Owner told before the stop |
 | E6 | Admin → AI Usage: spend vs budget per project and user; raise a limit (audited) | One place to see and change |
@@ -294,7 +217,7 @@ Everything else in this plan is a dashboard setting.
 | A retried job repeats a side effect | Idempotency keys; idempotent execute modes; manual Resume when unsure |
 | RLS change hides data from the API by mistake | Backfill first; SQL policy tests; feature flag to fall back to service-role reads |
 | Price table out of date | Admin-editable; cost shown as an estimate |
-| Budget stop in the middle of a council round | Council already commits per round; stop between turns, not mid-write |
+| Budget stop in the middle of a Task | Stop between coder rounds, never mid-write |
 | Event storms | Dedup by event id; per-project rate limit; kill switch |
 | Wrong auto-approval | Code ceiling, never-list, undo window, daily cap, full audit |
 
@@ -309,8 +232,7 @@ Everything else in this plan is a dashboard setting.
 | Automation level | L2 | L3 (L4 for eligible gates) |
 | Run survives a restart or closed browser | No | Yes |
 | Database enforces project scope | No | Yes |
-| Hard spending limits | Council run only | Run, user, project, automation |
+| Hard spending limits | Evaluator rounds only | Run, user, project, automation |
 | Settings changed without a restart | No | Yes |
 
-**Still needed for a company after this plan:** SSO, a secret manager, GitHub PR flow (Roadmap
-Phase 1) and paid models.
+**Still needed for a company after this plan:** SSO, a secret manager and paid models.

@@ -21,10 +21,11 @@ important step.** Jira is the to-do board: AURA reads work from Jira and writes 
 | **PO Agent** | Turns an idea into an **Epic** (a big goal) | Project Owner |
 | **BA Agent** | Splits the Epic into **Stories** (small user needs) | Business Analyst |
 | **Architect Agent** | Designs the system and creates **Tasks** | Architect |
-| **Dev Agent** | Prepares the project folder and a branch for a Task | Developer |
-| **Coding Council** | Writes the code: one AI plans, one codes, one reviews | Developer |
-| **QA Agent** | Writes the tests | QA Engineer |
-| **Tester Agent** | Runs the tests, finds why they fail, asks for fixes (max 3 tries) | QA Engineer |
+| **QA Agent** | Writes the test plan and test scenarios | QA Engineer |
+| **Task Planner** | Plans one Task in VS Code, maybe in parallel parts | Developer |
+| **Coders** | Write the code in the developer's VS Code; a code expert per stack | — |
+| **Evaluator** | Reviews the code and the test results; never writes code | Developer |
+| **Git Agent** | Opens the pull request with the developer's own git | Developer |
 | **Deployer Agent** | Writes the release plan and the undo plan | Deployer |
 
 ---
@@ -37,8 +38,9 @@ Every step ends at a **gate**. Work stops until the right person decides:
 ```mermaid
 flowchart LR
     I["Idea"] --> G1["1 Epic"] --> G2["2 Stories"] --> G3["3 Design"]
-    G3 --> G4["4 Branch"] --> G5["5 Code"] --> G6["6 Tests written"]
-    G6 --> G7["7 Tests run"] --> G8["8 Release plan"]
+    G3 --> QA["Test plan"]
+    G3 --> G4["4 Task plan"] --> G5["5 Code review"] --> G6["6 Pull request"]
+    G6 --> CI["Tests run on GitHub"] --> G8["8 Release plan"]
 ```
 
 ---
@@ -50,14 +52,14 @@ flowchart LR
     YOU["You<br/>web app · VS Code (developers)"] --> API["API<br/>the security guard"]
     API --> RT["Agent runtime<br/>where the helpers live"]
     RT --> JIRA["Jira"]
-    RT --> CODE["Code folders + git"]
+    API --> VS["Your VS Code<br/>code + git"]
     API --> DB[("Database<br/>users · approvals · audit log")]
 ```
 
 | Part | Role |
 |---|---|
-| **Web app** | Chat, approval inbox, project files, admin pages |
-| **VS Code extension** | For developers: work on Tasks with the agents inside VS Code (being built) |
+| **Web app** | Chat, approval inbox, design documents, QA, admin pages |
+| **VS Code extension** | For developers: work on Tasks with the agents inside VS Code |
 | **API** | Checks who you are and what you may do. Records every decision |
 | **Agent runtime** | Runs the AI helpers |
 | **Database** | Users, runs, approvals and an audit log that can never be edited |
@@ -70,7 +72,7 @@ flowchart LR
 2. **A human approves every important step.**
 3. **Everything is recorded:** who did what, when, and with which AI version.
 4. **Proof, not promises.** "Tests passed" comes from a real test run.
-5. **Every Task gets its own folder.** Work never mixes.
+5. **Code stays with the developer.** It is written in their VS Code and pushed to GitHub, never stored by AURA.
 
 ---
 
@@ -94,7 +96,7 @@ flowchart LR
 
 | Check | Meaning |
 |---|---|
-| **Risk** | Reading and drafting are low risk. Writing to Jira, disk or git is medium risk |
+| **Risk** | Reading and drafting are low risk. Writing to Jira, files or git is medium risk |
 | **One approval, one step** | An approval for the Epic can't be reused to run code. Only "approve" counts |
 | **Loop guard** | Stops a helper that repeats the same request 3 times, fails 3 times, or revises a draft 10 times |
 
@@ -136,12 +138,11 @@ Scores: **PO Agent 1.00 · BA Agent 0.96.** Both ignored the injection traps.
 
 | Next | Why |
 |---|---|
-| GitHub connection | Branches and pull requests on GitHub |
-| Gate 4 uses the project's repository | Code lands in the real repo |
-| A job queue | Long runs survive a restart |
-| Budgets per person and team | Predictable AI costs |
-| Notifications | Nobody waits on a gate they don't know about |
+| Jira follows GitHub | A merged pull request moves its Task automatically |
 | Company login (SSO) | Use your normal work account |
+| Project access rules | People see only their projects |
+| Budgets per person and team | Predictable AI costs |
+| Email and chat notifications | Nobody waits on a gate they don't know about |
 
 ---
 

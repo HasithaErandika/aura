@@ -6,20 +6,20 @@ React + Vite + TypeScript + Tailwind CSS v4. The human side of the platform: rol
 
 ```
 src/
-  app/            App, router, route paths
+  app/            App, router, route paths, lazy pages from each feature's index.ts
   config/         typed environment
-  types/          API contracts shared by every feature
   shared/
-    api/          fetch client, SSE reader, Supabase client, error helpers
+    api/          fetch client, SSE reader, Supabase client, shared API types
     auth/         AuthProvider, useAuth, route guards
     layout/       AppShell, Sidebar, Topbar, navigation (derived from grants), runtime status
-    ui/           neutral component kit (Button, Card, Table, Badge, Field, Menu, Markdown, ...)
-    icons/ brand/ hooks/ lib/
+    ui/           small single-purpose components (Button, Card, Section, Stat, AsyncView, Modal, ...)
+    components/   domain components shared by features (status pills, gate cards, tool activity)
+    settings/ icons/ brand/ hooks/ lib/
   features/
-    landing/ auth/ dashboard/ workspace/ approvals/ runs/ registry/ project-files/ jira/ profile/ audit/ admin/
+    landing/ auth/ dashboard/ workspace/ approvals/ runs/ registry/ design-docs/ jira/ profile/ audit/ admin/
 ```
 
-Each feature owns its API calls (`api.ts`), hooks, and components. Nothing renders placeholder data; every list, count, and status comes from `apps/api`.
+Each feature is a module: its `index.ts` exports only its pages, and it owns its `api.ts`, `types.ts`, hooks and components. ESLint blocks deep imports into another feature and feature imports from `shared/`. Nothing renders placeholder data; every list, count, and status comes from `apps/api`.
 
 ## Design rules
 
@@ -44,7 +44,8 @@ Each feature owns its API calls (`api.ts`), hooks, and components. Nothing rende
 | `/app/approvals`, `/app/approvals/:id` | approver roles, requesters, admin | Approval Inbox |
 | `/app/runs`, `/app/runs/:id` | requesters, approver roles, admin | Runs and step timeline |
 | `/app/agents` | roles with a read grant | Agent Registry |
-| `/app/project-files` | every pipeline role, admin | Project Files: design docs, QA specs, code, terminal, test runs, runners (access: `features/project-files/access.ts`) |
+| `/app/design-docs` | every pipeline role, admin | Design documents per Epic: architecture plan, SRS, plan, ADRs (Architect edits) |
+| `/app/qa` | every pipeline role, admin | Test plan and scenarios per Epic (QA edits) |
 | `/app/jira` | signed in | Jira browser |
 | `/app/profile` | developer | Profile, preferences and access tokens |
 | `/app/audit` | admin | Audit Explorer |

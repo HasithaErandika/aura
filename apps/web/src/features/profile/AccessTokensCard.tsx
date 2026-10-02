@@ -1,13 +1,17 @@
 import { useState } from "react";
-import { useAsync } from "../../shared/hooks/useAsync.ts";
-import { describeError } from "../../shared/api/errors.ts";
-import { env } from "../../config/env.ts";
-import { Card, CardHeader, CardBody } from "../../shared/ui/Card.tsx";
-import { Alert } from "../../shared/ui/Alert.tsx";
-import { Badge } from "../../shared/ui/Badge.tsx";
-import { Button } from "../../shared/ui/Button.tsx";
-import { Input, Select, Field } from "../../shared/ui/Field.tsx";
-import { PlusIcon, TrashIcon } from "../../shared/icons/index.tsx";
+import { useAsync } from "@/shared/hooks/useAsync.ts";
+import { describeError } from "@/shared/api/errors.ts";
+import { env } from "@/config/env.ts";
+import { Card } from "@/shared/ui/Card.tsx";
+import { CardHeader } from "@/shared/ui/CardHeader.tsx";
+import { CardBody } from "@/shared/ui/CardBody.tsx";
+import { Alert } from "@/shared/ui/Alert.tsx";
+import { Badge } from "@/shared/ui/Badge.tsx";
+import { Button } from "@/shared/ui/Button.tsx";
+import { Input } from "@/shared/ui/Input.tsx";
+import { Select } from "@/shared/ui/Select.tsx";
+import { Field } from "@/shared/ui/Field.tsx";
+import { PlusIcon, TrashIcon } from "@/shared/icons/index.tsx";
 import { tokensApi, type AccessToken } from "./api.ts";
 
 const EXPIRY_OPTIONS = [30, 90, 180, 365];
@@ -22,8 +26,6 @@ function tokenStatus(token: AccessToken) {
   return <Badge tone="success" dot>Active</Badge>;
 }
 
-// Personal access tokens for the `aura` CLI and the VS Code extension. The raw token is shown
-// exactly once, right after creation - the API only keeps its hash.
 export function AccessTokensCard() {
   const tokens = useAsync(() => tokensApi.list(), []);
   const [name, setName] = useState("");
@@ -38,7 +40,7 @@ export function AccessTokensCard() {
     setError(null);
     setCopied(false);
     try {
-      const result = await tokensApi.create(name.trim() || "aura CLI", expiresInDays);
+      const result = await tokensApi.create(name.trim() || "VS Code", expiresInDays);
       setCreated(result.token);
       setName("");
       await tokens.reload();
@@ -69,7 +71,7 @@ export function AccessTokensCard() {
 
   return (
     <Card>
-      <CardHeader title="Access tokens" description="For the aura CLI and the VS Code extension. A token acts as you, with your role - revoke it if it leaks." />
+      <CardHeader title="Access tokens" description="For the VS Code extension and scripts. A token acts as you, with your role - revoke it if it leaks." />
       <CardBody>
         <div className="space-y-4">
           {error && <Alert tone="danger">{error}</Alert>}

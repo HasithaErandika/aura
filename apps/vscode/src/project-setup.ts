@@ -25,7 +25,7 @@ export function remoteMatches(remote: { owner: string; name: string } | null, re
   return remote.owner.toLowerCase() === registered.owner.toLowerCase() && remote.name.toLowerCase() === registered.name.toLowerCase();
 }
 
-const AURA_IGNORES = [".aura/worktrees/", ".aura/council/"];
+const AURA_IGNORES = [".aura/worktrees/", ".aura/settings.local.json"];
 
 // .gitignore with AURA's local folders added once.
 export function withAuraIgnores(gitignore: string): string {
@@ -80,6 +80,51 @@ on:
 
 jobs:
 ${jobs}
+
+${auraReportJobs(stacks.map((st) => STACKS[st].folder))}`;
+}
+
+// Reports each pull request's CI run to AURA (POST /ci/report), so QA sees it and is notified
+// (V6). GitHub Actions OIDC proves the repository: no secret is stored. Set the repository
+// variable AURA_API_URL to turn it on; without it these jobs are skipped.
+export function auraReportJobs(needs: string[]): string {
+  const env = `        env:
+          AURA_API_URL: \${{ vars.AURA_API_URL }}
+          BRANCH: \${{ github.head_ref }}
+          SHA: \${{ github.event.pull_request.head.sha }}
+          PR: \${{ github.event.pull_request.number }}
+          RUN_URL: \${{ github.server_url }}/\${{ github.repository }}/actions/runs/\${{ github.run_id }}`;
+  const token = `TOKEN=$(curl -sS -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=aura" | jq -r .value)`;
+  const post = (body: string) => `curl -sS -X POST "$AURA_API_URL/ci/report" -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" -d "$(${body})" || echo "AURA did not accept the report"`;
+  return `  # AURA: tells QA that CI started on this pull request.
+  aura-start:
+    if: github.event_name == 'pull_request' && vars.AURA_API_URL != ''
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+    steps:
+      - name: Report to AURA
+${env}
+        run: |
+          ${token}
+          ${post(`jq -n --arg branch "$BRANCH" --arg sha "$SHA" --argjson pr "$PR" --arg url "$RUN_URL" '{status: "in_progress", branch: $branch, headSha: $sha, prNumber: $pr, runUrl: $url}'`)}
+
+  # AURA: the result of every job above, for QA and the developer's PR view.
+  aura-report:
+    needs: [${needs.join(", ")}]
+    if: always() && github.event_name == 'pull_request' && vars.AURA_API_URL != ''
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+    steps:
+      - name: Report to AURA
+${env}
+          RESULTS: \${{ toJSON(needs) }}
+        run: |
+          JOBS=$(echo "$RESULTS" | jq -c '[to_entries[] | {name: .key, result: .value.result}]')
+          CONCLUSION=$(echo "$JOBS" | jq -r 'if any(.[]; .result == "failure") then "failure" elif any(.[]; .result == "cancelled") then "cancelled" else "success" end')
+          ${token}
+          ${post(`jq -n --arg branch "$BRANCH" --arg sha "$SHA" --argjson pr "$PR" --arg url "$RUN_URL" --arg conclusion "$CONCLUSION" --argjson jobs "$JOBS" '{status: "completed", conclusion: $conclusion, branch: $branch, headSha: $sha, prNumber: $pr, runUrl: $url, jobs: $jobs}'`)}
 `;
 }
 
@@ -99,4 +144,19 @@ ${stacks.map((s) => `- \`cd ${STACKS[s].folder} && npm test\`, \`npm run lint\`,
 - \`main\`: releases only. \`development\`: integration; every Task opens a pull request into it.
 - Task branches: \`feat/<EPIC>/<TASK>\`, parallel parts \`feat/<EPIC>/<TASK>_s1\`.
 `;
+}
+
+// The project's starting .aura/settings.json: each app's checks run without asking, lint before
+// every commit, secrets never read.
+export function defaultSettings(stacks: Stack[]): string {
+  const dirs = stacks.map((s) => STACKS[s].folder);
+  return `${JSON.stringify(
+    {
+      defaultMode: "default",
+      permissions: { allow: [], ask: ["Edit(package.json)", "Edit(.github/**)"], deny: ["Read(**/.env)", "Read(**/.env.local)", "Read(**/.env.*.local)"] },
+      hooks: { afterEdit: [], beforeCommit: dirs.map((d) => `cd ${d} && npm run lint --if-present`) },
+    },
+    null,
+    2,
+  )}\n`;
 }

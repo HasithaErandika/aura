@@ -62,8 +62,8 @@ const fakeTool = (id: string, result: (input: Record<string, unknown>) => unknow
 
 describe('risk table', () => {
   it('covers every mode of every delegate tool, and nothing else', async () => {
-    const tools = await import('../tools/delegate-tools');
-    const all = Object.values(tools) as unknown as { id: string; inputSchema: { shape: { mode: { options: string[] } } } }[];
+    const tools = { ...(await import('../tools/delegate-tools')), ...(await import('../tools/task-tools')) };
+    const all = (Object.values(tools) as unknown as { id?: string; inputSchema: { shape: { mode: { options: string[] } } } }[]).filter((t): t is { id: string; inputSchema: { shape: { mode: { options: string[] } } } } => typeof t === 'object' && typeof t.id === 'string');
     expect(all.map((t) => t.id).sort()).toEqual(Object.keys(TOOL_RISK).sort());
     for (const tool of all) {
       expect(Object.keys(TOOL_RISK[tool.id]!.modes).sort(), tool.id).toEqual([...tool.inputSchema.shape.mode.options].sort());
@@ -121,13 +121,13 @@ describe('gateway', () => {
     expect(await gw.runGoverned(fakeTool('delegate_to_po'), file, ctx)).toMatchObject({ ok: true });
     expect(events.at(-1)).toMatchObject({ outcome: 'ok', tier: 'medium', approvalId: 'appr-1', decidedBy: 'u2' });
     expect(await gw.runGoverned(fakeTool('delegate_to_po'), file, ctx)).toMatchObject({ ok: true });
-    const other = await gw.runGoverned(fakeTool('delegate_to_dev'), { mode: 'execute', draftId: 'DEV-9', approved: true }, ctx);
+    const other = await gw.runGoverned(fakeTool('delegate_to_coder'), { mode: 'execute', draftId: 'PLAN-9', approved: true }, ctx);
     expect(other).toMatchObject({ ok: false, error: expect.stringMatching(/already used for delegate_to_po on draft EPIC-1/) });
   });
 
   it('accepts an "answer" decision (a gate option the client could not classify)', async () => {
     const { ctx } = context({ approvalId: 'appr-answer', decision: 'answer' });
-    expect(await gw.runGoverned(fakeTool('delegate_to_test'), { mode: 'execute', draftId: 'TEST-1', approved: true }, ctx)).toMatchObject({ ok: true });
+    expect(await gw.runGoverned(fakeTool('delegate_to_pr'), { mode: 'open', draftId: 'PR-1', approved: true }, ctx)).toMatchObject({ ok: true });
   });
 
   it('halts a loop of identical calls', async () => {
@@ -141,9 +141,9 @@ describe('gateway', () => {
 
   it('pauses a tool after repeated failures on a thread', async () => {
     const { ctx } = context();
-    const failing = fakeTool('delegate_to_ci', () => ({ ok: false, error: 'boom' }));
-    for (let i = 1; i <= 3; i++) expect(await gw.runGoverned(failing, { mode: 'run', epicKey: 'KAN-1', discipline: 'Frontend', taskKey: `KAN-${i}` }, ctx)).toMatchObject({ error: 'boom' });
-    expect(await gw.runGoverned(failing, { mode: 'run', epicKey: 'KAN-1', discipline: 'Frontend', taskKey: 'KAN-4' }, ctx)).toMatchObject({ error: expect.stringMatching(/failed 3 times in a row/) });
+    const failing = fakeTool('delegate_to_pr', () => ({ ok: false, error: 'boom' }));
+    for (let i = 1; i <= 3; i++) expect(await gw.runGoverned(failing, { mode: 'status', taskKey: `KAN-${i}` }, ctx)).toMatchObject({ error: 'boom' });
+    expect(await gw.runGoverned(failing, { mode: 'status', taskKey: 'KAN-4' }, ctx)).toMatchObject({ error: expect.stringMatching(/failed 3 times in a row/) });
   });
 
   it('turns a thrown error into ok=false', async () => {

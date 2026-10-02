@@ -8,6 +8,7 @@ describe("parseServerMessage", () => {
     expect(parseServerMessage(JSON.stringify({ ...ok, op: "shell.anything" }))).toBeNull();
     expect(parseServerMessage(JSON.stringify({ ...ok, args: "rm -rf /" }))).toBeNull();
     expect(parseServerMessage("not json")).toBeNull();
+    for (const op of ["fs.grep", "proc.spawn", "proc.read", "proc.kill", "proc.list"]) expect(parseServerMessage(JSON.stringify({ ...ok, op }))?.type, op).toBe("tool.request");
   });
 });
 

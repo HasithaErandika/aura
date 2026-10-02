@@ -2,7 +2,7 @@
   "name": "aura-vscode",
   "displayName": "AURA",
   "description": "AURA for developers: pick a Jira Task, work on it with AURA's agents in a chat panel, and keep every file change and command under your approval. Agents run in the AURA cloud; your code stays on your machine.",
-  "version": "0.2.0",
+  "version": "0.4.0",
   "private": true,
   "publisher": "aura",
   "license": "UNLICENSED",
@@ -30,6 +30,21 @@
         {
           "id": "aura.tasks",
           "name": "Tasks"
+        },
+        {
+          "id": "aura.plan",
+          "name": "Plan",
+          "when": "aura.hasPlan"
+        },
+        {
+          "id": "aura.review",
+          "name": "Review",
+          "when": "aura.hasReview"
+        },
+        {
+          "id": "aura.pr",
+          "name": "Pull Request",
+          "when": "aura.hasPr"
         },
         {
           "type": "webview",
@@ -101,6 +116,34 @@
         "icon": "$(add)"
       },
       {
+        "command": "aura.stop",
+        "title": "Stop",
+        "category": "AURA",
+        "icon": "$(debug-stop)"
+      },
+      {
+        "command": "aura.resume",
+        "title": "Resume",
+        "category": "AURA",
+        "icon": "$(debug-continue)"
+      },
+      {
+        "command": "aura.openRunInWeb",
+        "title": "Open Run in Web",
+        "category": "AURA",
+        "icon": "$(globe)"
+      },
+      {
+        "command": "aura.setMode",
+        "title": "Set Permission Mode",
+        "category": "AURA"
+      },
+      {
+        "command": "aura.stopBackgroundProcesses",
+        "title": "Stop Background Processes",
+        "category": "AURA"
+      },
+      {
         "command": "aura.connectRepository",
         "title": "Connect Repository",
         "category": "AURA"
@@ -109,10 +152,26 @@
         "command": "aura.initializeProject",
         "title": "Initialize Project",
         "category": "AURA"
+      },
+      {
+        "command": "aura.openDiff",
+        "title": "Open Diff",
+        "category": "AURA"
+      },
+      {
+        "command": "aura.refreshPr",
+        "title": "Refresh CI Status",
+        "category": "AURA",
+        "icon": "$(refresh)"
       }
     ],
     "menus": {
       "view/title": [
+        {
+          "command": "aura.stop",
+          "when": "view == aura.chat && aura.running",
+          "group": "navigation@1"
+        },
         {
           "command": "aura.refreshTasks",
           "when": "view == aura.tasks",
@@ -121,6 +180,16 @@
         {
           "command": "aura.newChat",
           "when": "view == aura.chat",
+          "group": "navigation@2"
+        },
+        {
+          "command": "aura.openRunInWeb",
+          "when": "view == aura.chat",
+          "group": "navigation@3"
+        },
+        {
+          "command": "aura.refreshPr",
+          "when": "view == aura.pr",
           "group": "navigation"
         }
       ],
@@ -144,6 +213,14 @@
         {
           "command": "aura.openInJira",
           "when": "false"
+        },
+        {
+          "command": "aura.stop",
+          "when": "aura.running"
+        },
+        {
+          "command": "aura.openDiff",
+          "when": "false"
         }
       ]
     },
@@ -154,9 +231,23 @@
           "type": "string",
           "default": "http://localhost:4000",
           "description": "The AURA API URL."
+        },
+        "aura.webUrl": {
+          "type": "string",
+          "default": "",
+          "description": "The AURA web app URL, for Open Run in Web. Leave empty to use the address of your last browser sign-in."
         }
       }
-    }
+    },
+    "jsonValidation": [
+      {
+        "fileMatch": [
+          ".aura/settings.json",
+          ".aura/settings.local.json"
+        ],
+        "url": "./media/settings.schema.json"
+      }
+    ]
   },
   "scripts": {
     "build": "esbuild src/extension.ts --bundle --platform=node --format=cjs --target=node20 --external:vscode --outfile=dist/extension.cjs",

@@ -1,0 +1,37 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "AURA project settings",
+  "description": "Rules and hooks for AURA's agents in this folder (.aura/settings.json is shared; .aura/settings.local.json is yours).",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "defaultMode": {
+      "description": "The permission mode a developer starts in. The admin can still restrict modes.",
+      "enum": ["plan", "default", "acceptEdits"]
+    },
+    "permissions": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "allow": { "$ref": "#/definitions/rules", "description": "Run without asking." },
+        "ask": { "$ref": "#/definitions/rules", "description": "Always ask, even if a built-in rule would allow it." },
+        "deny": { "$ref": "#/definitions/rules", "description": "Never allow." }
+      }
+    },
+    "hooks": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "afterEdit": { "type": "array", "items": { "type": "string" }, "description": "Commands run after each file change; {file} is the changed file." },
+        "beforeCommit": { "type": "array", "items": { "type": "string" }, "description": "Commands that must pass before a git commit runs." }
+      }
+    }
+  },
+  "definitions": {
+    "rules": {
+      "type": "array",
+      "items": { "type": "string", "pattern": "^(Bash|Edit|Read)\\(.+\\)$" },
+      "description": "Bash(npm run e2e), Bash(npm run e2e:*), Edit(src/**), Read(.env*)"
+    }
+  }
+}

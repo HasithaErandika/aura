@@ -1,7 +1,8 @@
 import { z } from 'zod';
+import { bullets } from './markdown';
 
 // The Deployer Agent's plan (Gate 8) - plan-only, on purpose. There is no real deployment
-// pipeline in this repo (docs/ARCHITECTURE.md section 12 is target-state, not built), so this
+// pipeline in this repo (not built), so this
 // agent never claims a release happened (principle 5, "evidence over assertion"). It prepares
 // what a human needs to execute the release themselves: release notes, a change plan, and a
 // rollback plan. There is deliberately no `execute` mode on delegate_to_deploy - see
@@ -18,10 +19,6 @@ export type DeployDraft = z.infer<typeof deployDraftSchema>;
 
 const DEPLOYER_PERSPECTIVE =
   '*Drafted by the AURA Deployer Agent, from a release-readiness perspective: what shipped, how to release it, and how to undo it - this plan is prepared for a human to execute; AURA does not run a real deployment.*';
-
-function bullets(items: string[]): string {
-  return items.length ? items.map((i) => `- ${i}`).join('\n') : '- none';
-}
 
 export function renderDeployPlan(draft: DeployDraft): string {
   return [

@@ -20,8 +20,7 @@ export interface DraftRecord<T = unknown> {
 
 let ready: Promise<void> | null = null;
 
-// The runtime database (store/runtime-db.ts: Postgres when DATABASE_URL is set, else a libSQL
-// file) with the drafts table ensured.
+// The runtime database with the drafts table ensured.
 async function db(): Promise<RuntimeDb> {
   const c = runtimeDb();
   if (!ready) {
@@ -49,13 +48,11 @@ const ID_PREFIX: Record<DraftKind, string> = {
   epic: 'EPIC',
   stories: 'STORIES',
   architecture: 'ARCH',
-  'dev-scaffold': 'DEV',
-  'coding-task': 'CODE',
   'qa-plan': 'QA',
-  'test-run': 'TEST',
   'deploy-plan': 'DEPLOY',
-  'git-op': 'GIT',
-  'ci-run': 'CI',
+  'task-plan': 'PLAN',
+  'task-review': 'REVIEW',
+  'task-pr': 'PR',
 };
 
 // Generates a short random id prefixed by the draft kind.
@@ -116,9 +113,7 @@ export const draftStore = {
     await c.execute(epicKey ? 'update aura_drafts set filed = ?, epic_key = ? where id = ?' : 'update aura_drafts set filed = ? where id = ?', epicKey ? [JSON.stringify(filed), epicKey, id] : [JSON.stringify(filed), id]);
   },
 
-  // The thread that most recently drafted this kind of content for this Epic - lets a caller
-  // outside the conversation (the web app) find where to continue it, since draftId only makes
-  // sense inside that thread's own tool-call history (server/workspace-routes.ts).
+  // The thread that most recently drafted this kind for an Epic, so the web app can continue it.
   async latestThreadFor(kind: DraftKind, epicKey: string): Promise<string | null> {
     const c = await db();
     const result = await c.execute('select thread_id from aura_drafts where kind = ? and epic_key = ? order by created_at desc limit 1', [kind, epicKey]);
@@ -126,8 +121,7 @@ export const draftStore = {
     return (row?.thread_id as string | null | undefined) ?? null;
   },
 
-  // The most recent draft of this kind for an Epic, full record - e.g. the Dev agent reading
-  // the Epic's architecture draft to learn its chosen backend framework (tools/delegate-tools.ts).
+  // The most recent draft of this kind for an Epic.
   async latestByEpic<T>(kind: DraftKind, epicKey: string): Promise<DraftRecord<T> | null> {
     const c = await db();
     const result = await c.execute('select * from aura_drafts where kind = ? and epic_key = ? order by created_at desc limit 1', [kind, epicKey]);
@@ -135,8 +129,15 @@ export const draftStore = {
     return row ? rowToRecord<T>(row) : null;
   },
 
-  // Every draft of this kind for an Epic, most recent first - e.g. a Task's full test-run
-  // history (server/test-runs-routes.ts), where latestByEpic's single row isn't enough.
+  // The most recent draft of this kind in a conversation.
+  async latestByThread<T>(kind: DraftKind, threadId: string): Promise<DraftRecord<T> | null> {
+    const c = await db();
+    const result = await c.execute('select * from aura_drafts where kind = ? and thread_id = ? order by created_at desc limit 1', [kind, threadId]);
+    const row = result.rows[0];
+    return row ? rowToRecord<T>(row) : null;
+  },
+
+  // Every draft of this kind for an Epic, most recent first.
   async listByEpic<T>(kind: DraftKind, epicKey: string, limit = 50): Promise<DraftRecord<T>[]> {
     const c = await db();
     const result = await c.execute('select * from aura_drafts where kind = ? and epic_key = ? order by created_at desc limit ?', [kind, epicKey, limit]);

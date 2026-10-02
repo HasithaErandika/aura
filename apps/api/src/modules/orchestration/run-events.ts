@@ -1,11 +1,8 @@
 import { EventEmitter } from "node:events";
-import { supabaseAdmin } from "../../lib/supabase.js";
-import { logger, errorMessage } from "../../lib/logger.js";
+import { errorMessage, logger } from "../../lib/logger.js";
+import { supabaseRunEventStore } from "./run-events.repository.js";
 
-// Durable run events (supabase/migrations/0009_run_events.sql). A turn job writes every client
-// event here (RunEventWriter); clients follow them (followRun) live or after a reconnect. The
-// table is the only source of truth: followers always read from it. The in-process bus only wakes
-// them early, and a short poll covers events written by another process (a second API replica).
+// The run_events table is the source of truth; the bus only wakes followers early.
 
 export interface RunEvent {
   id: number;
@@ -14,7 +11,6 @@ export interface RunEvent {
   data: unknown;
 }
 
-// What a turn writes to. SseWriter has the same shape, so pipeRuntimeStream works with both.
 export interface EventSink {
   send(event: string, data: unknown): void;
 }
@@ -23,41 +19,15 @@ export interface RunEventStore {
   append(runId: string, event: string, data: unknown): Promise<number>;
   listAfter(runId: string, afterId: number, limit: number): Promise<RunEvent[]>;
   lastId(runId: string): Promise<number>;
-  // Id of the run's last event of this kind, 0 if none (e.g. the "done" that ended the previous turn).
   lastIdOf(runId: string, event: string): Promise<number>;
 }
 
-export const supabaseRunEventStore: RunEventStore = {
-  async append(runId, event, data) {
-    const { data: row, error } = await supabaseAdmin.from("run_events").insert({ run_id: runId, event, data: data ?? null }).select("id").single();
-    if (error || !row) throw new Error(error?.message ?? "could not store run event");
-    return Number((row as { id: number }).id);
-  },
-  async listAfter(runId, afterId, limit) {
-    const { data, error } = await supabaseAdmin.from("run_events").select("id, event, data").eq("run_id", runId).gt("id", afterId).order("id").limit(limit);
-    if (error) throw new Error(error.message);
-    return ((data ?? []) as { id: number; event: string; data: unknown }[]).map((r) => ({ id: Number(r.id), runId, event: r.event, data: r.data }));
-  },
-  async lastId(runId) {
-    const { data, error } = await supabaseAdmin.from("run_events").select("id").eq("run_id", runId).order("id", { ascending: false }).limit(1).maybeSingle();
-    if (error) throw new Error(error.message);
-    return data ? Number((data as { id: number }).id) : 0;
-  },
-  async lastIdOf(runId, event) {
-    const { data, error } = await supabaseAdmin.from("run_events").select("id").eq("run_id", runId).eq("event", event).order("id", { ascending: false }).limit(1).maybeSingle();
-    if (error) throw new Error(error.message);
-    return data ? Number((data as { id: number }).id) : 0;
-  },
-};
-
-// In-process notification that a run has new events. Never carries the events themselves.
-export const runEventBus = new EventEmitter();
+const runEventBus = new EventEmitter();
 runEventBus.setMaxListeners(0);
 
 const TEXT_FLUSH_MS = 120;
 
-// Writes one run's events in order. send() is synchronous for the caller; writes are chained.
-// Streamed text deltas are merged for a moment so a long answer isn't thousands of rows.
+// Writes are chained in order; text deltas are merged briefly so long answers stay few rows.
 export class RunEventWriter implements EventSink {
   private chain: Promise<void> = Promise.resolve();
   private pendingText = "";
@@ -82,7 +52,6 @@ export class RunEventWriter implements EventSink {
     this.enqueue(event, data);
   }
 
-  // Waits until everything sent so far is stored.
   async flush(): Promise<void> {
     this.flushText();
     await this.chain;
@@ -111,7 +80,7 @@ export class RunEventWriter implements EventSink {
   }
 }
 
-export interface FollowTarget {
+interface FollowTarget {
   send(id: number, event: string, data: unknown): void;
   comment(text: string): void;
   readonly isClosed: boolean;
@@ -129,8 +98,7 @@ export interface FollowOptions {
 
 const PAGE = 500;
 
-// Sends a run's events after `afterId` until its turn ends (a "done" event) or the client goes.
-// Resolves with the last event id sent.
+// Resolves with the last event id sent, once "done" arrives or the client goes away.
 export function followRun(options: FollowOptions): Promise<number> {
   const { runId, target } = options;
   const store = options.store ?? supabaseRunEventStore;

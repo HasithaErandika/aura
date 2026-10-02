@@ -1,23 +1,21 @@
 import { createTool } from '@mastra/core/tools';
 import { z } from 'zod';
 import {
+  architectureDocuments,
   architectureDraftSchema,
   architectureFiledComment,
   architectureTaskJiraDescription,
   backendFrameworks,
-  renderAdr,
   renderArchitecture,
-  renderPlan,
-  renderRequirementsDoc,
-  type ArchitectureDocPaths,
   type ArchitectureDraft,
+  type DesignDocLink,
 } from '../../contracts/drafts';
 import { draftStore } from '../../store/draft-store';
 import { jira, jiraIssueUrl, type JiraIssueSummary } from '../../mcp/jira-client';
 import { ARCHITECT_MODEL_ID } from '../../agents/registry';
 import { generateObject, type MastraLike } from '../../lib/generate-object';
-import { architectWorkspace, type WorkspaceRegistry } from '../../workspace/architect-workspace';
-import { outputSchema, fail, provenance, buildProvenance, slugify, type ToolWriterLike } from './shared';
+import { designDocs } from '../../lib/design-docs-client';
+import { outputSchema, fail, provenance, buildProvenance, type ToolWriterLike } from './shared';
 import { untrusted, untrustedInline } from '../../gateway/untrusted';
 
 const architectInputSchema = z
@@ -43,7 +41,9 @@ interface ArchitectWorkflowState {
   techStackText: string;
   requirementsSummary: string;
   decomposition: string;
+  frontendDesign: string;
   apiDesign: string;
+  integrationDesign: string;
   dataDesign: string;
   securityDesign: string;
   aiDesign: string;
@@ -60,7 +60,7 @@ interface ArchitectWorkflowRun {
 interface ArchitectWorkflowLike {
   createRun: () => Promise<ArchitectWorkflowRun>;
 }
-type ArchitectMastra = (MastraLike & { getWorkflow?: (id: string) => ArchitectWorkflowLike } & Partial<WorkspaceRegistry>) | undefined;
+type ArchitectMastra = (MastraLike & { getWorkflow?: (id: string) => ArchitectWorkflowLike }) | undefined;
 
 // Runs the Architect Workflow, relaying each step's start/result into this tool's own stream as it goes.
 async function runArchitectWorkflow(
@@ -80,7 +80,9 @@ async function runArchitectWorkflow(
       techStackText: input.techStackText,
       requirementsSummary: '',
       decomposition: '',
+      frontendDesign: '',
       apiDesign: '',
+      integrationDesign: '',
       dataDesign: '',
       securityDesign: '',
       aiDesign: '',
@@ -161,7 +163,8 @@ export const delegateToArchitectTool = createTool({
           content.techStack = previous.content.techStack;
           const record = await draftStore.create({ kind: 'architecture', content, threadId, epicKey: previous.epicKey, parentId: previous.id });
           // Already-filed tasks get updated in place; removed tasks keep their existing Jira issue untouched.
-          const filedIndices = Object.keys(previous.filed).filter((k) => k !== 'adrComment');
+          // Only task indices: the other markers (adrComment, workspaceWritten, links:<i>) are bookkeeping.
+          const filedIndices = Object.keys(previous.filed).filter((k) => /^\d+$/.test(k));
           if (filedIndices.length) {
             const stamp = provenance('architect-agent', ARCHITECT_MODEL_ID, record, `${previous.content.epicKey} (Epic)`);
             const carried: Record<string, string> = {};
@@ -211,24 +214,14 @@ export const delegateToArchitectTool = createTool({
           const filed = { ...record.filed };
           const stamp = provenance('architect-agent', ARCHITECT_MODEL_ID, record, `${epicKey} (Epic)`);
 
-          // Writes the design documents to the workspace once, after approval.
-          const docPaths: ArchitectureDocPaths = {
-            requirements: 'docs/srs/requirements-analysis.md',
-            architecture: 'architecture.md',
-            plan: 'plan.md',
-            adrs: record.content.adrs.map((adr, i) => `docs/adr/${String(i + 1).padStart(4, '0')}-${slugify(adr.title)}.md`),
-          };
-          if (!filed.workspaceWritten) {
-            const workspaceRegistry = mastra as ArchitectMastra;
-            if (!workspaceRegistry?.listWorkspaces || !workspaceRegistry.addWorkspace) throw new Error('Mastra workspace registry is not available');
-            const fs = architectWorkspace(workspaceRegistry as WorkspaceRegistry, epicKey).filesystem;
-            if (!fs) throw new Error('Architect workspace filesystem is not available');
-            await fs.writeFile(docPaths.architecture, renderArchitecture(record.content), { recursive: true, overwrite: true });
-            await fs.writeFile(docPaths.requirements, renderRequirementsDoc(record.content), { recursive: true, overwrite: true });
-            await fs.writeFile(docPaths.plan, renderPlan(record.content), { recursive: true, overwrite: true });
-            for (let i = 0; i < record.content.adrs.length; i += 1) {
-              const body = renderAdr(record.content.adrs[i]!, i).replace(/^## /, '# ');
-              await fs.writeFile(docPaths.adrs[i]!, body, { recursive: true, overwrite: true });
+          // Saves the design documents to apps/api once, after approval. Saving again is
+          // idempotent (unchanged content adds no version), so a retry that still has to post the
+          // Jira comment re-saves to get the links. `workspaceWritten` keeps its old name because
+          // filed drafts already carry it (dev.ts and test.ts read it as "documents filed").
+          const docLinks: DesignDocLink[] = [];
+          if (!filed.workspaceWritten || !filed.adrComment) {
+            for (const doc of architectureDocuments(record.content)) {
+              docLinks.push(await designDocs.save(epicKey, doc, { agent: 'architect-agent', draftId: record.id }));
             }
             filed.workspaceWritten = 'done';
             await draftStore.markFiled(record.id, filed);
@@ -254,6 +247,16 @@ export const delegateToArchitectTool = createTool({
               break;
             }
           }
+          // Links each filed Task to its Stories, best effort, so a wrong Story key never blocks filing.
+          for (let i = 0; i < record.content.tasks.length; i += 1) {
+            const taskKey = filed[String(i)];
+            if (!taskKey || filed[`links:${i}`]) continue;
+            for (const storyKey of record.content.tasks[i]!.relatedStories) {
+              await jira.linkIssues(taskKey, storyKey).catch(() => undefined);
+            }
+            filed[`links:${i}`] = 'done';
+            await draftStore.markFiled(record.id, filed);
+          }
           const taskKeys = record.content.tasks.map((_, i) => filed[String(i)]).filter((k): k is string => Boolean(k));
           if (failure) {
             return { ok: false, draftId: record.id, epicKey, taskKeys, error: `${failure}. Created so far: ${taskKeys.join(', ') || 'none'}. Re-run file with the same draftId to continue; nothing is created twice.` };
@@ -262,7 +265,7 @@ export const delegateToArchitectTool = createTool({
             try {
               // Posted on every Epic the design covers, not just the primary one that holds
               // the filed Tasks - a human reading any of the combined Epics finds it.
-              const comment = architectureFiledComment(record.content, docPaths, stamp);
+              const comment = architectureFiledComment(record.content, docLinks, stamp);
               const relatedEpicKeys = record.content.relatedEpicKeys?.length ? record.content.relatedEpicKeys : [epicKey];
               for (const key of relatedEpicKeys) {
                 await jira.addComment(key, comment);

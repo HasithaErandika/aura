@@ -1,8 +1,6 @@
 import { z } from "zod";
 
-// Request schemas for /projects. They repeat the CHECK constraints of migration 0007 so a bad
-// value is a 422 with a field error instead of a database error.
-
+// Mirrors the CHECK constraints of migration 0007 so bad values get a 422.
 const upperKey = z
   .string()
   .trim()
@@ -17,7 +15,7 @@ export const createProjectSchema = z
   })
   .strict();
 
-// Git ref rules that matter for a default branch name (git check-ref-format, simplified).
+// git check-ref-format, simplified.
 const branchName = z
   .string()
   .trim()

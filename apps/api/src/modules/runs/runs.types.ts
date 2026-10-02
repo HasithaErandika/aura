@@ -1,4 +1,5 @@
-import type { Role } from "../identity/roles.js";
+import type { Role } from "../../lib/auth/roles.js";
+import type { Person } from "../identity/index.js";
 
 export const RUN_STATUSES = [
   "PENDING",
@@ -9,7 +10,6 @@ export const RUN_STATUSES = [
   "REJECTED",
   "EXPIRED",
   "HALTED_LOOP_GUARD",
-  // The process running the turn stopped mid-turn (migration 0009); continued with a new message.
   "INTERRUPTED",
 ] as const;
 export type RunStatus = (typeof RUN_STATUSES)[number];
@@ -35,8 +35,7 @@ export interface RunRow {
   updated_at: string;
 }
 
-export const RUN_STEP_KINDS = ["tool-call", "tool-result", "tool-error", "text", "suspended", "resumed", "error", "finish", "progress"] as const;
-export type RunStepKind = (typeof RUN_STEP_KINDS)[number];
+type RunStepKind = "tool-call" | "tool-result" | "tool-error" | "text" | "suspended" | "resumed" | "error" | "finish" | "progress";
 
 export interface RunStepRow {
   id: number;
@@ -56,7 +55,7 @@ export interface RunView {
   runtimeRunId: string | null;
   requestedBy: string;
   requestedByRole: Role;
-  requester?: { fullName: string | null; email: string } | null;
+  requester: Person | null;
   status: RunStatus;
   currentAgent: string | null;
   agentsInvolved: string[];
@@ -69,7 +68,7 @@ export interface RunView {
   updatedAt: string;
 }
 
-export function toRunView(row: RunRow, requester?: { fullName: string | null; email: string } | null): RunView {
+export function toRunView(row: RunRow, requester: Person | null = null): RunView {
   return {
     id: row.id,
     agentId: row.agent_id,
@@ -77,7 +76,7 @@ export function toRunView(row: RunRow, requester?: { fullName: string | null; em
     runtimeRunId: row.runtime_run_id,
     requestedBy: row.requested_by,
     requestedByRole: row.requested_by_role,
-    requester: requester ?? null,
+    requester,
     status: row.status,
     currentAgent: row.current_agent,
     agentsInvolved: row.agents_involved ?? [],
@@ -111,4 +110,19 @@ export function toRunStepView(row: RunStepRow): RunStepView {
     payload: row.payload,
     createdAt: row.created_at,
   };
+}
+
+export interface NewRunStep {
+  runId: string;
+  seq: number;
+  kind: RunStepKind;
+  toolName?: string | null;
+  toolCallId?: string | null;
+  payload?: Record<string, unknown> | null;
+}
+
+export interface RunNote {
+  id: string;
+  text: string;
+  createdAt: string;
 }

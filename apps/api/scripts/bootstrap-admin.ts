@@ -1,5 +1,5 @@
 // One-off script to create the very first admin account. There is no
-// self-serve signup (by design — see docs/ARCHITECTURE.md §5), so someone
+// self-serve signup (by design — see docs/ARCHITECTURE.md §6.3), so someone
 // has to exist before the Admin page can provision anyone else.
 //
 // Usage:

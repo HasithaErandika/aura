@@ -1,8 +1,6 @@
 import { createHash } from 'node:crypto';
 
-// Loop guards for the Orchestrator's tool calls (docs/ARCHITECTURE.md §5 "Loop guards beyond the
-// Tester Agent"). Agents already have per-call step caps (maxSteps) and the Council and Tester
-// loops are bounded; what's left is the Orchestrator going round in circles across calls:
+// Loop guards for delegate tool calls (docs/ARCHITECTURE.md §6.2), against an agent going round in circles:
 //   - the same call with the same arguments, again and again
 //   - the same tool failing over and over on one thread
 //   - a draft revised without end
@@ -73,9 +71,7 @@ export class LoopGuard {
     return s;
   }
 
-  // Checks a call before it runs and records it. Returns the reason to refuse, or null.
-  // `decisionId` is the human decision in effect (approval id); a new decision resets the
-  // failure streak, since a human has looked at it.
+  // Checks and records a call; returns the refusal reason or null. A new decision resets the failure streak.
   check(threadId: string, tool: string, input: unknown, decisionId: string | null, draftVersion: number | null, revising: boolean): string | null {
     const s = this.state(threadId);
     const t = this.now();

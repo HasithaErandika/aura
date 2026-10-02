@@ -6,7 +6,8 @@ Agents run in the AURA cloud; every file they read or change and every command t
 
 **Status: V1**: browser sign-in, the **AURA** sidebar (Tasks: Epic → Stories and Tasks; Chat
 with the agent, streamed, tool calls inline, resumes after a reload), **Start Work on Task**,
-**Connect Repository** and **Initialize Project**. Specialist agents, branches and PRs come in V2–V6
+**Stop** / **Resume** / **Open Run in Web**, **Connect Repository** and **Initialize Project**.
+**V2**: permission modes, project rules and hooks, background processes, project memory and skills. Specialist agents, branches and PRs come in V2–V6
 ([plan](../../docs/plans/aura-vscode-agents.md)).
 
 ```mermaid
@@ -34,20 +35,90 @@ In that window:
    scaffold, `main` + `development`, CI, `.aura/`).
 3. In the **AURA** sidebar, pick a Task → **Start Work**, or type in **Chat**. Every file change
    and command asks you first; the **AURA** output channel logs them.
+4. **Stop** (the button, **Esc** in the chat, the status bar or **AURA: Stop**) kills the running
+   command and ends the turn. **AURA: Resume** continues it. **AURA: Open Run in Web** shows the
+   run's steps and approvals in the web app.
 
-Set `aura.apiUrl` in Settings if the API isn't at `http://localhost:4000`. The runtime needs
+Set `aura.apiUrl` in Settings if the API isn't at `http://localhost:4000`, and `aura.webUrl` if
+the web app isn't where you last signed in. The runtime needs
 `AURA_API_URL` pointing at the same API.
 
 ## What the agent may do
 
 | Request | Behaviour |
 |---|---|
-| Read, list, stat files | Allowed |
+| Read, list, search, stat files | Allowed |
 | `git status/diff/log`, `ls`, `npm test`, `npm run lint/typecheck/build` | Allowed |
-| Write, move, delete files; any other command | **Asks you**: Allow once · Allow for this session · Deny |
+| Write, move, delete files; any other command; starting a background process | **Asks you**: Allow once · Allow for this session · Allow for this project · Deny |
 | Chained or redirected commands (`&&`, `;`, `\|`, `>`, `$(...)`) | Always asks |
 | Force push, `sudo`, `curl … \| sh`, deleting outside the folder, reading `~/.ssh`, `~/.aws`… | **Always refused** |
 | Any path outside the open folder (including through symlinks) | **Always refused** |
+
+### Modes
+
+The status bar shows the mode; click it (or **AURA: Set Permission Mode**) to change it. An admin
+can limit the modes per project (Admin → Settings → *VS Code permission modes*).
+
+| Mode | File changes | Commands |
+|---|---|---|
+| Plan | Refused | Only the read-only commands and checks above |
+| Default | Ask | Ask unless allowed |
+| Accept edits | Allowed in this folder | Ask unless allowed |
+
+### Project rules and hooks
+
+`.aura/settings.json` is shared with the team; `.aura/settings.local.json` is yours (git-ignored;
+**Allow for this project** writes there). Deny beats ask beats allow; the built-in refusals above
+always win.
+
+```json
+{
+  "defaultMode": "default",
+  "permissions": {
+    "allow": ["Bash(npm run e2e:*)", "Edit(docs/**)"],
+    "ask": ["Edit(package.json)"],
+    "deny": ["Read(**/.env)"]
+  },
+  "hooks": {
+    "afterEdit": ["npx prettier --write {file}"],
+    "beforeCommit": ["npm run lint"]
+  }
+}
+```
+
+`.aura/AURA.md` is the project memory every agent turn starts with (like `CLAUDE.md`), and
+`.aura/skills/<name>/SKILL.md` adds a skill the agent can load next to AURA's own.
+
+The agent also reads the Task's Epic design documents (architecture plan, ADRs, SRS, test plan
+and scenarios) from AURA with its `design_docs` tool. It never changes them; the Architect and QA
+edit them on the web.
+
+### Task gates
+
+When you start a Task, the agent drafts a plan (Gate 4) and shows it in the **Plan** view and as
+a card in the chat. While the plan waits for you, the agent can only read the folder. Approve,
+Revise (with feedback) or Reject it on the card. After approval a coder for the Task's route
+writes the change; your checks run and the Evaluator reviews it, for up to
+`vscode.evaluatorRounds` rounds. The **Review** view then lists the changed files (click one for a
+diff against the last commit), the check results and the Evaluator's findings (Gate 5). Type in
+the chat while the agent works to send it a note it reads before its next round.
+
+After you approve the plan, AURA works on the Task branch `feat/<EPIC>/<TASK>` (commit or stash
+your own changes first). A plan split into parallel parts runs one coder per part, each in its own
+worktree under `.aura/worktrees/` on a `…_s<N>` branch; AURA then merges the parts into the Task
+branch and runs the checks on the result. The Plan view shows each part's progress, and the
+Review view diffs from the commit the Task started at.
+
+After you accept the change, the agent drafts the pull request (Gate 6): title, a description
+with provenance, and reviewers from `.aura/settings.json` (`"reviewers": ["octocat",
+"acme/qa-team"]`). When you approve it, AURA commits, pushes and opens the PR into `development`
+with your own `git` and GitHub CLI (`gh auth login` once; without `gh` you get a link to open it).
+The **Pull Request** view shows the PR and its CI result.
+
+CI reports to AURA from the `aura-ci.yml` that Initialize Project writes. Set the repository
+variable `AURA_API_URL` (GitHub → Settings → Secrets and variables → Actions → Variables) to your
+AURA API's public URL; no secret is needed. An existing repository can copy the `aura-start` and
+`aura-report` jobs from a newly initialized project.
 
 Commands run through your shell in the folder, with secrets (tokens, keys, passwords) removed
 from their environment. Output is capped at 30,000 characters.
@@ -57,8 +128,13 @@ from their environment. Output is capped at 30,000 characters.
 | File | Contents |
 |---|---|
 | `src/extension.ts` | VS Code commands, status bar, prompts |
+| `src/chat/` | Chat panel: conversation per Task, streaming, Stop / Resume |
+| `src/tasks-tree.ts`, `src/project*.ts`, `src/session.ts` | Tasks view, Connect / Initialize, sign-in |
 | `src/bridge-client.ts` | WebSocket to the API: tickets, reconnect, permission → run → result |
-| `src/permissions.ts` | Allow / ask / deny rules |
-| `src/executor.ts` | File operations and commands inside the folder |
+| `src/permissions.ts` | Modes, built-in and project allow / ask / deny rules |
+| `src/project-settings.ts`, `src/governance.ts` | `.aura/settings*.json`, modes allowed by the admin |
+| `src/hooks.ts` | `afterEdit` and `beforeCommit` hooks |
+| `src/task-board.ts`, `src/task-views.ts` | Task state from runtime events, Plan and Review views, diffs |
+| `src/executor.ts` | File operations, search, commands and background processes inside the folder |
 
 Protocol: [`packages/aura-bridge`](../../packages/aura-bridge/src/index.ts).

@@ -9,8 +9,8 @@ import { riskOf } from './risk';
 import { collectFindings, findingsBanner, injectionPolicy, type Finding } from './untrusted';
 import { settingsFrom } from '../config/settings';
 
-// The tool gateway (docs/ARCHITECTURE.md §5 "Unify the Tool Gateway into one real pipeline").
-// Every Orchestrator tool except ask_user is wrapped by governed(), so each call goes through the
+// The tool gateway (docs/ARCHITECTURE.md §6.2).
+// Every delegate tool of the Orchestrator and the vscode-agent is wrapped by governed(), so each call goes through the
 // same steps in one place:
 //
 //   1. risk tier     tool + mode looked up in risk.ts; unknown = refused
@@ -202,8 +202,7 @@ async function deliverDraft(tool: string, mode: string, result: unknown, context
   return { ...record, markdown: preview };
 }
 
-// Wraps a tool so every call goes through the gateway. Same id, description and schemas, so the
-// Orchestrator sees exactly the tool it saw before.
+// Wraps a tool so every call goes through the gateway; id, description and schemas are unchanged.
 export function governed<T extends ToolLike>(tool: T): T {
   return createTool({
     id: tool.id,

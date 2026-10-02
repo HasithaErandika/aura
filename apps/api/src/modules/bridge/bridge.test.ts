@@ -3,12 +3,12 @@ import type { AddressInfo } from "node:net";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import WebSocket from "ws";
 
-vi.mock("../audit/audit.service.js", () => ({ writeAudit: vi.fn(async () => undefined) }));
+vi.mock("../audit/index.js", () => ({ writeAudit: vi.fn(async () => undefined) }));
 vi.mock("../../lib/logger.js", () => ({ logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() }, errorMessage: (e: unknown) => String(e) }));
 
-const { BridgeHub } = await import("./hub.js");
-const { TicketStore } = await import("./tickets.js");
-const { attachBridge } = await import("./ws.js");
+const { BridgeHub } = await import("./bridge.hub.js");
+const { TicketStore } = await import("./bridge.tickets.js");
+const { attachBridge } = await import("./bridge.ws.js");
 
 function fakeSocket() {
   const sent: Record<string, unknown>[] = [];
@@ -69,6 +69,31 @@ describe("BridgeHub", () => {
     const callId = (a.sent[1] as { callId: string }).callId;
     hub.receive(other, JSON.stringify({ type: "tool.result", callId, ok: true, value: { exists: true } }));
     expect(await call).toMatchObject({ ok: false, error: { code: "timeout" } });
+  });
+
+  it("stops a run: cancels its calls in flight, refuses new ones, leaves other runs alone", async () => {
+    const hub = new BridgeHub();
+    const socket = fakeSocket();
+    const connection = hub.connect("u1", socket);
+    const stopped = hub.call("u1", "run-1", "sandbox.exec", { command: "npm", args: ["test"] }, 5000);
+    const other = hub.call("u1", "run-2", "fs.stat", { path: "." }, 5000);
+    const [first, second] = socket.sent.slice(1) as { callId: string }[];
+
+    expect(hub.stopRun("run-1")).toBe(1);
+    expect(socket.sent.at(-1)).toEqual({ type: "run.cancel", callId: first!.callId });
+    expect(await stopped).toMatchObject({ ok: false, error: { code: "cancelled" } });
+    expect(await hub.call("u1", "run-1", "fs.readFile", { path: "a" })).toMatchObject({ ok: false, error: { code: "cancelled" } });
+
+    hub.receive(connection, JSON.stringify({ type: "tool.result", callId: second!.callId, ok: true, value: { name: "." } }));
+    expect(await other).toMatchObject({ ok: true });
+  });
+});
+
+describe("callSummary", () => {
+  it("summarises paths and commands for the audit log", async () => {
+    const { callSummary } = await import("./bridge.service.js");
+    expect(callSummary({ op: "fs.writeFile", args: { path: "src/a.ts" } })).toEqual({ op: "fs.writeFile", path: "src/a.ts", command: null });
+    expect(callSummary({ op: "sandbox.exec", args: { command: "npm", args: ["test", "--", "-u"] } })).toEqual({ op: "sandbox.exec", path: null, command: "npm test -- -u" });
   });
 });
 
