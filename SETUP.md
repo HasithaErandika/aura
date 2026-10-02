@@ -23,6 +23,7 @@ flowchart LR
 | GitHub CLI (`gh`) | For developers | Opens pull requests at Gate 6 |
 | VS Code | For developers | With the AURA extension ([apps/vscode](apps/vscode/README.md)) |
 | make | Optional | Every target is also a pnpm command |
+| `cloudflared` (or another tunnel) | For webhooks locally | Gives GitHub and Jira a public URL to the API (§8) |
 
 Run `make doctor` to check all of these.
 
@@ -31,7 +32,8 @@ Run `make doctor` to check all of these.
 ## 2. Database
 
 Run every file in `apps/api/supabase/migrations/` **in order** in the Supabase SQL editor
-(`0001` → `0012`).
+(`0001` → `0013`). Run each file **once**: nothing records which ones ran, so keep a note of the
+last one applied.
 
 ---
 
@@ -49,6 +51,24 @@ Every variable is described in its `.env.example`. The main ones:
 | `apps/api/.env` | `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `WEB_ORIGIN`, `MASTRA_RUNTIME_URL`, Jira read credentials |
 | `apps/web/.env` | `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`, `VITE_API_URL` |
 
+### Where to find each value
+
+| Value | Where |
+|---|---|
+| `SUPABASE_URL`, `VITE_SUPABASE_URL` | Supabase → your project → **Project Settings → API** → *Project URL* |
+| `SUPABASE_ANON_KEY`, `VITE_SUPABASE_ANON_KEY` | Same page → *anon / public* key (safe in the browser) |
+| `SUPABASE_SERVICE_ROLE_KEY` | Same page → *service_role / secret* key (server only, never in `apps/web`) |
+| `SUPABASE_JWT_SECRET` | Leave **empty**. It only works for projects on the legacy HS256 JWT secret; with JWT signing keys (the default now) every login fails |
+| `DATABASE_URL` | Supabase → **Connect** (top bar) → **Session pooler** (see below) |
+| `GROQ_API_KEY` | https://console.groq.com/keys → *Create API Key* |
+| `GOOGLE_GENERATIVE_AI_API_KEY` | https://aistudio.google.com → *Get API key* |
+| `JIRA_URL` | Your site address, `https://<site>.atlassian.net` |
+| `JIRA_USERNAME` | The Atlassian account's email |
+| `JIRA_API_TOKEN` | https://id.atlassian.com/manage-profile/security/api-tokens, signed in as `JIRA_USERNAME`. Tokens expire: a 401 from Jira means create a new one and update **both** `.env` files |
+| `JIRA_PROJECT_KEY` | The prefix of the project's issue keys (`KAN` in `KAN-36`) |
+| `MASTRA_RUNTIME_TOKEN` | Generated: `make secret` |
+| `GITHUB_WEBHOOK_SECRET`, `JIRA_WEBHOOK_SECRET` | Generated: `make secret` (§8) |
+
 ### Shared secrets
 
 This value must be **the same** in `apps/api/.env` and `apps/agent-runtime/.env`.
@@ -61,9 +81,20 @@ Generate it with `make secret`.
 ### Postgres for runtime state
 
 Set `DATABASE_URL` in **both** `apps/agent-runtime/.env` and `apps/api/.env` to the Supabase
-**direct** connection string
-(Project Settings → Database, session mode, port 5432). The runtime creates the `mastra` and
-`aura_runtime` schemas; the API's turn queue creates `pgboss`. To keep the drafts you already have locally:
+**Session pooler** string: Supabase → **Connect** → **Session pooler**.
+
+```text
+postgresql://postgres.<project-ref>:<db-password>@aws-0-<region>.pooler.supabase.com:5432/postgres
+```
+
+| Check | Why |
+|---|---|
+| Session pooler, port **5432** | Transaction mode (6543) breaks pg-boss and Mastra |
+| Not the *direct* string (`db.<ref>.supabase.co`) | It is IPv6-only; on an IPv4 network it fails with `ENETUNREACH`. The shared pooler takes IPv4 for free; the dedicated IPv4 add-on is not needed |
+| The **database password**, not an API key | Reset it under Project Settings → Database. URL-encode `@ : / # ?` (`@` → `%40`) |
+
+The runtime creates the `mastra` and `aura_runtime` schemas; the API's turn queue creates
+`pgboss`. To keep the drafts you already have locally:
 
 ```bash
 DATABASE_URL=postgresql://... pnpm --filter agent-runtime migrate-state
@@ -150,6 +181,59 @@ first and falls back to Gemini (`config/models.ts`).
 
 ---
 
+### Webhooks (GitHub and Jira)
+
+GitHub and Jira tell AURA what happens there: a pull request opened or merged by a person, a Jira
+Task moved or labelled. AURA uses these events to move Jira status, record merges and queue plans
+(roadmap Phase 3). Each endpoint is **off** until its secret is set.
+
+```mermaid
+flowchart LR
+    GH["GitHub repository"] -->|"POST /webhooks/github"| T["Public URL<br/>(tunnel or deployed API)"]
+    JI["Jira site"] -->|"POST /webhooks/jira"| T
+    T --> API["apps/api :4000"]
+```
+
+**1. Secrets.** Run `make secret` twice; put the values in `apps/api/.env` as
+`GITHUB_WEBHOOK_SECRET` and `JIRA_WEBHOOK_SECRET`; restart the API.
+
+**2. A public URL.** GitHub and Jira cannot reach `localhost`. Locally, run a tunnel:
+
+```bash
+cloudflared tunnel --url http://localhost:4000   # prints https://<random>.trycloudflare.com
+```
+
+The address changes each time the tunnel starts; update both webhooks when it does. A deployed
+API uses its own address.
+
+**3. GitHub webhook** (repository admin): repository → **Settings → Webhooks → Add webhook**
+(`https://github.com/<owner>/<repo>/settings/hooks`).
+
+| Field | Value |
+|---|---|
+| Payload URL | `https://<public URL>/webhooks/github` |
+| Content type | **`application/json`** (form-encoded is rejected) |
+| Secret | `GITHUB_WEBHOOK_SECRET` |
+| SSL verification | Enable |
+| Events | *Let me select individual events* → **Pull requests** only |
+| Active | ✓ |
+
+Add it to every project repository AURA works on. After saving, **Recent Deliveries** shows the
+`ping`; AURA answers `{"outcome":"ignored"}`.
+
+**4. Jira webhook** (Jira administrator): ⚙ **Settings → System → WebHooks** (under *Advanced*)
+→ **Create a WebHook** (`https://<site>.atlassian.net/plugins/servlet/webhooks`).
+
+| Field | Value |
+|---|---|
+| URL | `https://<public URL>/webhooks/jira` |
+| Secret | `JIRA_WEBHOOK_SECRET` |
+| Events | Issue → **updated** (optional JQL: `project = <JIRA_PROJECT_KEY>`) |
+
+**Check:** every accepted delivery appears in **Admin → Audit** as `webhook.received`.
+
+---
+
 ## 9. Where data is stored
 
 | Location | Contents |
@@ -174,3 +258,9 @@ first and falls back to Gemini (`config/models.ts`).
 | Groq `Invalid API Key` | Renew `GROQ_API_KEY` |
 | Patch not applied on install | Keep `@mastra/schema-compat` at 1.3.10 |
 | `make: command not found` | Install make, or use the pnpm command |
+| `connect ENETUNREACH 2406:…` (turn queue, runtime) | `DATABASE_URL` uses the IPv6-only direct host; use the Session pooler string (§3) |
+| Web: "Invalid or expired session" | Empty `SUPABASE_JWT_SECRET` and restart the API |
+| Jira page empty or Jira tools fail with 401 | `JIRA_API_TOKEN` expired; create a new one (§3) and update both `.env` files |
+| Mastra: "Another development server instance is already running" | Stop the old process; if none is running, delete `apps/agent-runtime/.mastra/dev.lock` |
+| Webhook delivery shows 401 | The secret in GitHub or Jira differs from `.env`, or the content type is not `application/json` |
+| Webhook delivery fails to connect | The tunnel stopped or its address changed |
