@@ -5,7 +5,7 @@ It is the only service that calls `apps/agent-runtime`.
 
 ```mermaid
 flowchart LR
-    C["web / aura CLI"] --> AUTH["Auth<br/>session or token"] --> POL["Policy"] --> RT["agent-runtime"]
+    C["web / VS Code extension"] --> AUTH["Auth<br/>session or token"] --> POL["Policy"] --> RT["agent-runtime"]
     RT -->|"stream"| ORCH["Orchestration<br/>runs · steps · gates"] --> C
     ORCH --> DB[("Supabase")]
 ```

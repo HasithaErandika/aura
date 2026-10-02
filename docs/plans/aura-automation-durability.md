@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | Approved 2026-10-02 · Part A built · Part B next |
+| **Status** | Approved 2026-10-02 · Parts A and B built · Part C next |
 | **Date** | 2026-10-02 |
 | **Moves** | Automation L2 → L3 (part L4) · company reliability ~30 → ~60 |
 | **Covers** | Roadmap Phase 2 (durable execution), part of Phase 3 (RLS, budgets), stages A1–A3, dashboard settings |
@@ -41,7 +41,7 @@ capped from their first day. Each part works on its own and ships with tests.
 | D3 | Runtime state | **Postgres** when `DATABASE_URL` is set; libSQL stays for plain local mode | Postgres only |
 | D4 | Live updates | `GET /runs/:id/events`: replay `run_steps`, then live tail (`LISTEN/NOTIFY`) | Keep one request open per turn |
 | D5 | RLS enforcement | API **reads with a user-scoped client** (user JWT); service role only for system jobs and audit writes | Keep service role + code checks only |
-| D6 | CLI token users and RLS | API mints a **short-lived Supabase JWT** (5 min) for the token's owner, signed with `SUPABASE_JWT_SECRET` | Skip RLS for CLI calls |
+| D6 | Token users and RLS | API mints a **short-lived Supabase JWT** (5 min) for the token's owner, signed with `SUPABASE_JWT_SECRET` | Skip RLS for CLI calls |
 | D7 | Budget currency | **USD**, from a model price table in Settings; tokens still recorded | Tokens only |
 | D8 | Budget breach | Warn at 80%; **hard stop** at 100% → run `HALTED_BUDGET`; admin can raise | Warn only |
 | D9 | Event source | **Jira webhook** + **polling fallback** (60 s) for local use | Webhook only |
@@ -104,11 +104,11 @@ flowchart LR
 
 | Step | Change | Done when |
 |---|---|---|
-| B1 | `DATABASE_URL` (direct, session mode) in both `.env.example` files; `make doctor` checks it | Documented |
-| B2 | Mastra storage → `PostgresStore` (`@mastra/pg`) when `DATABASE_URL` is set | A suspended gate resumes after a runtime restart |
-| B3 | `RuntimeDb` interface for AURA's tables: libSQL and Postgres implementations | Store tests pass on both |
-| B4 | Council notes move to a table | Notes survive a restart |
-| B5 | `pnpm --filter agent-runtime migrate-state` copies libSQL data to Postgres | KAN-36 drafts visible after the move |
+| B1 | `DATABASE_URL` (direct, session mode) in the runtime's `.env.example` (the API's comes with Part C); `make doctor` checks it; required in server mode | 🟢 Documented |
+| B2 | Mastra storage → `PostgresStore` (`@mastra/pg` 1.25.0, the last release for core 1.67) when `DATABASE_URL` is set | 🟡 Built; restart test against a real database pending |
+| B3 | `RuntimeDb` interface for AURA's tables: libSQL and Postgres implementations | 🟢 Store tests pass on both (Postgres via PGlite) |
+| B4 | Council notes move to a table | ⚪ Dropped: the Coding Council is replaced ([ADR-4](../adr/0004-vscode-developer-workspace.md)) |
+| B5 | `pnpm --filter agent-runtime migrate-state` copies libSQL data to Postgres | 🟢 Tested against PGlite; run it once against Supabase |
 
 ---
 
@@ -116,7 +116,7 @@ flowchart LR
 
 ```mermaid
 sequenceDiagram
-    actor U as User (web / CLI)
+    actor U as User (web / VS Code)
     participant API as apps/api
     participant Q as pg-boss
     participant W as Worker
@@ -137,7 +137,7 @@ sequenceDiagram
 | C1 | pg-boss in `apps/api`; queues `turn`, `resume`, `events`, `maintenance` | Jobs visible in the Runners tab |
 | C2 | `startTurn` / `resumeTurn` become job handlers; requests return `202 { runId }` | Closing the browser does not stop a run |
 | C3 | `GET /runs/:id/events?after=<seq>`: replay then live tail | Reconnect continues without gaps |
-| C4 | Web chat and `aura` CLI follow the events endpoint (`@aura/client`) | Same live view as today |
+| C4 | Web chat and the VS Code extension follow the events endpoint (`@aura/client`) | Same live view as today |
 | C5 | Idempotency key `(runId, phase)`; retry with backoff; dead-letter list | A gate step never runs twice |
 | C6 | Worker crash mid-turn → run `INTERRUPTED` + **Resume** button; auto-retry only at a gate boundary | No silent double execution |
 | C7 | Concurrency limits per user, project and model provider | Free-tier limits are respected |
@@ -165,7 +165,7 @@ in one is caught by the other.
 | D1 | Migration `0010_project_scope.sql`: `project_members (project_id, user_id, role)`; `project_id` on `workflow_runs`, `approval_requests`, `audit_logs`, `task_branches`, `settings`, runtime drafts | Backfill puts existing rows in the KAN project |
 | D2 | SQL helpers `is_project_member(project_id)`, `is_admin()`; `select` policies on every governance table; writes stay API-only | Policy tests in SQL (`supabase test db` or pgTAP) |
 | D3 | API: per-request user-scoped Supabase client for reads; service role only for writes, audit and system jobs | Reading another project's run returns nothing even if code forgets a filter |
-| D4 | CLI tokens: API mints a 5-minute Supabase JWT for the token owner | `aura` calls are scoped by RLS too |
+| D4 | Token users: API mints a 5-minute Supabase JWT for the token owner | Token calls are scoped by RLS too |
 | D5 | `policy.ts`: `can()` takes a project; Orchestrator turns carry `projectId` | Unit tests: non-member is refused |
 | D6 | Admin → Projects: manage members and their roles per project | Admin adds a Developer to one project only |
 | D7 | Runtime tables: queries filter by `projectId` from the request context | A draft from project A can't be filed in project B |
@@ -198,7 +198,7 @@ flowchart TD
 | E4 | Worker refuses to start a job when a budget is spent; run → `HALTED_BUDGET` | Breach stops work before it starts |
 | E5 | Warnings at 80% (in-app, Slack if set); audit `budget.warning` / `budget.exceeded` | Owner told before the stop |
 | E6 | Admin → AI Usage: spend vs budget per project and user; raise a limit (audited) | One place to see and change |
-| E7 | `aura status` shows remaining budget | Developer sees it in the terminal |
+| E7 | The VS Code extension shows remaining budget | Developer sees it while working |
 
 ---
 
@@ -289,7 +289,7 @@ Everything else in this plan is a dashboard setting.
 
 | Risk | Mitigation |
 |---|---|
-| `@mastra/pg` must match `@mastra/core` 1.67 | Check before B2; pin the matching version |
+| `@mastra/pg` must match `@mastra/core` 1.67 | Pinned to 1.25.0; newer releases need core 1.68 |
 | Transaction pooler breaks `LISTEN/NOTIFY` | Require the session-mode connection |
 | A retried job repeats a side effect | Idempotency keys; idempotent execute modes; manual Resume when unsure |
 | RLS change hides data from the API by mistake | Backfill first; SQL policy tests; feature flag to fall back to service-role reads |

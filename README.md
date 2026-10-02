@@ -29,7 +29,6 @@ Full guide: [SETUP.md](SETUP.md) · `make help` lists every command.
 | `apps/web` | React UI |
 | `apps/api` | Express API: auth, policy, approvals, audit |
 | `apps/agent-runtime` | Mastra agents and workflows |
-| `apps/cli` | `aura` developer CLI |
 | `packages/aura-client` | Shared typed API client |
 | `docs/` | Documentation |
 

@@ -1,12 +1,12 @@
-# Developer Tools: `aura` CLI, Coding Council, Web Terminal
+# Developer Tools: Coding Council and Web Terminal
 
 | | |
 |---|---|
-| **Status** | Built. VS Code extension and remote mode are not built |
+| **Status** | Built; **being replaced** by the VS Code extension and specialist agents ([ADR-4](../adr/0004-vscode-developer-workspace.md)). The `aura` CLI was removed on 2026-10-02 |
 | **Related** | [ARCHITECTURE.md](../ARCHITECTURE.md) · [SETUP.md](../../SETUP.md) |
 
-These tools let a developer work on a Jira Task from their own terminal, while every action still
-goes through `apps/api` (auth, policy, approvals, audit).
+These tools let a developer work on a Jira Task, while every action still goes through `apps/api`
+(auth, policy, approvals, audit).
 
 ---
 
@@ -15,11 +15,9 @@ goes through `apps/api` (auth, policy, approvals, audit).
 ```mermaid
 flowchart LR
     subgraph CLIENTS["Clients"]
-        CLI["aura CLI"]
         WEB["Project Files<br/>CodeMirror + xterm.js"]
     end
-    CLI -->|"REST + SSE"| API["apps/api"]
-    WEB -->|"REST + SSE"| API
+    WEB -->|"REST + SSE"| API["apps/api"]
     WEB -.->|"WebSocket + ticket"| TERM["Terminal server :4112"]
     API --> ORCH["Orchestrator"]
     ORCH --> COUNCIL["Coding Council"]
@@ -29,28 +27,7 @@ flowchart LR
 
 ---
 
-## 2. `aura` CLI
-
-| Command | Server call |
-|---|---|
-| `login` · `logout` · `whoami` | `GET /me`, `PUT /me/git-identity` |
-| `tasks [--epic]` | `GET /jira/epics/:key` |
-| `open [TASK] [--code\|--path]` | `GET /dev-workspace/tasks/:taskKey` |
-| `code [TASK] [-p council\|mastra]` | `POST /threads`, `POST /threads/:id/messages` |
-| `approve` · `reject` · `revise` | `POST /approvals/:id/decide` (with snapshot hash) |
-| `say "text"` | `POST /council/:draftId/notes` |
-| `status` | `GET /approvals`, `GET /council/usage` |
-| `diff` · `commit` · `push [--pr]` | Local `git` and `gh` |
-
-- **Login:** personal access token `aura_pat_…`, stored in `~/.config/aura/config.json` (mode 0600).
-  `AURA_TOKEN` / `AURA_API_URL` override it.
-- **Commit:** `aura commit` makes one commit authored by the developer, folds in the council's
-  checkpoint commits, and adds `Co-authored-by: AURA Coding Council`, `AURA-Task` and `AURA-Run`.
-- **Push:** uses the developer's own git credentials and `gh`.
-
----
-
-## 3. Coding Council
+## 2. Coding Council
 
 ```mermaid
 sequenceDiagram
@@ -109,7 +86,7 @@ A small Task takes about 15–40 model requests. Most go to the Implementer's to
 
 ---
 
-## 4. Web terminal
+## 3. Web terminal
 
 ```mermaid
 sequenceDiagram
@@ -117,7 +94,7 @@ sequenceDiagram
     participant A as apps/api
     participant T as Terminal server
     B->>A: POST /terminal/tickets
-    A-->>B: 60s single-use ticket (+ encrypted CLI token)
+    A-->>B: 60s single-use ticket
     B->>T: WebSocket ?ticket=
     T->>T: Verify ticket, open shell in worktree
 ```
@@ -129,11 +106,10 @@ sequenceDiagram
 | `restricted` mode | Allowlisted commands: `aura`, `git`, `npm test/run`, `ls`, `cat`, `pwd` |
 | Environment | Allowlist; no LLM keys, Jira token or secrets |
 | Limits | 3 sessions per user; closes after 30 minutes idle |
-| CLI token | 8-hour `terminal` token, so `aura` works without login |
 
 ---
 
-## 5. Known limits
+## 4. Known limits
 
 | Limit | Impact |
 |---|---|
@@ -143,6 +119,6 @@ sequenceDiagram
 | Terminal tokens are not revoked on close | They expire after 8 hours |
 | Free-tier models | Keep Tasks small |
 
-## 6. Not built
+## 5. Not built
 
 VS Code extension · remote (non-local) worktrees · Monaco editor · council notes box in the web UI.

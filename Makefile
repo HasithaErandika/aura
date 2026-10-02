@@ -4,7 +4,7 @@
 PNPM ?= pnpm
 .DEFAULT_GOAL := help
 
-.PHONY: help install env dev runtime api web build typecheck lint test cli cli-unlink terminal-secret clean doctor
+.PHONY: help install env dev runtime api web build typecheck lint test terminal-secret clean doctor
 
 help: ## Show this list
 	@awk 'BEGIN {FS = ":.*## "} /^[a-zA-Z_-]+:.*## / {printf "  \033[36m%-16s\033[0m %s\n", $$1, $$2}' $(MAKEFILE_LIST)
@@ -42,14 +42,6 @@ lint: ## Lint apps/web
 test: ## Run every app's unit tests (Vitest)
 	$(PNPM) -r --no-bail run test
 
-cli: ## Build the aura CLI and put `aura` on your PATH
-	$(PNPM) --filter @aura/client --filter aura-cli run build
-	cd apps/cli && $(PNPM) link --global
-	@echo "done - try: aura --help"
-
-cli-unlink: ## Remove `aura` from your PATH
-	$(PNPM) remove --global aura-cli
-
 terminal-secret: ## Print a random secret for TERMINAL_TICKET_SECRET or MASTRA_RUNTIME_TOKEN (paste it into apps/api/.env AND apps/agent-runtime/.env)
 	@node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
 
@@ -59,7 +51,7 @@ doctor: ## Check prerequisites and which .env files exist
 	@command -v git >/dev/null && echo "ok   git" || echo "FAIL git not found"
 	@command -v python3 >/dev/null && echo "ok   python3 (web terminal)" || echo "warn python3 not found - the full web terminal needs it (or set TERMINAL_MODE=restricted)"
 	@command -v docker >/dev/null && echo "ok   docker (optional)" || echo "warn docker not found - optional (Gate 4 scaffolds, Gate 7 tests, SANDBOX_MODE=docker)"
-	@command -v gh >/dev/null && echo "ok   gh (optional)" || echo "warn gh not found - optional (aura push --pr)"
+	@grep -qE "^DATABASE_URL=.+" apps/agent-runtime/.env 2>/dev/null && echo "ok   DATABASE_URL (Postgres state)" || echo "warn DATABASE_URL not set - agent-runtime uses local libSQL files (required for AURA_MODE=server)"
 	@for app in agent-runtime api web; do [ -f apps/$$app/.env ] && echo "ok   apps/$$app/.env" || echo "FAIL apps/$$app/.env missing - make env"; done
 
 clean: ## Remove build output and every node_modules (run `make install` after)

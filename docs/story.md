@@ -47,7 +47,7 @@ flowchart LR
 
 ```mermaid
 flowchart LR
-    YOU["You<br/>browser or aura CLI"] --> API["API<br/>the security guard"]
+    YOU["You<br/>web app · VS Code (developers)"] --> API["API<br/>the security guard"]
     API --> RT["Agent runtime<br/>where the helpers live"]
     RT --> JIRA["Jira"]
     RT --> CODE["Code folders + git"]
@@ -57,7 +57,7 @@ flowchart LR
 | Part | Role |
 |---|---|
 | **Web app** | Chat, approval inbox, project files, admin pages |
-| **aura CLI** | The same from a terminal, for developers |
+| **VS Code extension** | For developers: work on Tasks with the agents inside VS Code (being built) |
 | **API** | Checks who you are and what you may do. Records every decision |
 | **Agent runtime** | Runs the AI helpers |
 | **Database** | Users, runs, approvals and an audit log that can never be edited |
@@ -115,7 +115,7 @@ If something looks suspicious, a warning appears at the top of the draft for the
 |---|---|
 | **Runtime token** | Only the API can talk to the agent runtime |
 | **Local / server mode** | Server mode refuses to start with unsafe settings |
-| **Access tokens** | The CLI logs in with a personal token you can revoke |
+| **Access tokens** | Personal tokens you can revoke, for tools that call AURA |
 
 ---
 

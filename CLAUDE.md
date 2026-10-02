@@ -20,7 +20,7 @@ work items, and a human approves every step through eight gates. Read
 | Agent evals (uses model quota) | `pnpm --filter agent-runtime eval` |
 
 Use **pnpm only** (one workspace, one lockfile). Package names: `web`, `api`, `agent-runtime`,
-`aura-cli`, `@aura/client`.
+`@aura/client`.
 
 ## Layout
 
@@ -30,7 +30,6 @@ Use **pnpm only** (one workspace, one lockfile). Package names: `web`, `api`, `a
 | `apps/api/src/modules/` | One folder per domain: `policy`, `approvals`, `audit`, `orchestration`, `projects`, … |
 | `apps/api/supabase/migrations/` | SQL migrations `NNNN_name.sql` |
 | `apps/web/src/features/` | One folder per screen |
-| `apps/cli/src/commands/` | `aura` commands |
 | `docs/` | Documentation (index: `docs/README.md`) |
 
 ## Rules

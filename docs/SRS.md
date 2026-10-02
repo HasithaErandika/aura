@@ -53,7 +53,7 @@ Replacing Jira · autonomous production changes · non-TypeScript services.
 | ID | Requirement | Status |
 |---|---|---|
 | FR-AUTH-1 | Users sign in through corporate SSO (SAML/OIDC) | 🔴 Email/password, admin-provisioned |
-| FR-AUTH-2 | CLI users sign in with revocable, expiring personal access tokens | 🟢 |
+| FR-AUTH-2 | Tool clients sign in with revocable, expiring personal access tokens | 🟢 |
 | FR-AUTH-3 | Every request and tool call is checked against role → agent → tool grants | 🟢 |
 | FR-AUTH-4 | Grants are data, editable per project, with audit | 🟡 Data in code; not editable in the UI |
 | FR-AUTH-5 | The runtime never holds user credentials | 🟢 |
@@ -141,7 +141,7 @@ Replacing Jira · autonomous production changes · non-TypeScript services.
 | NFR-SEC-2 | Security | Forbidden tools (policy edits, audit changes) are never callable | 🟢 |
 | NFR-SEC-3 | Security | Agent code runs in ephemeral, isolated containers | 🟡 Host checks allowed locally |
 | NFR-SEC-4 | Security | Database enforces project scope (RLS) | 🔴 |
-| NFR-REL-1 | Reliability | Runs survive a runtime restart | 🟡 Suspended gates survive; running turns do not |
+| NFR-REL-1 | Reliability | Runs survive a runtime restart | 🟡 Gates, drafts and memory survive (Postgres); running turns do not |
 | NFR-REL-2 | Reliability | Durable queue between API and runtime | 🔴 |
 | NFR-REL-3 | Reliability | Model fallback on provider failure | 🟢 Coding Council chains |
 | NFR-COST-1 | Cost | Token budget per run | 🟢 Coding Council |
@@ -207,7 +207,7 @@ written.
 | Store | Contents |
 |---|---|
 | Supabase | `profiles`, `access_tokens`, `workflow_runs`, `run_steps`, `approval_requests`, `approval_decisions`, `audit_logs`, `projects`, `repositories`, `task_branches`, `task_dependencies` |
-| Runtime libSQL | Agent memory, drafts, token usage, approval use |
+| Runtime Postgres (or local libSQL) | Agent memory, drafts, token usage, model usage, approval use |
 | Workspace files | Design docs, scaffolds, worktrees, QA specs |
 
 Supabase stores runtime data by reference (`thread_id`, draft ids), never as a copy.

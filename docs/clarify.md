@@ -86,6 +86,5 @@ These are not blocking. Each needs a decision before its roadmap step starts.
 | Database provisioning for scaffolds | Local Postgres container · managed instance | Data discipline in Gate 4 |
 | Jira test management | Plain Bugs · Xray · Zephyr | Test reporting |
 | Vector store | pgvector · external | Codebase knowledge |
-| Draft store | Keep libSQL · move to Postgres | Phase 2 |
 | Git hosts beyond GitHub | GitLab support | After Phase 1 |
 | LLM-judged evals | Own scorers only · Langfuse / Braintrust | Eval expansion |

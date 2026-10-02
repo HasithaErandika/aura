@@ -23,7 +23,6 @@ flowchart LR
 | python3 | For the full web terminal | Preinstalled on Linux/macOS |
 | Docker | For Gate 4 scaffolds and Gate 7 tests | Not needed by the Coding Council |
 | make | Optional | Every target is also a pnpm command |
-| gh | Optional | For `aura push --pr` |
 
 Run `make doctor` to check all of these.
 
@@ -46,7 +45,7 @@ Every variable is described in its `.env.example`. The main ones:
 
 | File | Key values |
 |---|---|
-| `apps/agent-runtime/.env` | `GROQ_API_KEY`, `GOOGLE_GENERATIVE_AI_API_KEY`, Jira MCP settings, `JIRA_PROJECT_KEY`, `AURA_WORKSPACE_ROOT` (absolute path) |
+| `apps/agent-runtime/.env` | `GROQ_API_KEY`, `GOOGLE_GENERATIVE_AI_API_KEY`, Jira MCP settings, `JIRA_PROJECT_KEY`, `AURA_WORKSPACE_ROOT` (absolute path), `DATABASE_URL` (optional locally, required in server mode) |
 | `apps/api/.env` | `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `WEB_ORIGIN`, `MASTRA_RUNTIME_URL`, Jira read credentials |
 | `apps/web/.env` | `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`, `VITE_API_URL` |
 
@@ -60,6 +59,16 @@ Generate each with `make terminal-secret`.
 | `MASTRA_RUNTIME_TOKEN` | Only the API may call the runtime | Always in `AURA_MODE=server`. Optional locally (Mastra Studio can't send it) |
 | `TERMINAL_TICKET_SECRET` | Signs web terminal tickets | To use the web terminal |
 
+### Postgres for runtime state
+
+Set `DATABASE_URL` in `apps/agent-runtime/.env` to the Supabase **direct** connection string
+(Project Settings → Database, session mode, port 5432). The runtime creates the `mastra` and
+`aura_runtime` schemas itself. To keep the drafts you already have locally:
+
+```bash
+DATABASE_URL=postgresql://... pnpm --filter agent-runtime migrate-state
+```
+
 Never commit `.env` files.
 
 ---
@@ -70,7 +79,7 @@ Never commit `.env` files.
 pnpm install    # or: make install
 ```
 
-This installs every app, applies `patches/`, and builds `packages/aura-client` and the CLI.
+This installs every app, applies `patches/`, and builds `packages/aura-client`.
 
 ---
 
@@ -113,38 +122,7 @@ Check: `curl http://localhost:4000/health`, then sign in at http://localhost:517
 
 ---
 
-## 7. The `aura` CLI
-
-```bash
-make cli                                   # build and put `aura` on your PATH
-aura login --api http://localhost:4000     # paste a token from Profile → Access tokens
-```
-
-If linking fails, run `pnpm setup`, open a new shell and retry. In the web terminal you are
-already logged in.
-
-```mermaid
-flowchart LR
-    T["aura tasks"] --> C["aura code KAN-45"] --> A["aura approve"] --> D["aura diff"] --> M["aura commit"] --> P["aura push --pr"]
-```
-
-| Command | Does |
-|---|---|
-| `aura tasks --epic KAN-36` | List the Epic's Tasks |
-| `aura code KAN-45` | Draft a coding run (Gate 5); creates the worktree (Gate 4) first if needed |
-| `aura approve` · `reject` · `revise` | Decide the pending gate |
-| `aura say "note"` | Send a note to the Coding Council's next round |
-| `aura open KAN-45 --code` | Open the Task worktree in VS Code |
-| `aura diff` | Changes since the Task branched |
-| `aura commit` | One commit authored by you, with `AURA-Task` / `AURA-Run` trailers |
-| `aura push --pr` | Push with your own credentials and open a PR with `gh` |
-| `aura status` | Gates waiting on you and today's model usage |
-
-Inside a worktree the Task key comes from the `feature/<TASK>` branch.
-
----
-
-## 8. Optional settings
+## 7. Optional settings
 
 ### Web terminal (agent-runtime `.env`)
 
@@ -182,7 +160,7 @@ Models are set in code in `apps/agent-runtime/src/mastra/agents/registry.ts`. To
 
 ---
 
-## 9. Where data is stored
+## 8. Where data is stored
 
 | Location | Contents |
 |---|---|
@@ -190,23 +168,21 @@ Models are set in code in `apps/agent-runtime/src/mastra/agents/registry.ts`. To
 | `$AURA_WORKSPACE_ROOT/<EPIC>/dev/<discipline>/` | Base repo (Gate 4) |
 | `…/dev/<discipline>/.worktrees/<TASK>/` | Task worktree on `feature/<TASK>` |
 | `$AURA_WORKSPACE_ROOT/<EPIC>/qa/` | Test plan and Playwright specs (Gate 6) |
-| `mastra.db`, `aura-drafts.db` | Agent memory, drafts, token usage |
+| Postgres (`DATABASE_URL`): schemas `mastra`, `aura_runtime` | Agent memory, drafts, token and model usage, approval use |
+| `mastra.db`, `aura-drafts.db` | The same, locally, when `DATABASE_URL` is empty |
 | Supabase | Users, runs, approvals, audit log, tokens, projects |
-| `~/.config/aura/config.json` | CLI login |
 
 ---
 
-## 10. Troubleshooting
+## 9. Troubleshooting
 
 | Problem | Fix |
 |---|---|
-| `aura`: invalid or expired token | Create a new token on the Profile page, `aura login` again |
-| `aura`: API unreachable | Start `apps/api`; check the URL in `aura whoami` |
 | API: runtime unreachable | Start the runtime; check `MASTRA_RUNTIME_URL` |
 | API: runtime responded 401 | `MASTRA_RUNTIME_TOKEN` differs between the two `.env` files |
 | Mastra Studio shows 401 | Unset `MASTRA_RUNTIME_TOKEN` locally |
 | Server mode won't start | It lists every problem; fix them or use `AURA_MODE=local` |
-| Council stops on budget or rate limits | Check `aura status`; wait or raise `COUNCIL_TOKEN_BUDGET` |
+| Council stops on budget or rate limits | Wait, or raise the council token budget in Admin → Settings |
 | Council cut off at 10 minutes | Raise `RUN_TURN_TIMEOUT_MS` |
 | Web terminal won't connect | Same `TERMINAL_TICKET_SECRET` in both files; restart both |
 | Groq `Invalid API Key` | Renew `GROQ_API_KEY` |

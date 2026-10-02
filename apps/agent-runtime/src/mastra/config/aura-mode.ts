@@ -18,6 +18,10 @@ export function serverModeProblems(env: NodeJS.ProcessEnv = process.env): string
   if (!env.MASTRA_RUNTIME_TOKEN?.trim()) {
     problems.push('MASTRA_RUNTIME_TOKEN is required (same value in apps/api/.env)');
   }
+  // Local files lose every run on restart and can't be shared by replicas (store/runtime-db.ts).
+  if (!env.DATABASE_URL?.trim()) {
+    problems.push('DATABASE_URL is required (Postgres for agent memory, drafts and ledgers)');
+  }
   // Host checks run the project's own scripts, which the agent can edit, on this machine.
   if (env.SANDBOX_MODE !== 'docker') {
     problems.push('SANDBOX_MODE must be "docker" (host checks run agent-edited scripts on the server)');

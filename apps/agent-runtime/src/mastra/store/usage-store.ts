@@ -1,4 +1,4 @@
-import { db } from './draft-store';
+import { runtimeDb } from './runtime-db';
 import { KNOWN_DAILY_REQUEST_LIMITS } from '../config/models';
 
 // Per-day, per-model request and token counts for the Coding Council, so a developer can see how
@@ -8,7 +8,7 @@ import { KNOWN_DAILY_REQUEST_LIMITS } from '../config/models';
 let ready: Promise<void> | null = null;
 
 async function table() {
-  const c = await db();
+  const c = runtimeDb();
   if (!ready) {
     ready = c
       .execute(
@@ -32,17 +32,14 @@ function today(): string {
 
 export async function recordModelUsage(model: string, tokens: number): Promise<void> {
   const c = await table();
-  await c.execute({
-    sql: `insert into aura_model_usage (day, model, requests, tokens) values (?, ?, 1, ?)
-          on conflict (day, model) do update set requests = requests + 1, tokens = tokens + excluded.tokens`,
-    args: [today(), model, Math.max(0, Math.round(tokens))],
-  });
+  await c.execute(`insert into aura_model_usage (day, model, requests, tokens) values (?, ?, 1, ?)
+          on conflict (day, model) do update set requests = aura_model_usage.requests + 1, tokens = aura_model_usage.tokens + excluded.tokens`, [today(), model, Math.max(0, Math.round(tokens))]);
 }
 
 export async function usageToday(): Promise<{ date: string; providers: Record<string, { requests: number; tokens: number; dailyRequestLimit: number | null }> }> {
   const c = await table();
   const day = today();
-  const result = await c.execute({ sql: 'select model, requests, tokens from aura_model_usage where day = ? order by requests desc', args: [day] });
+  const result = await c.execute('select model, requests, tokens from aura_model_usage where day = ? order by requests desc', [day]);
   const providers: Record<string, { requests: number; tokens: number; dailyRequestLimit: number | null }> = {};
   for (const row of result.rows as unknown as { model: string; requests: number; tokens: number }[]) {
     providers[row.model] = { requests: Number(row.requests), tokens: Number(row.tokens), dailyRequestLimit: KNOWN_DAILY_REQUEST_LIMITS[row.model] ?? null };

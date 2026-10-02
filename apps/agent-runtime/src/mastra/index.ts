@@ -1,5 +1,6 @@
 import { Mastra } from '@mastra/core/mastra';
 import { LibSQLStore } from '@mastra/libsql';
+import { PostgresStore } from '@mastra/pg';
 import { DuckDBStore } from '@mastra/duckdb';
 import { MastraCompositeStore } from '@mastra/core/storage';
 import {
@@ -117,11 +118,16 @@ export const mastra = new Mastra({
   },
   storage: new MastraCompositeStore({
     id: 'composite-storage',
-    default: new LibSQLStore({
-      id: 'mastra-storage',
-      url: process.env.TURSO_DATABASE_URL || 'file:./mastra.db',
-      authToken: process.env.TURSO_AUTH_TOKEN || undefined,
-    }),
+    // Memory, threads and suspended runs: Postgres (schema "mastra") when DATABASE_URL is set, so
+    // a gate survives a restart and every replica shares it; a local libSQL file otherwise.
+    // AURA's own tables use the same database (store/runtime-db.ts, schema "aura_runtime").
+    default: process.env.DATABASE_URL?.trim()
+      ? new PostgresStore({ id: 'mastra-storage', connectionString: process.env.DATABASE_URL.trim(), schemaName: 'mastra' })
+      : new LibSQLStore({
+          id: 'mastra-storage',
+          url: process.env.TURSO_DATABASE_URL || 'file:./mastra.db',
+          authToken: process.env.TURSO_AUTH_TOKEN || undefined,
+        }),
     domains: {
       observability: await new DuckDBStore().getStore('observability'),
     },

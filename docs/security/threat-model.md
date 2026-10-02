@@ -18,7 +18,7 @@ port, credential or integration changes.
 flowchart LR
     subgraph U["Untrusted"]
         B["Browser"]
-        CLI["aura CLI"]
+        CLI["Token clients"]
         J["Jira content"]
         M["Model output"]
     end

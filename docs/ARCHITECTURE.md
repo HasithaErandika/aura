@@ -29,10 +29,8 @@ work, **Jira** holds the work items, and a **human approves** every step that ch
 ```mermaid
 flowchart LR
     USERS(["Web users<br/>PO · BA · Architect · Developer · QA · Deployer · Admin"]) --> WEB["apps/web<br/>React UI"]
-    DEV(["Developer"]) --> CLI["apps/cli<br/>aura command"]
 
     WEB -->|"REST + SSE"| API
-    CLI -->|"REST + SSE"| API
     WEB -.->|"WebSocket + signed ticket"| TERM
 
     subgraph API["apps/api · Express"]
@@ -59,8 +57,7 @@ flowchart LR
 | `apps/web` | React, Vite, Tailwind | Approval inbox, agent chat, runs, Jira view, Project Files, admin | 5173 |
 | `apps/api` | Express | Auth, policy, approvals, audit, settings, Jira reads, terminal tickets | 4000 |
 | `apps/agent-runtime` | Mastra | Orchestrator, agents, workflows, tool gateway, drafts, terminal | 4111 / 4112 |
-| `apps/cli` | Node | `aura` command for developers | — |
-| `packages/aura-client` | TypeScript | Typed REST + SSE client used by the CLI | — |
+| `packages/aura-client` | TypeScript | Typed REST + SSE client, for the coming VS Code extension | — |
 
 **Request path:** client → `apps/api` (checks who and what) → `apps/agent-runtime` (runs the
 agent) → Jira, disk, Docker. Only `apps/api` can call the runtime. API and runtime talk directly;
@@ -164,8 +161,7 @@ flowchart TD
 - The first Task of a discipline creates the base repo (scaffold + CI file + first commit).
 - Every Task gets its own worktree on `feature/<TASK>`. Coding, git and tests run there only.
 - Commits made on the server are authored by the approving developer (AURA is co-author).
-- Pushing is done by the developer with `aura push [--pr]` and their own credentials. AURA holds
-  no GitHub credential.
+- Pushing is done by the developer with their own git credentials. AURA holds no GitHub credential.
 
 ---
 
@@ -241,14 +237,19 @@ flowchart LR
         E["projects · repositories<br/>task_branches · task_dependencies"]
         S["settings"]
     end
-    subgraph LOCAL["libSQL files (agent-runtime)"]
-        F["mastra.db<br/>memory · threads"]
-        G["aura-drafts.db<br/>drafts · token usage · approval use"]
+    subgraph RTDB["agent-runtime: Postgres (DATABASE_URL) or local libSQL"]
+        F["schema mastra<br/>memory · threads · suspended runs"]
+        G["schema aura_runtime<br/>drafts · token usage · model usage · approval use"]
     end
     subgraph FS["Disk: AURA_WORKSPACE_ROOT"]
         H["&lt;EPIC&gt;/architecture · qa · dev"]
     end
 ```
+
+With `DATABASE_URL` set, the runtime keeps agent memory and its own tables in Postgres, so a
+restart or a second replica sees the same gates, drafts and ledgers. Without it, it uses local
+libSQL files (one developer, one process). `pnpm --filter agent-runtime migrate-state` copies an
+existing local `aura-drafts.db` into Postgres once.
 
 ### 6.1 Settings
 
@@ -276,12 +277,12 @@ draft id and thread id. `GET /audit/export` (admin) exports the audit log as JSO
 
 | Tool | What it does |
 |---|---|
-| `aura` CLI | Tasks, worktrees, coding runs, gate decisions, commit and push as yourself |
 | Project Files | One workspace per Epic: design docs, QA specs, code, terminal, test runs, runners |
 | Web terminal | Shell in the Task worktree (`full` on loopback, otherwise `restricted`) |
 | Runners tab | Live Docker containers, council runs, checks and terminal sessions |
 
-Commands and settings: [SETUP.md](../SETUP.md).
+Commands and settings: [SETUP.md](../SETUP.md). The developer client is moving to a VS Code
+extension ([ADR-4](adr/0004-vscode-developer-workspace.md)); the `aura` CLI was removed.
 
 ---
 
@@ -323,7 +324,8 @@ tokens (estimated total saving ~40%).
 | Tool gateway, evals, token ledger | Built | |
 | Projects, repositories, `GitProvider` | Partial | Local provider only; not used by Gate 4 yet |
 | GitHub App, pull requests, merge flow | Not built | |
-| Job queue, durable runs | Not built | A restart loses a running turn |
+| Runtime state in Postgres | Built | Set `DATABASE_URL`; required in server mode |
+| Job queue, durable runs | Not built | A restart loses a running turn (suspended gates survive) |
 | SSO, row-level security per project | Not built | Scope is enforced in `policy.ts` |
 | Budgets per team | Not built | Per-run token budget only |
 

@@ -20,7 +20,7 @@ of code.
 
 ```mermaid
 flowchart TD
-    DEVS["Developers<br/>IDE + aura CLI · SSO"] --> WEB["web (CDN)"]
+    DEVS["Developers<br/>IDE · SSO"] --> WEB["web (CDN)"]
     DEVS --> API["api × N"]
     API --> RT["agent-runtime × N"]
     RT --> Q[("Job queue")]
