@@ -153,16 +153,87 @@ Check: `curl http://localhost:4000/health`, then sign in at http://localhost:517
 
 ---
 
-## 7. AURA for VS Code (developers, V0)
+## 7. AURA for VS Code (developers)
+
+Developers work on Tasks in VS Code. The agent runs in AURA; every file it reads or changes and
+every command it runs happens in your open folder, and every change asks you first.
+
+```mermaid
+flowchart LR
+    A["1 · AURA running<br/>make dev"] --> B["2 · Admin: project<br/>+ repository"] --> C["3 · Build and open<br/>the extension"] --> D["4 · Sign in"] --> E["5 · Connect the folder"] --> F["6 · Start Work"]
+```
+
+**1. Before you start**
+
+| Need | How |
+|---|---|
+| AURA running | `make dev` (API on :4000, runtime on :4111) |
+| A **developer** account | Admin → Users. Only developers can approve the VS Code sign-in |
+| A project | Admin → **Projects & Repositories**: Jira key = `JIRA_PROJECT_KEY`, plus its repository |
+| `AURA_API_URL` | In `apps/agent-runtime/.env`, the API's URL (`http://localhost:4000` locally) |
+| GitHub CLI | `gh auth login` once, so Gate 6 can open pull requests |
+| A folder to work in | A clone of the project's repository, or an empty folder for a new project. Not the AURA repo itself |
+
+**2. Build and open the extension** (from the AURA repo root):
 
 ```bash
-pnpm --filter aura-vscode build
+pnpm --filter aura-vscode build      # → apps/vscode/dist/extension.cjs
 code --extensionDevelopmentPath="$PWD/apps/vscode" /path/to/your/project
 ```
 
-Run **AURA: Sign In** with an access token (Profile → Access tokens), then **AURA: Ask the
-Agent**. The runtime reaches your VS Code through the API, so set `AURA_API_URL` in
-`apps/agent-runtime/.env` to the API's URL. Details: [apps/vscode/README.md](apps/vscode/README.md).
+A window titled **[Extension Development Host]** opens on your folder, with the **AURA** icon in
+the activity bar. To try it safely, use an empty folder:
+`mkdir -p ~/aura-sandbox && code --extensionDevelopmentPath="$PWD/apps/vscode" ~/aura-sandbox`.
+
+**3. Sign in.** Command Palette (`Ctrl+Shift+P`) → **AURA: Sign In**. The browser opens AURA;
+sign in as the developer and approve the code shown in VS Code. Or use **AURA: Sign In with a
+Token** with a token from Profile → Access tokens.
+
+**4. Connect the folder** (once per folder):
+
+| Folder | Command | Does |
+|---|---|---|
+| Existing clone | **AURA: Connect Repository** | Links it to the project |
+| Empty folder | **AURA: Initialize Project** | Scaffolds, creates `main` and `development`, adds `aura-ci.yml` and `.aura/` |
+
+**5. Work on a Task.** In the **AURA** sidebar, open **Tasks**, pick a Task → **Start Work**, or
+type in **Chat**.
+
+| Step | Where |
+|---|---|
+| Gate 4 plan | **Plan** view and a card in the chat: Approve, Revise or Reject |
+| Coding | Coders and the Evaluator work on `feat/<EPIC>/<TASK>`; type in the chat to send a note |
+| Gate 5 review | **Review** view: click a file for its diff |
+| Gate 6 pull request | Chat card and **Pull Request** view: approve, and AURA commits, pushes and opens the PR into `development` |
+| After the PR | CI result, then the merge, appear in the Pull Request view |
+
+**Stop** (button, `Esc`, status bar or **AURA: Stop**) ends the turn; **AURA: Resume**
+continues it; **AURA: Open Run in Web** shows the run's steps and approvals. The status bar shows
+the permission mode; click it to change it. The **AURA** output channel logs every file change and
+command.
+
+**6. After changing the extension's code:** `pnpm --filter aura-vscode build`, then
+**Developer: Reload Window** in the Extension Development Host.
+
+**Settings** (VS Code → Settings → search "aura"):
+
+| Setting | Default | Change when |
+|---|---|---|
+| `aura.apiUrl` | `http://localhost:4000` | The API runs elsewhere |
+| `aura.webUrl` | your last sign-in's address | Open Run in Web should go elsewhere |
+
+**If something goes wrong**
+
+| Problem | Fix |
+|---|---|
+| Sign-in page says only developers can approve | Sign in to the browser as a developer, not the admin |
+| "no projects exist yet" | Admin → Projects & Repositories: create the project |
+| Chat never answers | `make dev` running? `AURA_API_URL` set in `apps/agent-runtime/.env`? |
+| "waits for KAN-… to be merged first" | The Task depends on another Task; merge that one first |
+| PR not opened at Gate 6 | Run `gh auth login`; without `gh` AURA pushes and gives a compare link |
+| Extension changes not showing | Rebuild, then Developer: Reload Window |
+
+Details: [apps/vscode/README.md](apps/vscode/README.md).
 
 ---
 
